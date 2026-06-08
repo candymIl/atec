@@ -1,9 +1,7 @@
+import CustomerSetup from "./pages/CustomerSetup";
+
 function App() {
-  return (
-    <div>
-      <h1>ATEC IS WORKING</h1>
-    </div>
-  );
+  return <CustomerSetup />;
 }
 
 export default App;
