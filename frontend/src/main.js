@@ -2236,8 +2236,8 @@ function getMeasurementLabels(criteriaName) {
 
    if (name.includes("dimension") || name.includes("hook")) {
     return {
-      assetLabel: "Standard Dimension (mm)",
-      measuredLabel: "Measured Dimension (mm)"
+      assetLabel: "Standard Dimension",
+      measuredLabel: "Measured Dimension"
     }
   }
 
@@ -2470,8 +2470,8 @@ const assetCriteria = getInspectionCriteriaRows(criteria.filter(
     <div class="inspection-header measurements ${inspectiontype === "LOADTEST" ? "loadtest-measurements" : ""}">
 
         <div>Criteria</div>
-        <div>Standard Dimension (mm)</div>
-        <div>Measured Dimension (mm)</div>
+        <div>Standard Dimension</div>
+        <div>Measured Dimension</div>
         ${inspectiontype === "LOADTEST" ? "<div>Comments / Remarks</div>" : ""}
 
     </div>

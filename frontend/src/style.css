@@ -863,7 +863,23 @@ tr:hover {
 
 .inspection-header.measurements.loadtest-measurements,
 .inspection-row.loadtest-measurement-row {
-    grid-template-columns:minmax(260px, 1.1fr) minmax(240px, 0.85fr) minmax(180px, 0.7fr) minmax(220px, 1fr);
+    grid-template-columns:minmax(200px, 1fr) minmax(140px, 0.65fr) minmax(140px, 0.65fr) minmax(260px, 1.35fr);
+}
+
+.inspection-row.loadtest-measurement-row {
+    padding-right: 0;
+}
+
+.inspection-row .comparison-grid {
+    grid-column: 2 / -1;
+}
+
+.inspection-row.loadtest-measurement-row .comparison-grid {
+    grid-column: 2 / 4;
+}
+
+.inspection-row.loadtest-measurement-row .inspection-remarks {
+    grid-column: 4 / 5;
 }
 
 .inspection-header.visual{
