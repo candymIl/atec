@@ -793,6 +793,16 @@ tr:hover {
   height: 34px;
 }
 
+.inspection-text-result {
+  grid-column: span 2;
+}
+
+.inspection-text-result textarea {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+
 .inspection-tag-card {
   background: #fff8dc;
   border: 3px solid #d4af37;
@@ -1108,6 +1118,70 @@ tr:hover {
 .certificate-modal-body td {
   border: 1px solid #d9e1ec;
   padding: 8px;
+}
+
+.criteria-action-group {
+  justify-content: flex-end;
+}
+
+.criteria-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  z-index: 99998;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 36px 20px;
+  overflow-y: auto;
+}
+
+.criteria-modal {
+  width: 760px;
+  max-width: 96vw;
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28);
+}
+
+.criteria-modal-header,
+.criteria-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+}
+
+.criteria-modal-header {
+  background: #1f3b5c;
+  color: white;
+}
+
+.criteria-modal-header h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.criteria-modal-header button {
+  background: white;
+  color: #1f3b5c;
+}
+
+.criteria-modal-body {
+  padding: 20px 18px 8px;
+}
+
+.criteria-modal .form-group,
+.criteria-modal .form-group-wide {
+  min-width: min(240px, 100%);
+}
+
+.criteria-modal-footer {
+  border-top: 1px solid #d8dee8;
+  justify-content: flex-end;
+  background: #f8fafc;
 }
 
 .cert-top {

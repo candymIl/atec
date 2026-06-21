@@ -1671,6 +1671,127 @@ window.filterEquipmentCriteria = function () {
   showEquipmentTypeCriteria()
 }
 
+function escapeAttribute(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+}
+
+function renderCriteriaPopup(row = {}) {
+  const sortedEquipmentTypes = [...equipmentTypes].sort((a, b) =>
+    (a.description || '').localeCompare(b.description || '')
+  )
+
+  const selectedEquipmentType =
+    row.equiptypeid ||
+    window.criteriaEquipmentFilter ||
+    sortedEquipmentTypes[0]?.equiptypeid ||
+    ""
+
+  const selectedCategory =
+    row.inspectioncategory || "VISUAL"
+
+  const selectedFieldType =
+    row.fieldtype || "PASSFAIL"
+
+  document.querySelector('#criteriaPopup')?.remove()
+
+  document.body.insertAdjacentHTML('beforeend', `
+    <div
+      id="criteriaPopup"
+      class="criteria-modal-overlay"
+      onclick="closeCriteriaPopupOnBackdrop(event)"
+    >
+      <div class="criteria-modal" role="dialog" aria-modal="true" aria-labelledby="criteriaPopupTitle">
+        <div class="criteria-modal-header">
+          <h2 id="criteriaPopupTitle">
+            ${row.criteriaid ? "Edit Criteria" : "Add Criteria"}
+          </h2>
+
+          <button type="button" onclick="cancelCriteriaEdit()">
+            Close
+          </button>
+        </div>
+
+        <div class="criteria-modal-body">
+          <input id="editingCriteriaId" type="hidden" value="${row.criteriaid || ""}">
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Equipment Type</label>
+              <select id="criteriaEquipType">
+                ${sortedEquipmentTypes.map(type => `
+                  <option
+                    value="${type.equiptypeid}"
+                    ${String(type.equiptypeid) === String(selectedEquipmentType) ? "selected" : ""}
+                  >
+                    ${type.description}
+                  </option>
+                `).join('')}
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Inspection Category</label>
+              <select id="criteriaCategory">
+                <option value="VISUAL" ${selectedCategory === "VISUAL" ? "selected" : ""}>
+                  Visual Inspection
+                </option>
+                <option value="LOADTEST" ${selectedCategory === "LOADTEST" ? "selected" : ""}>
+                  Load Test
+                </option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group form-group-wide">
+              <label>Criteria Name</label>
+              <input id="criteriaName" type="text" value="${escapeAttribute(row.criterianame)}">
+            </div>
+
+            <div class="form-group">
+              <label>Field Type</label>
+              <select id="criteriaFieldType">
+                <option value="PASSFAIL" ${selectedFieldType === "PASSFAIL" ? "selected" : ""}>Pass / Fail / N/A</option>
+                <option value="TEXT" ${selectedFieldType === "TEXT" ? "selected" : ""}>Text Input</option>
+                <option value="NUMBER" ${selectedFieldType === "NUMBER" ? "selected" : ""}>Number Input</option>
+                <option value="DATE" ${selectedFieldType === "DATE" ? "selected" : ""}>Date Input</option>
+                <option value="LOAD" ${selectedFieldType === "LOAD" ? "selected" : ""}>Load Value</option>
+                <option value="MEASUREMENT" ${selectedFieldType === "MEASUREMENT" ? "selected" : ""}>Measurement</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="criteria-modal-footer">
+          <button type="button" onclick="cancelCriteriaEdit()">
+            Cancel
+          </button>
+
+          <button type="button" onclick="saveCriteria()">
+            Save Criteria
+          </button>
+        </div>
+      </div>
+    </div>
+  `)
+
+  document.querySelector('#criteriaName')?.focus()
+}
+
+window.openCriteriaPopup = function () {
+  renderCriteriaPopup()
+}
+
+window.closeCriteriaPopupOnBackdrop = function (event) {
+  if (event.target.id === "criteriaPopup") {
+    cancelCriteriaEdit()
+  }
+}
+
 window.saveCriteria = async function () {
   const criteriaid =
     document.querySelector('#editingCriteriaId')?.value || ""
@@ -1724,6 +1845,8 @@ window.saveCriteria = async function () {
 
   await loadData()
 
+  cancelCriteriaEdit()
+
   showEquipmentTypeCriteria()
 }
 
@@ -1737,17 +1860,11 @@ window.editCriteria = function (criteriaid) {
     return
   }
 
-  document.querySelector('#editingCriteriaId').value = row.criteriaid
-  document.querySelector('#criteriaEquipType').value = row.equiptypeid
-  document.querySelector('#criteriaCategory').value = row.inspectioncategory || "VISUAL"
-  document.querySelector('#criteriaName').value = row.criterianame || ""
-  document.querySelector('#criteriaFieldType').value = row.fieldtype || "PASSFAIL"
+  renderCriteriaPopup(row)
 }
 
 window.cancelCriteriaEdit = function () {
-  document.querySelector('#editingCriteriaId').value = ""
-  document.querySelector('#criteriaName').value = ""
-  document.querySelector('#criteriaFieldType').value = "PASSFAIL"
+  document.querySelector('#criteriaPopup')?.remove()
 }
 
 window.deleteCriteria = async function (criteriaid) {
@@ -2217,6 +2334,15 @@ function isLoadMassCriteria(criteriaName) {
   ].includes(criteriaName)
 }
 
+function isTextCriteria(row) {
+  const name = (row.criterianame || "").toLowerCase()
+
+  return (
+    row.fieldtype === "TEXT" ||
+    name.includes("defects and recommendations")
+  )
+}
+
 function getInspectionCriteriaRows(allCriteria, inspectiontype) {
   return allCriteria.filter(row =>
     inspectiontype !== "LOADTEST" ||
@@ -2531,7 +2657,23 @@ const assetCriteria = getInspectionCriteriaRows(criteria.filter(
 
 </div>
 
-  ${assetCriteria.filter(row => row.fieldtype !== "NUMBER").map(row => `
+  ${assetCriteria.filter(row => row.fieldtype !== "NUMBER").map(row => isTextCriteria(row) ? `
+    <div class="inspection-row compact-row">
+
+      <div class="inspection-criteria">
+        ${row.criterianame}
+      </div>
+
+      <div class="inspection-result inspection-text-result">
+        <textarea
+          id="remarks-${row.criteriaid}"
+          rows="3"
+          placeholder="${row.criterianame}"
+        ></textarea>
+      </div>
+
+    </div>
+  ` : `
     <div class="inspection-row compact-row">
 
       <div class="inspection-criteria">

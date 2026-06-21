@@ -29,83 +29,14 @@ export function renderEquipmentTypeCriteria(equipmentTypes, criteria) {
             `).join('')}
           </select>
         </div>
+
+        <div class="form-group criteria-action-group">
+          <button type="button" onclick="openCriteriaPopup()">
+            Add Criteria
+          </button>
+        </div>
       </div>
     </div>
-
-    <div class="form-row">
-
-  <input id="editingCriteriaId" type="hidden">
-
-  <div class="form-group">
-
-    <label>Equipment Type</label>
-
-    <select id="criteriaEquipType">
-      ${sortedEquipmentTypes.map(type => `
-        <option value="${type.equiptypeid}">
-          ${type.description}
-        </option>
-      `).join('')}
-    </select>
-
-  </div>
-
-  <div class="form-group">
-
-    <label>Inspection Category</label>
-
-    <select id="criteriaCategory">
-      <option value="VISUAL">
-        Visual Inspection
-      </option>
-
-      <option value="LOADTEST">
-        Load Test
-      </option>
-
-    </select>
-
-  </div>
-
-  <div class="form-group">
-
-        <label>Criteria Name</label>
-
-        <input
-          id="criteriaName"
-          type="text"
-        >
-
-      </div>
-
-      <div class="form-group">
-      <label>Field Type</label>
-
-      <select id="criteriaFieldType">
-        <option value="PASSFAIL">Pass / Fail / N/A</option>
-        <option value="TEXT">Text Input</option>
-        <option value="NUMBER">Number Input</option>
-        <option value="DATE">Date Input</option>
-        <option value="LOAD">Load Value</option>
-        <option value="MEASUREMENT">Measurement</option>
-      </select>
-      </div>
-
-  <div class="form-group">
-
-    <button onclick="saveCriteria()">
-      Save Criteria
-    </button>
-
-    <button type="button" onclick="cancelCriteriaEdit()">
-      Cancel Edit
-    </button>
-
-  </div>
-
-</div>
-
-    <br><br>
 
     <table>
       <thead>
