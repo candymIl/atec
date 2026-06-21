@@ -5,4 +5,5 @@ export default function CustomerSetup() {
       <p>Client, Site, Responsible Person, and Section setup will go here.</p>
     </div>
   );
+
 }

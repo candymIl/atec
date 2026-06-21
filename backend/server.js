@@ -1,12 +1,27 @@
+const fs = require("fs")
 const express = require("express");
 const cors = require("cors");
 const pool = require("./db");
 require("dotenv").config();
-
 const app = express();
+const multer = require("multer");
+const path = require("path");
 
 app.use(cors());
 app.use(express.json());
+app.use("/uploads", express.static("uploads"));
+
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, "uploads/assets");
+  },
+  filename: function (req, file, cb) {
+    const uniqueName = Date.now() + "-" + file.originalname;
+    cb(null, uniqueName);
+  },
+});
+
+const upload = multer({ storage });
 
 app.get("/", (req, res) => {
   res.send("ATEC backend is running");
@@ -14,16 +29,18 @@ app.get("/", (req, res) => {
 
 app.get("/customers", async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT * FROM atec.tblclients ORDER BY clientid`
-    );
+    const result = await pool.query(`
+      SELECT *
+      FROM atec.tblclients
+      ORDER BY clientname
+    `)
 
-    res.json(result.rows);
+    res.json(result.rows)
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error(err)
+    res.status(500).json({ error: err.message })
   }
-});
+})
 
 app.post("/customers", async (req, res) => {
   try {
@@ -42,6 +59,137 @@ app.post("/customers", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+app.put("/customers/:id/archive", async (req, res) => {
+  const client = await pool.connect()
+
+  try {
+    await client.query("BEGIN")
+
+    const { id } = req.params
+
+    await client.query(
+      `UPDATE atec.tblclients SET archived = true WHERE clientid = $1`,
+      [id]
+    )
+
+    await client.query(
+      `UPDATE atec.tblsites SET archived = true WHERE clientid = $1`,
+      [id]
+    )
+
+    await client.query(
+      `UPDATE atec.tblsection SET archived = true WHERE clientid = $1`,
+      [id]
+    )
+
+    await client.query(
+      `UPDATE atec.tblpeople SET archived = true WHERE clientid = $1`,
+      [id]
+    )
+
+    await client.query(
+      `UPDATE atec.tblasset SET archived = true WHERE clientid = $1`,
+      [id]
+    )
+
+    await client.query("COMMIT")
+
+    res.json({ success: true })
+  } catch (err) {
+    await client.query("ROLLBACK")
+    console.error(err)
+    res.status(500).json({ error: err.message })
+  } finally {
+    client.release()
+  }
+})
+
+app.put("/customers/:id/unarchive", async (req, res) => {
+  const client = await pool.connect()
+
+  try {
+    await client.query("BEGIN")
+
+    const { id } = req.params
+
+    await client.query(
+      `UPDATE atec.tblclients SET archived = false WHERE clientid = $1`,
+      [id]
+    )
+
+    await client.query(
+      `UPDATE atec.tblsites SET archived = false WHERE clientid = $1`,
+      [id]
+    )
+
+    await client.query(
+      `UPDATE atec.tblsection SET archived = false WHERE clientid = $1`,
+      [id]
+    )
+
+    await client.query(
+      `UPDATE atec.tblpeople SET archived = false WHERE clientid = $1`,
+      [id]
+    )
+
+    await client.query(
+      `UPDATE atec.tblasset SET archived = false WHERE clientid = $1`,
+      [id]
+    )
+
+    await client.query("COMMIT")
+
+    res.json({ success: true })
+  } catch (err) {
+    await client.query("ROLLBACK")
+    console.error(err)
+    res.status(500).json({ error: err.message })
+  } finally {
+    client.release()
+  }
+})
+
+app.put("/customers/:id", async (req, res) => {
+
+  try {
+
+    const { id } = req.params
+
+    const {
+      clientname,
+      clientaddr
+    } = req.body
+
+    const result = await pool.query(
+      `
+      UPDATE atec.tblclients
+      SET
+        clientname = $1,
+        clientaddr = $2
+      WHERE clientid = $3
+      RETURNING *
+      `,
+      [
+        clientname,
+        clientaddr,
+        id
+      ]
+    )
+
+    res.json(result.rows[0])
+
+  } catch (err) {
+
+    console.error(err)
+
+    res.status(500).json({
+      error: err.message
+    })
+
+  }
+
+})
 
 app.get("/sites", async (req, res) => {
   try {
@@ -82,44 +230,230 @@ app.post("/sites", async (req, res) => {
   }
 });
 
+app.put("/sites/:id", async (req, res) => {
+  try {
+
+    const { id } = req.params
+    const { sitename } = req.body
+
+    const result = await pool.query(
+      `
+      UPDATE atec.tblsites
+      SET sitename = $1
+      WHERE siteid = $2
+      RETURNING *
+      `,
+      [
+        sitename,
+        id
+      ]
+    )
+
+    res.json(result.rows[0])
+
+  } catch (err) {
+
+    console.error(err)
+
+    res.status(500).json({
+      error: err.message
+    })
+
+  }
+})
+
 app.get("/assets", async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT 
+SELECT 
         a.assetid,
+        a.clientid,
+        a.siteid,
+        a.equiptypeid,
         a.serialno,
         a.assettagno,
         a.manufacturer,
         a.description,
-        a.floatparam1,
-        a.floatparam2,
-        a.floatparam3,
-        a.floatparam4,
-        a.intparam1,
-        a.intparam2,
-        a.paramstring1,
-        a.paramstring2,
         a.media1,
         a.media2,
+        a.qrcode,
+        a.manufactdate,
+        a.wll,
+        a.heightoflift,
+        a.numberofchainfalls,
+        a.oemtophooksize,
+        a.oembottomhooksize,
+        a.loadchaindiameter,
+        a.effectivelength,
+        a.span,
+        a.permissibledeflection,
+        a.hooksize,
+        a.steelwireropemm,
+        a.hoistdescription,
+        a.hoistserialno,
         c.clientname,
         s.sitename,
         sec.sectionname,
-        et.description AS equipmenttype
+        et.description AS equipmenttype,
+        et.equipgroupid
       FROM atec.tblasset a
       LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
       LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
       LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
       LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
-      ORDER BY a.assetid
-      LIMIT 100
-    `);
+      WHERE COALESCE(a.archived, false) = false
+      ORDER BY a.assetid DESC
+      LIMIT 500
+    `)
 
-    res.json(result.rows);
+    res.json(result.rows)
+
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error(err)
+    res.status(500).json({
+      error: err.message
+    })
   }
-});
+})
+
+app.get("/assets/:id/quick-details", async (req, res) => {
+  try {
+    const { id } = req.params
+
+    const result = await pool.query(`
+      SELECT 
+        a.assetid,
+        a.equiptypeid,
+        a.serialno,
+        a.assettagno,
+        a.manufacturer,
+        a.description,
+        a.media1,
+        a.media2,
+        a.qrcode,
+        a.manufactdate,
+
+        (
+          SELECT i.testdate
+          FROM atec.tblinspection i
+          WHERE i.assetid = a.assetid
+            AND i.inspectiontype = 'VISUAL'
+          ORDER BY i.testdate DESC, i.testid DESC
+          LIMIT 1
+        ) AS lastvisualdate,
+
+        (
+          SELECT i.status
+          FROM atec.tblinspection i
+          WHERE i.assetid = a.assetid
+            AND i.inspectiontype = 'VISUAL'
+          ORDER BY i.testdate DESC, i.testid DESC
+          LIMIT 1
+        ) AS lastvisualstatus,
+
+        (
+          SELECT i.tagnumber
+          FROM atec.tblinspection i
+          WHERE i.assetid = a.assetid
+            AND i.inspectiontype = 'VISUAL'
+          ORDER BY i.testdate DESC, i.testid DESC
+          LIMIT 1
+        ) AS lastvisualtag,
+
+        (
+          SELECT i.testdate
+          FROM atec.tblinspection i
+          WHERE i.assetid = a.assetid
+            AND i.inspectiontype = 'LOADTEST'
+          ORDER BY i.testdate DESC, i.testid DESC
+          LIMIT 1
+        ) AS lastloadtestdate,
+
+        (
+          SELECT i.status
+          FROM atec.tblinspection i
+          WHERE i.assetid = a.assetid
+            AND i.inspectiontype = 'LOADTEST'
+          ORDER BY i.testdate DESC, i.testid DESC
+          LIMIT 1
+        ) AS lastloadteststatus,
+
+        (
+          SELECT i.tagnumber
+          FROM atec.tblinspection i
+          WHERE i.assetid = a.assetid
+            AND i.inspectiontype = 'LOADTEST'
+          ORDER BY i.testdate DESC, i.testid DESC
+          LIMIT 1
+        ) AS lastloadtesttag,
+
+        (
+          SELECT i.testdate
+          FROM atec.tblinspection i
+          WHERE i.assetid = a.assetid
+          ORDER BY i.testdate DESC, i.testid DESC
+          LIMIT 1
+        ) AS lastinspectiondate,
+
+        (
+          SELECT i.status
+          FROM atec.tblinspection i
+          WHERE i.assetid = a.assetid
+          ORDER BY i.testdate DESC, i.testid DESC
+          LIMIT 1
+        ) AS lastinspectionstatus,
+
+        (
+          SELECT i.inspectiontype
+          FROM atec.tblinspection i
+          WHERE i.assetid = a.assetid
+          ORDER BY i.testdate DESC, i.testid DESC
+          LIMIT 1
+        ) AS lastinspectiontype,
+
+        (
+          SELECT i.tagnumber
+          FROM atec.tblinspection i
+          WHERE i.assetid = a.assetid
+          ORDER BY i.testdate DESC, i.testid DESC
+          LIMIT 1
+        ) AS lastinspectiontag,
+
+        (
+          SELECT i.inspector
+          FROM atec.tblinspection i
+          WHERE i.assetid = a.assetid
+          ORDER BY i.testdate DESC, i.testid DESC
+          LIMIT 1
+        ) AS lastinspector,
+
+        c.clientname,
+        s.sitename,
+        sec.sectionname,
+        et.description AS equipmenttype
+
+      FROM atec.tblasset a
+      LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
+      LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
+      LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
+      LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
+      WHERE a.assetid = $1
+      LIMIT 1
+    `, [id])
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Asset not found" })
+    }
+
+    res.json(result.rows[0])
+
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({
+      error: err.message
+    })
+  }
+})
 
 app.get("/assets/:id", async (req, res) => {
   try {
@@ -154,7 +488,448 @@ app.get("/assets/:id", async (req, res) => {
   }
 });
 
+
+app.post("/assets", async (req, res) => {
+  try {
+    const {
+      serialno,
+      clientid,
+      siteid,
+      sectionid,
+      responsibleid,
+      equiptypeid,
+      manufacturer,
+      description,
+      assettagno,
+      manufactdate,
+      wll,
+      heightoflift,
+      numberofchainfalls,
+      oemtophooksize,
+      oembottomhooksize,
+      loadchaindiameter,
+      effectivelength,
+      span,
+      permissibledeflection,
+      hooksize,
+      steelwireropemm,
+      hoistdescription,
+      hoistserialno
+    } = req.body;
+
+    const duplicateCheck = await pool.query(
+        `
+        SELECT assetid, serialno, assettagno
+        FROM atec.tblasset
+        WHERE clientid = $1
+          AND COALESCE(archived, false) = false
+          AND (
+            LOWER(serialno) = LOWER($2)
+            OR LOWER(assettagno) = LOWER($3)
+          )
+        LIMIT 1
+        `,
+        [
+          clientid,
+          serialno || '',
+          assettagno || ''
+        ]
+      )
+
+      if (duplicateCheck.rows.length > 0) {
+        return res.status(400).json({
+          error: "Duplicate asset found for this client. Serial No or Asset Tag No already exists."
+        })
+      }
+
+    const result = await pool.query(
+      `INSERT INTO atec.tblasset
+       (
+        serialno,
+        clientid,
+        siteid,
+        sectionid,
+        responsibleid,
+        equiptypeid,
+        manufacturer,
+        description,
+        assettagno,
+        manufactdate,
+        wll,
+        heightoflift,
+        numberofchainfalls,
+        oemtophooksize,
+        oembottomhooksize,
+        loadchaindiameter,
+        effectivelength,
+        span,
+        permissibledeflection,
+        hooksize,
+        steelwireropemm,
+        hoistdescription,
+        hoistserialno
+       )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+      RETURNING *`,
+        [
+        serialno,
+        clientid,
+        siteid,
+        sectionid,
+        responsibleid,
+        equiptypeid,
+        manufacturer,
+        description,
+        assettagno,
+        manufactdate || null,
+        wll,
+        heightoflift,
+        numberofchainfalls,
+        oemtophooksize,
+        oembottomhooksize,
+        loadchaindiameter,
+        effectivelength,
+        span,
+        permissibledeflection,
+        hooksize,
+        steelwireropemm,
+        hoistdescription,
+        hoistserialno
+      ]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/assets/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const {
+      serialno,
+      manufacturer,
+      description,
+      wll,
+      heightoflift,
+      numberofchainfalls,
+      oemtophooksize,
+      oembottomhooksize,
+      loadchaindiameter,
+      effectivelength,
+      span,
+      permissibledeflection,
+      hooksize,
+      steelwireropemm,
+      hoistdescription,
+      hoistserialno
+    } = req.body;
+
+    const duplicateCheck = await pool.query(
+      `
+      SELECT assetid
+      FROM atec.tblasset
+      WHERE clientid = (
+        SELECT clientid
+        FROM atec.tblasset
+        WHERE assetid = $1
+      )
+        AND assetid <> $1
+        AND COALESCE(archived, false) = false
+        AND LOWER(serialno) = LOWER($2)
+      LIMIT 1
+      `,
+      [
+        id,
+        serialno || ''
+      ]
+    );
+
+    if (duplicateCheck.rows.length > 0) {
+      return res.status(400).json({
+        error: "Duplicate asset found for this client. Serial No already exists."
+      });
+    }
+
+    const result = await pool.query(
+      `UPDATE atec.tblasset
+       SET
+        serialno = $1,
+        manufacturer = $2,
+        description = $3,
+        wll = $4,
+        heightoflift = $5,
+        numberofchainfalls = $6,
+        oemtophooksize = $7,
+        oembottomhooksize = $8,
+        loadchaindiameter = $9,
+        effectivelength = $10,
+        span = $11,
+        permissibledeflection = $12,
+        hooksize = $13,
+        steelwireropemm = $14,
+        hoistdescription = $15,
+        hoistserialno = $16
+       WHERE assetid = $17
+       RETURNING *`,
+      [
+        serialno,
+        manufacturer,
+        description,
+        wll,
+        heightoflift,
+        numberofchainfalls,
+        oemtophooksize,
+        oembottomhooksize,
+        loadchaindiameter,
+        effectivelength,
+        span,
+        permissibledeflection,
+        hooksize,
+        steelwireropemm,
+        hoistdescription,
+        hoistserialno,
+        id
+      ]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/assets/:id/archive", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      `UPDATE atec.tblasset
+       SET archived = true
+       WHERE assetid = $1
+       RETURNING *`,
+      [id]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/assets/:id/unarchive", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      `UPDATE atec.tblasset
+       SET archived = false
+       WHERE assetid = $1
+       RETURNING *`,
+      [id]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/assets/:id/photos",
+  upload.fields([
+    { name: "photo1", maxCount: 1 },
+    { name: "photo2", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const photo1 = req.files.photo1
+        ? `/uploads/assets/${req.files.photo1[0].filename}`
+        : null;
+
+      const photo2 = req.files.photo2
+        ? `/uploads/assets/${req.files.photo2[0].filename}`
+        : null;
+
+      const result = await pool.query(
+        `UPDATE atec.tblasset
+         SET
+          media1 = COALESCE($1, media1),
+          media2 = COALESCE($2, media2)
+         WHERE assetid = $3
+         RETURNING *`,
+        [photo1, photo2, id]
+      );
+
+      res.json(result.rows[0]);
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+app.get("/assets/:id/inspection-history", async (req, res) => {
+  try {
+    const { id } = req.params
+
+    const result = await pool.query(
+      `
+      SELECT
+        testid,
+        testdate,
+        inspectiontype,
+        tagnumber,
+        status,
+        inspector
+      FROM atec.tblinspection
+      WHERE assetid = $1
+      ORDER BY testdate DESC, testid DESC
+      `,
+      [id]
+    )
+
+    res.json(result.rows)
+
+  } catch (err) {
+    console.error(err)
+
+    res.status(500).json({
+      error: err.message
+    })
+  }
+})
+
+app.get("/equipment-types", async (req, res) => {
+  try {
+    const result = await pool.query(`
+     SELECT
+      equiptypeid,
+      description,
+      equipgroupid
+      FROM atec.tblequiptype
+      ORDER BY description
+    `)
+
+    res.json(result.rows)
+
+  } catch (err) {
+    console.error(err)
+
+    res.status(500).json({
+      error: err.message
+    })
+  }
+})
+
 const PORT = process.env.PORT || 5000;
+
+app.get("/equipment-type-criteria", async (req, res) => {
+  try {
+    const { category } = req.query
+
+    let query = `
+      SELECT
+        c.criteriaid,
+        c.equiptypeid,
+        c.criterianame,
+        c.fieldtype,
+        c.required,
+        c.sortorder,
+        c.inspectioncategory,
+        t.description AS equipmenttype
+      FROM atec.tblequiptypecriteria c
+      LEFT JOIN atec.tblequiptype t
+        ON c.equiptypeid = t.equiptypeid
+    `
+
+    const values = []
+
+    if (category) {
+      query += `
+        WHERE c.inspectioncategory = $1
+      `
+      values.push(category)
+    }
+
+    query += `
+      ORDER BY
+        t.description,
+        c.inspectioncategory,
+        c.sortorder
+    `
+
+    const result = await pool.query(query, values)
+
+    res.json(result.rows)
+
+  } catch (err) {
+    console.error(err)
+
+    res.status(500).json({
+      error: err.message
+    })
+  }
+})
+
+app.post("/equipment-type-criteria", async (req, res) => {
+
+  try {
+
+    const {
+      equiptypeid,
+      criterianame,
+      fieldtype,
+      required,
+      sortorder,
+      inspectioncategory
+    } = req.body
+
+    const result = await pool.query(
+      `
+      INSERT INTO atec.tblequiptypecriteria
+      (
+        equiptypeid,
+        criterianame,
+        fieldtype,
+        required,
+        sortorder,
+        inspectioncategory
+      )
+      VALUES
+      ($1,$2,$3,$4,$5,$6)
+      RETURNING *
+      `,
+      [
+        equiptypeid,
+        criterianame,
+        fieldtype,
+        required,
+        sortorder,
+        inspectioncategory
+      ]
+    )
+
+    res.json(result.rows[0])
+
+  } catch (err) {
+
+    console.error(err)
+
+    res.status(500).json({
+      error: err.message
+    })
+
+  }
+
+})
 
 app.get("/responsible-persons", async (req, res) => {
   try {
@@ -176,6 +951,943 @@ app.get("/responsible-persons", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+app.post("/responsible-persons", async (req, res) => {
+  try {
+    const { clientid, name } = req.body;
+
+    const result = await pool.query(
+      `
+      INSERT INTO atec.tblpeople
+      (
+        clientid,
+        name
+      )
+      VALUES
+      ($1,$2)
+      RETURNING *
+      `,
+      [clientid, name]
+    );
+
+    res.json(result.rows[0]);
+
+  } catch (err) {
+    console.error(err);
+
+    res.status(500).json({
+      error: err.message
+    });
+  }
+});
+
+app.put("/responsible-persons/:id", async (req, res) => {
+  try {
+
+    const { id } = req.params;
+    const { clientid, name } = req.body;
+
+    const result = await pool.query(
+      `
+      UPDATE atec.tblpeople
+      SET
+        clientid = $1,
+        name = $2
+      WHERE personid = $3
+      RETURNING *
+      `,
+      [
+        clientid,
+        name,
+        id
+      ]
+    );
+
+    res.json(result.rows[0]);
+
+  } catch (err) {
+    console.error(err);
+
+    res.status(500).json({
+      error: err.message
+    });
+  }
+});
+
+app.get("/sections", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        sec.sectionid,
+        sec.clientid,
+        sec.siteid,
+        sec.responsibleid,
+        sec.sectionname,
+        c.clientname,
+        s.sitename,
+        p.name AS responsiblename
+      FROM atec.tblsection sec
+      LEFT JOIN atec.tblclients c
+        ON sec.clientid = c.clientid
+      LEFT JOIN atec.tblsites s
+        ON sec.siteid = s.siteid
+      LEFT JOIN atec.tblpeople p
+        ON sec.responsibleid = p.personid
+        WHERE COALESCE(sec.archived, false) = false
+        ORDER BY c.clientname, s.sitename, sec.sectionname
+    `);
+
+    res.json(result.rows);
+
+  } catch (err) {
+    console.error(err);
+
+    res.status(500).json({
+      error: err.message
+    });
+  }
+});
+
+app.post("/sections", async (req, res) => {
+  try {
+    const { clientid, siteid, responsibleid, sectionname } = req.body;
+
+    const result = await pool.query(
+      `INSERT INTO atec.tblsection
+       (clientid, siteid, responsibleid, sectionname)
+       VALUES ($1, $2, $3, $4)
+       RETURNING *`,
+      [clientid, siteid, responsibleid, sectionname]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put("/sections/:id", async (req, res) => {
+  try {
+
+    const { id } = req.params
+
+    const {
+      responsibleid,
+      sectionname
+    } = req.body
+
+    const result = await pool.query(
+      `
+      UPDATE atec.tblsection
+      SET
+        responsibleid = $1,
+        sectionname = $2
+      WHERE sectionid = $3
+      RETURNING *
+      `,
+      [
+        responsibleid,
+        sectionname,
+        id
+      ]
+    )
+
+    res.json(result.rows[0])
+
+  } catch (err) {
+
+    console.error(err)
+
+    res.status(500).json({
+      error: err.message
+    })
+
+  }
+})
+
+app.post("/inspections",
+  upload.fields([
+    { name: "photo1", maxCount: 1 },
+    { name: "photo2", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    const client = await pool.connect()
+
+    try {
+      await client.query("BEGIN")
+
+      const {
+        assetid,
+        testdate,
+        validdate,
+        comments,
+        status,
+        inspectiontype,
+        inspector,
+        tagnumber,
+        results,
+        updateassetphotos
+      } = req.body
+
+      const parsedResults = JSON.parse(results || "[]")
+
+      const photo1 = req.files?.photo1
+        ? `/uploads/assets/${req.files.photo1[0].filename}`
+        : null
+
+      const photo2 = req.files?.photo2
+        ? `/uploads/assets/${req.files.photo2[0].filename}`
+        : null
+
+      const updatePhotos =
+        updateassetphotos === "true" || updateassetphotos === true
+
+      const inspection = await client.query(
+        `
+        INSERT INTO atec.tblinspection
+        (
+          assetid,
+          testdate,
+          validdate,
+          comments,
+          status,
+          inspectiontype,
+          inspector,
+          tagnumber,
+          photo1,
+          photo2,
+          updateassetphotos
+        )
+        VALUES
+        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        RETURNING testid
+        `,
+        [
+          assetid,
+          testdate,
+          validdate || null,
+          comments || "",
+          status,
+          inspectiontype,
+          inspector || "",
+          tagnumber || "",
+          photo1,
+          photo2,
+          updatePhotos
+        ]
+      )
+
+      const testid = inspection.rows[0].testid
+
+      for (const row of parsedResults) {
+        await client.query(
+          `
+          INSERT INTO atec.tblinspectionresult
+          (
+            testid,
+            criteriaid,
+            result,
+            remarks,
+            assetvalue,
+            measuredvalue
+          )
+          VALUES
+          ($1,$2,$3,$4,$5,$6)
+          `,
+          [
+            testid,
+            row.criteriaid || null,
+            row.result || "",
+            row.remarks || "",
+            row.assetvalue || null,
+            row.measuredvalue || null
+          ]
+        )
+      }
+
+      if (updatePhotos && (photo1 || photo2)) {
+        await client.query(
+          `
+          UPDATE atec.tblasset
+          SET
+            media1 = COALESCE($1, media1),
+            media2 = COALESCE($2, media2)
+          WHERE assetid = $3
+          `,
+          [photo1, photo2, assetid]
+        )
+      }
+
+      await client.query("COMMIT")
+
+      res.json({
+        success: true,
+        testid,
+        resultcount: parsedResults.length
+      })
+
+    } catch (err) {
+      await client.query("ROLLBACK")
+      console.error(err)
+      res.status(500).json({ error: err.message })
+    } finally {
+      client.release()
+    }
+  }
+)
+
+app.get("/inspection-results/:testid", async (req, res) => {
+  try {
+
+    const { testid } = req.params
+
+    const result = await pool.query(
+      `
+      SELECT
+        r.resultid,
+        r.testid,
+        r.criteriaid,
+        r.result,
+        r.remarks,
+        c.criterianame
+      FROM atec.tblinspectionresult r
+      LEFT JOIN atec.tblequiptypecriteria c
+        ON r.criteriaid = c.criteriaid
+      WHERE r.testid = $1
+      ORDER BY c.sortorder
+      `,
+      [testid]
+    )
+
+    res.json(result.rows)
+
+  } catch (err) {
+
+    console.error(err)
+
+    res.status(500).json({
+      error: err.message
+    })
+
+  }
+})
+
+// SAVE INSPECTION RESULTS
+app.post('/inspections/:testid/results', async (req, res) => {
+  const { testid } = req.params
+  const { results } = req.body
+
+  if (!Array.isArray(results) || results.length === 0) {
+    return res.status(400).json({ error: 'No inspection results received' })
+  }
+
+  const client = await pool.connect()
+
+  try {
+    await client.query('BEGIN')
+
+    // remove old rows if re-saving
+    await client.query(
+      `
+      DELETE FROM atec.tblinspectionresult
+      WHERE testid = $1
+      `,
+      [testid]
+    )
+
+    for (const row of results) {
+      await client.query(
+        `
+        INSERT INTO atec.tblinspectionresult
+        (
+          testid,
+          criteriaid,
+          criteriadescription,
+          result,
+          comments
+        )
+        VALUES ($1, $2, $3, $4, $5)
+        `,
+        [
+          testid,
+          row.criteriaid || null,
+          row.criteriadescription || '',
+          row.result || '',
+          row.comments || ''
+        ]
+      )
+    }
+
+    await client.query('COMMIT')
+
+    res.json({
+      message: 'Inspection results saved successfully',
+      count: results.length
+    })
+  } catch (error) {
+    await client.query('ROLLBACK')
+    console.error(error)
+    res.status(500).json({ error: 'Failed to save inspection results' })
+  } finally {
+    client.release()
+  }
+})
+
+app.post("/inspection-results", async (req, res) => {
+
+  try {
+
+    const {
+      testid,
+      criteriaid,
+      result,
+      remarks
+    } = req.body
+
+    const dbResult = await pool.query(
+      `
+      INSERT INTO atec.tblinspectionresult
+      (
+        testid,
+        criteriaid,
+        result,
+        remarks
+      )
+      VALUES
+      ($1,$2,$3,$4)
+      RETURNING *
+      `,
+      [
+        testid,
+        criteriaid,
+        result,
+        remarks
+      ]
+    )
+
+    res.json(dbResult.rows[0])
+
+  } catch (err) {
+
+    console.error(err)
+
+    res.status(500).json({
+      error: err.message
+    })
+
+  }
+
+})
+
+app.get("/inspections/assets/search", async (req, res) => {
+  try {
+    const q = req.query.q || ""
+
+    const result = await pool.query(`
+      SELECT 
+        assetid,
+        assettagno,
+        serialno,
+        description,
+        manufacturer
+      FROM atec.tblasset
+      WHERE
+        assettagno ILIKE $1 OR
+        serialno ILIKE $1 OR
+        description ILIKE $1 OR
+        CAST(assetid AS TEXT) ILIKE $1 OR
+        qrcode ILIKE $1
+      ORDER BY assetid DESC
+      LIMIT 50
+    `, [`%${q}%`])
+
+    res.json(result.rows)
+  } catch (err) {
+    console.error("Asset search error:", err)
+    res.status(500).json({ error: "Failed to search assets" })
+  }
+})
+
+app.get("/certificates/search", async (req, res) => {
+  try {
+    const {
+      search = "",
+      inspectiontype = "",
+      status = "",
+      clientid = "",
+      siteid = "",
+      sectionid = "",
+      datefrom = "",
+      dateto = ""
+    } = req.query
+
+    const values = []
+    let where = `WHERE 1 = 1`
+
+    if (search) {
+      values.push(`%${search}%`)
+      where += `
+        AND (
+          CAST(i.testid AS TEXT) ILIKE $${values.length}
+          OR i.tagnumber ILIKE $${values.length}
+          OR a.assettagno ILIKE $${values.length}
+          OR a.serialno ILIKE $${values.length}
+          OR a.description ILIKE $${values.length}
+          OR c.clientname ILIKE $${values.length}
+          OR s.sitename ILIKE $${values.length}
+          OR sec.sectionname ILIKE $${values.length}
+          OR et.description ILIKE $${values.length}
+        )
+      `
+    }
+
+    if (inspectiontype) {
+      values.push(inspectiontype)
+      where += ` AND i.inspectiontype = $${values.length}`
+    }
+
+    if (status) {
+      values.push(status)
+      where += ` AND i.status = $${values.length}`
+    }
+
+    if (clientid) {
+      values.push(clientid)
+      where += ` AND a.clientid = $${values.length}`
+    }
+
+    if (siteid) {
+      values.push(siteid)
+      where += ` AND a.siteid = $${values.length}`
+    }
+
+    if (sectionid) {
+      values.push(sectionid)
+      where += ` AND a.sectionid = $${values.length}`
+    }
+
+    if (datefrom) {
+      values.push(datefrom)
+      where += ` AND i.testdate >= $${values.length}`
+    }
+
+    if (dateto) {
+      values.push(dateto)
+      where += ` AND i.testdate <= $${values.length}`
+    }
+
+    const result = await pool.query(
+      `
+      SELECT
+        i.testid,
+        i.testdate,
+        i.validdate,
+        i.inspectiontype,
+        i.status,
+        i.inspector,
+        i.tagnumber,
+        a.assetid,
+        a.assettagno,
+        a.serialno,
+        a.description,
+        c.clientname,
+        s.sitename,
+        sec.sectionname,
+        et.description AS equipmenttype
+      FROM atec.tblinspection i
+      LEFT JOIN atec.tblasset a ON i.assetid = a.assetid
+      LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
+      LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
+      LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
+      LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
+      ${where}
+      ORDER BY i.testdate DESC, i.testid DESC
+      LIMIT 200
+      `,
+      values
+    )
+
+    res.json(result.rows)
+
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.get("/certificates/count", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT COUNT(*) AS total
+      FROM atec.tblinspection
+    `)
+
+    res.json(result.rows[0])
+
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({
+      error: err.message
+    })
+  }
+})
+
+app.get("/inspections/:testid/certificate", async (req, res) => {
+  try {
+    const { testid } = req.params
+
+    const inspectionResult = await pool.query(
+      `
+      SELECT
+        i.*,
+        a.assetid,
+        a.serialno,
+        a.assettagno,
+        a.manufacturer,
+        a.description,
+        a.media1,
+        a.media2,
+        c.clientname,
+        s.sitename,
+        sec.sectionname,
+        et.description AS equipmenttype
+      FROM atec.tblinspection i
+      LEFT JOIN atec.tblasset a
+        ON i.assetid = a.assetid
+      LEFT JOIN atec.tblclients c
+        ON a.clientid = c.clientid
+      LEFT JOIN atec.tblsites s
+        ON a.siteid = s.siteid
+      LEFT JOIN atec.tblsection sec
+        ON a.sectionid = sec.sectionid
+      LEFT JOIN atec.tblequiptype et
+        ON a.equiptypeid = et.equiptypeid
+      WHERE i.testid = $1
+      `,
+      [testid]
+    )
+
+    if (inspectionResult.rows.length === 0) {
+      return res.status(404).json({
+        error: "Certificate not found"
+      })
+    }
+
+    const resultsResult = await pool.query(
+      `
+      SELECT
+        r.resultid,
+        r.criteriaid,
+        c.criterianame,
+        c.fieldtype,
+        r.assetvalue,
+        r.measuredvalue,
+        r.result,
+        r.remarks
+      FROM atec.tblinspectionresult r
+      LEFT JOIN atec.tblequiptypecriteria c
+        ON r.criteriaid = c.criteriaid
+      WHERE r.testid = $1
+      ORDER BY c.sortorder, c.criteriaid
+      `,
+      [testid]
+    )
+
+    res.json({
+      inspection: inspectionResult.rows[0],
+      results: resultsResult.rows
+    })
+
+  } catch (err) {
+    console.error(err)
+
+    res.status(500).json({
+      error: err.message
+    })
+  }
+})
+
+app.get("/dashboard/visual-due", async (req, res) => {
+  try {
+    res.json({ total: 0 })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.get("/dashboard/stats", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        (SELECT COUNT(*) FROM atec.tblclients) AS customers,
+        (SELECT COUNT(*) FROM atec.tblsites) AS sites,
+        (SELECT COUNT(*) FROM atec.tblasset WHERE COALESCE(archived,false)=false) AS assets,
+        (SELECT COUNT(*) FROM atec.tblequiptype) AS equipmenttypes,
+        (SELECT COUNT(*) FROM atec.tblinspection) AS certificates,
+        (SELECT COUNT(*) FROM atec.tblinspection WHERE status = 'NOT SAFE') AS failedtotal,
+
+        (
+          SELECT COUNT(*)
+          FROM atec.tblasset a
+          LEFT JOIN (
+            SELECT assetid, MAX(testdate) AS lastvisual
+            FROM atec.tblinspection
+            WHERE inspectiontype = 'VISUAL'
+            GROUP BY assetid
+          ) i ON a.assetid = i.assetid
+          WHERE COALESCE(a.archived,false)=false
+          AND (
+            i.lastvisual IS NULL
+            OR i.lastvisual + INTERVAL '3 months' <= CURRENT_DATE + INTERVAL '30 days'
+          )
+        ) AS visualdue,
+
+        (
+          SELECT COUNT(*)
+          FROM atec.tblasset a
+          LEFT JOIN (
+            SELECT assetid, MAX(testdate) AS lastloadtest
+            FROM atec.tblinspection
+            WHERE inspectiontype = 'LOADTEST'
+            GROUP BY assetid
+          ) i ON a.assetid = i.assetid
+          WHERE COALESCE(a.archived,false)=false
+          AND (
+            i.lastloadtest IS NULL
+            OR i.lastloadtest + INTERVAL '12 months' <= CURRENT_DATE + INTERVAL '30 days'
+          )
+        ) AS loadtestdue,
+
+        (
+          SELECT COUNT(*)
+          FROM atec.tblasset a
+          LEFT JOIN (
+            SELECT assetid, MAX(testdate) AS lastvisual
+            FROM atec.tblinspection
+            WHERE inspectiontype = 'VISUAL'
+            GROUP BY assetid
+          ) v ON a.assetid = v.assetid
+          LEFT JOIN (
+            SELECT assetid, MAX(testdate) AS lastloadtest
+            FROM atec.tblinspection
+            WHERE inspectiontype = 'LOADTEST'
+            GROUP BY assetid
+          ) l ON a.assetid = l.assetid
+          WHERE COALESCE(a.archived,false)=false
+          AND (
+            v.lastvisual + INTERVAL '3 months' < CURRENT_DATE
+            OR l.lastloadtest + INTERVAL '12 months' < CURRENT_DATE
+          )
+        ) AS overdue
+    `)
+
+    res.json(result.rows[0])
+
+  } catch (err) {
+    console.error("Dashboard stats error:", err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.get("/dashboard/attention", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      WITH last_visual AS (
+        SELECT assetid, MAX(testdate) AS lastvisual
+        FROM atec.tblinspection
+        WHERE inspectiontype = 'VISUAL'
+        GROUP BY assetid
+      ),
+      last_load AS (
+        SELECT assetid, MAX(testdate) AS lastload
+        FROM atec.tblinspection
+        WHERE inspectiontype = 'LOADTEST'
+        GROUP BY assetid
+      )
+      SELECT
+        a.assetid,
+        a.assettagno,
+        a.serialno,
+        c.clientname,
+        s.sitename,
+        e.description AS equipmenttype,
+        lv.lastvisual,
+        ll.lastload,
+
+        CASE
+          WHEN lv.lastvisual IS NULL THEN 'No Visual Inspection'
+          WHEN lv.lastvisual < CURRENT_DATE - INTERVAL '3 months' THEN 'Visual Overdue'
+          WHEN ll.lastload IS NULL THEN 'No Load Test'
+          WHEN ll.lastload < CURRENT_DATE - INTERVAL '12 months' THEN 'Load Test Overdue'
+          ELSE 'OK'
+        END AS reason,
+
+        CASE
+          WHEN lv.lastvisual IS NULL THEN NULL
+          WHEN lv.lastvisual < CURRENT_DATE - INTERVAL '3 months'
+            THEN CURRENT_DATE - (lv.lastvisual + INTERVAL '3 months')::date
+          WHEN ll.lastload IS NULL THEN NULL
+          WHEN ll.lastload < CURRENT_DATE - INTERVAL '12 months'
+            THEN CURRENT_DATE - (ll.lastload + INTERVAL '12 months')::date
+          ELSE 0
+        END AS daysoverdue
+
+      FROM atec.tblasset a
+      LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
+      LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
+      LEFT JOIN atec.tblequiptype e ON a.equiptypeid = e.equiptypeid      
+      LEFT JOIN last_visual lv ON a.assetid = lv.assetid
+      LEFT JOIN last_load ll ON a.assetid = ll.assetid
+      WHERE COALESCE(a.archived,false)=false
+      AND (
+        lv.lastvisual IS NULL
+        OR lv.lastvisual < CURRENT_DATE - INTERVAL '3 months'
+        OR ll.lastload IS NULL
+        OR ll.lastload < CURRENT_DATE - INTERVAL '12 months'
+      )
+      ORDER BY daysoverdue DESC NULLS LAST, a.assetid DESC
+      LIMIT 50
+    `);
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Dashboard attention error:", err);
+    res.status(500).json({ error: "Failed to load dashboard attention items" });
+  }
+});
+
+app.get("/dashboard/failed-equipment", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        i.testid,
+        i.assetid,
+        a.assettagno,
+        a.serialno,
+        c.clientname,
+        s.sitename,
+        e.description AS equipmenttype,
+        i.testdate,
+        i.validdate,
+        i.inspector,
+        i.status
+      FROM atec.tblinspection i
+      JOIN atec.tblasset a
+        ON i.assetid = a.assetid
+      LEFT JOIN atec.tblclients c
+        ON a.clientid = c.clientid
+      LEFT JOIN atec.tblsites s
+        ON a.siteid = s.siteid
+      LEFT JOIN atec.tblequiptype e ON a.equiptypeid = e.equiptypeid
+      WHERE i.status = 'NOT SAFE'
+      ORDER BY i.testdate DESC
+      LIMIT 20
+    `)
+
+    res.json(result.rows)
+  } catch (err) {
+    console.error("Dashboard failed equipment error:", err)
+    res.status(500).json({
+      error: "Failed to load failed equipment"
+    })
+  }
+})
+
+app.get("/dashboard/upcoming-expiries", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT DISTINCT ON (a.assetid)
+        i.testid,
+        a.assetid,
+        a.assettagno,
+        a.serialno,
+        c.clientname,
+        s.sitename,
+        et.description AS equipmenttype,
+        i.inspectiontype,
+        i.testdate,
+        i.validdate,
+        (i.validdate - CURRENT_DATE) AS daysremaining
+      FROM atec.tblinspection i
+      JOIN atec.tblasset a
+        ON i.assetid = a.assetid
+      LEFT JOIN atec.tblclients c
+        ON a.clientid = c.clientid
+      LEFT JOIN atec.tblsites s
+        ON a.siteid = s.siteid
+      LEFT JOIN atec.tblequiptype et
+        ON a.equiptypeid = et.equiptypeid
+      WHERE
+        i.validdate IS NOT NULL
+        AND i.validdate <= CURRENT_DATE + INTERVAL '90 days'
+      ORDER BY
+        a.assetid,
+        i.validdate DESC
+    `)
+
+    res.json(result.rows)
+
+  } catch (err) {
+    console.error("Dashboard upcoming expiries:", err)
+    res.status(500).json({
+      error: "Failed to load upcoming expiries"
+    })
+  }
+})
+
+app.get("/dashboard/alerts", async (req, res) => {
+  try {
+
+    const result = await pool.query(`
+      SELECT
+      (
+        SELECT COUNT(*)
+        FROM atec.tblinspection
+        WHERE status='NOT SAFE'
+      ) AS failed,
+
+      (
+        SELECT COUNT(*)
+        FROM atec.tblinspection
+        WHERE validdate IS NOT NULL
+        AND validdate BETWEEN CURRENT_DATE
+        AND CURRENT_DATE + INTERVAL '30 days'
+      ) AS expiring,
+
+      (
+        SELECT COUNT(*)
+        FROM atec.tblasset a
+        LEFT JOIN (
+          SELECT
+            assetid,
+            MAX(validdate) AS validdate
+          FROM atec.tblinspection
+          GROUP BY assetid
+        ) i
+          ON a.assetid=i.assetid
+        WHERE
+          COALESCE(a.archived,false)=false
+          AND (
+            i.validdate IS NULL
+            OR i.validdate<CURRENT_DATE
+          )
+      ) AS overdue
+    `)
+
+    res.json(result.rows[0])
+
+  } catch (err) {
+
+    console.error(err)
+
+    res.status(500).json({
+      error: err.message
+    })
+
+  }
+})
 
 app.listen(PORT, () => {
   console.log(`ATEC server running on port ${PORT}`);
