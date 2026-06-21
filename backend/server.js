@@ -931,6 +931,82 @@ app.post("/equipment-type-criteria", async (req, res) => {
 
 })
 
+app.put("/equipment-type-criteria/:id", async (req, res) => {
+  try {
+    const { id } = req.params
+
+    const {
+      equiptypeid,
+      criterianame,
+      fieldtype,
+      required,
+      sortorder,
+      inspectioncategory
+    } = req.body
+
+    const result = await pool.query(
+      `
+      UPDATE atec.tblequiptypecriteria
+      SET
+        equiptypeid = $1,
+        criterianame = $2,
+        fieldtype = $3,
+        required = $4,
+        sortorder = $5,
+        inspectioncategory = $6
+      WHERE criteriaid = $7
+      RETURNING *
+      `,
+      [
+        equiptypeid,
+        criterianame,
+        fieldtype,
+        required,
+        sortorder,
+        inspectioncategory,
+        id
+      ]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Criteria not found" })
+    }
+
+    res.json(result.rows[0])
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({
+      error: err.message
+    })
+  }
+})
+
+app.delete("/equipment-type-criteria/:id", async (req, res) => {
+  try {
+    const { id } = req.params
+
+    const result = await pool.query(
+      `
+      DELETE FROM atec.tblequiptypecriteria
+      WHERE criteriaid = $1
+      RETURNING *
+      `,
+      [id]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Criteria not found" })
+    }
+
+    res.json({ success: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({
+      error: err.message
+    })
+  }
+})
+
 app.get("/responsible-persons", async (req, res) => {
   try {
     const result = await pool.query(`
@@ -1143,6 +1219,11 @@ app.post("/inspections",
       const updatePhotos =
         updateassetphotos === "true" || updateassetphotos === true
 
+      const inspectionTagNumber =
+        typeof tagnumber === "string" && tagnumber.trim()
+          ? tagnumber.trim()
+          : null
+
       const inspection = await client.query(
         `
         INSERT INTO atec.tblinspection
@@ -1171,7 +1252,7 @@ app.post("/inspections",
           status,
           inspectiontype,
           inspector || "",
-          tagnumber || "",
+          inspectionTagNumber,
           photo1,
           photo2,
           updatePhotos

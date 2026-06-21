@@ -1654,6 +1654,9 @@ window.showEquipmentTypeCriteria = function () {
 
   localStorage.setItem("currentPage", "criteria")
 
+  window.criteriaEquipmentFilter =
+    window.criteriaEquipmentFilter || ""
+
   renderEquipmentTypeCriteria(
     equipmentTypes,
     criteria
@@ -1661,7 +1664,17 @@ window.showEquipmentTypeCriteria = function () {
 
 }
 
+window.filterEquipmentCriteria = function () {
+  window.criteriaEquipmentFilter =
+    document.querySelector('#criteriaEquipmentFilter')?.value || ""
+
+  showEquipmentTypeCriteria()
+}
+
 window.saveCriteria = async function () {
+  const criteriaid =
+    document.querySelector('#editingCriteriaId')?.value || ""
+
   const equiptypeid =
     document.querySelector('#criteriaEquipType').value
 
@@ -1676,23 +1689,27 @@ window.saveCriteria = async function () {
     return
   }
 
+  const payload = {
+    equiptypeid,
+    criterianame,
+    fieldtype: document.querySelector('#criteriaFieldType').value,
+    required: true,
+    sortorder: 1,
+    inspectioncategory
+  }
+
   const response = await fetch(
-    "http://localhost:5000/equipment-type-criteria",
+    criteriaid
+      ? `http://localhost:5000/equipment-type-criteria/${criteriaid}`
+      : "http://localhost:5000/equipment-type-criteria",
     {
-      method: "POST",
+      method: criteriaid ? "PUT" : "POST",
 
       headers: {
         "Content-Type": "application/json"
       },
 
-      body: JSON.stringify({
-        equiptypeid,
-        criterianame,
-        fieldtype: document.querySelector('#criteriaFieldType').value,
-        required: true,
-        sortorder: 1,
-        inspectioncategory
-      })
+      body: JSON.stringify(payload)
     }
   )
 
@@ -1703,7 +1720,65 @@ window.saveCriteria = async function () {
     return
   }
 
-  alert("Criteria saved")
+  alert(criteriaid ? "Criteria updated" : "Criteria saved")
+
+  await loadData()
+
+  showEquipmentTypeCriteria()
+}
+
+window.editCriteria = function (criteriaid) {
+  const row = criteria.find(
+    item => String(item.criteriaid) === String(criteriaid)
+  )
+
+  if (!row) {
+    alert("Criteria not found")
+    return
+  }
+
+  document.querySelector('#editingCriteriaId').value = row.criteriaid
+  document.querySelector('#criteriaEquipType').value = row.equiptypeid
+  document.querySelector('#criteriaCategory').value = row.inspectioncategory || "VISUAL"
+  document.querySelector('#criteriaName').value = row.criterianame || ""
+  document.querySelector('#criteriaFieldType').value = row.fieldtype || "PASSFAIL"
+}
+
+window.cancelCriteriaEdit = function () {
+  document.querySelector('#editingCriteriaId').value = ""
+  document.querySelector('#criteriaName').value = ""
+  document.querySelector('#criteriaFieldType').value = "PASSFAIL"
+}
+
+window.deleteCriteria = async function (criteriaid) {
+  const row = criteria.find(
+    item => String(item.criteriaid) === String(criteriaid)
+  )
+
+  if (!row) {
+    alert("Criteria not found")
+    return
+  }
+
+  if (!confirm(`Delete this criteria?\n\n${row.criterianame}\n\nThis removes it from future inspection/load test forms.`)) {
+    return
+  }
+
+  const response = await fetch(
+    `http://localhost:5000/equipment-type-criteria/${criteriaid}`,
+    {
+      method: "DELETE"
+    }
+  )
+
+  const result = await response.json()
+
+  if (!response.ok) {
+    alert("Error deleting criteria: " + result.error)
+    return
+  }
+
+  alert("Criteria deleted")
 
   await loadData()
 
@@ -1976,6 +2051,18 @@ window.quickFindAsset = function () {
 }
 
 window.quickOpenAsset = async function (assetid) {
+  const resultBox =
+    document.querySelector('#quickInspectionResult') ||
+    document.querySelector('#dashboardAssetSearchResult')
+
+  if (!resultBox) {
+    alert("No asset result panel found")
+    return
+  }
+
+  const returnPage =
+    resultBox.id === "dashboardAssetSearchResult" ? "quick" : "quick"
+
   const response = await fetch(
     `http://localhost:5000/assets/${assetid}/quick-details`
   )
@@ -1987,7 +2074,7 @@ window.quickOpenAsset = async function (assetid) {
     return
   }
 
-  document.querySelector('#quickInspectionResult').innerHTML = `
+  resultBox.innerHTML = `
     <div class="filter-card">
       <h3>Asset Found</h3>
 
@@ -2041,10 +2128,10 @@ window.quickOpenAsset = async function (assetid) {
       </div>
 
       <div class="form-actions">
-<button onclick="startQuickInspection(${asset.assetid}, 'VISUAL')">Visual Inspection
+<button onclick="startInspection(${asset.assetid}, 'VISUAL', '${returnPage}')">Visual Inspection
         </button>
 
-<button class="load-test-btn" onclick="startQuickInspection(${asset.assetid}, 'LOADTEST')">Load Test
+<button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'LOADTEST', '${returnPage}')">Load Test
         </button>
 
       </div>
@@ -2111,10 +2198,30 @@ const criteriaAssetMap = {
   "Hook Size mm": "hooksize",
   "Hoist Serial Number": "hoistserialno",
   "WLL Main Hoist - Load Mass kg": "wll",
-  "WLL Auxiliary Hoist - Load Mass kg": "wll",
   "SWL of Beam - Length Span mm": "span",
   "Permissible Deflection mm": "permissibledeflection",
   "Steel Wire Rope mm": "steelwireropemm"
+}
+
+const loadTestAssetOnlyCriteria = new Set([
+  "WLL Main Hoist - Deflection mm",
+  "WLL Main Hoist - Length Span/Jib mm",
+  "WLL Auxiliary Hoist - Deflection mm",
+  "WLL Auxiliary Hoist - Length Span/Jib mm"
+])
+
+function isLoadMassCriteria(criteriaName) {
+  return [
+    "WLL Main Hoist - Load Mass kg",
+    "WLL Auxiliary Hoist - Load Mass kg"
+  ].includes(criteriaName)
+}
+
+function getInspectionCriteriaRows(allCriteria, inspectiontype) {
+  return allCriteria.filter(row =>
+    inspectiontype !== "LOADTEST" ||
+    !loadTestAssetOnlyCriteria.has(row.criterianame)
+  )
 }
 
 function getMeasurementLabels(criteriaName) {
@@ -2204,24 +2311,31 @@ const quickDetails = await quickDetailsResponse.json()
 
   window.scrollTo(0, 0)
 
-const assetCriteria = criteria.filter(
+const assetCriteria = getInspectionCriteriaRows(criteria.filter(
   c =>
     String(c.equiptypeid) === String(asset.equiptypeid) &&
     String(c.inspectioncategory) === String(inspectiontype)
-)
+), inspectiontype)
 
   document.querySelector('#page').innerHTML = `
     <h2>${inspectiontype} - Asset ${asset.assetid}</h2>
 
     <div class="filter-card">
-      <div class="quick-asset-grid">
-        <div>
-          <strong>${asset.description || ''}</strong><br>
-          Serial No: ${asset.serialno || ''}<br>
-          Equipment Type: ${asset.equipmenttype || ''}
+      <div class="inspection-asset-summary">
+        <div class="inspection-asset-title">
+          <strong>${asset.description || ''}</strong>
+          <span>Asset ${asset.assetid}</span>
         </div>
 
-        <div>
+        <div class="inspection-asset-details">
+          <div><span>Serial No</span><strong>${asset.serialno || '-'}</strong></div>
+          <div><span>Equipment Type</span><strong>${asset.equipmenttype || '-'}</strong></div>
+          <div><span>WLL</span><strong>${asset.wll || '-'} kg</strong></div>
+          <div><span>Span/Jib</span><strong>${asset.span || '-'} mm</strong></div>
+          <div><span>Permissible Deflection</span><strong>${asset.permissibledeflection || '-'} mm</strong></div>
+        </div>
+
+        <div class="inspection-asset-actions">
           <button onclick="passAllCriteria(${asset.assetid}, '${inspectiontype}', '${returnPage}')">
             Pass All & Save
           </button>
@@ -2353,11 +2467,12 @@ const assetCriteria = criteria.filter(
         Measurements
     </div>
 
-    <div class="inspection-header measurements">
+    <div class="inspection-header measurements ${inspectiontype === "LOADTEST" ? "loadtest-measurements" : ""}">
 
         <div>Criteria</div>
         <div>Standard Dimension (mm)</div>
         <div>Measured Dimension (mm)</div>
+        ${inspectiontype === "LOADTEST" ? "<div>Comments / Remarks</div>" : ""}
 
     </div>
 
@@ -2369,7 +2484,7 @@ const assetCriteria = criteria.filter(
     const labels = getMeasurementLabels(row.criterianame)
 
     return `
-      <div class="inspection-row compact-row">
+      <div class="inspection-row compact-row ${inspectiontype === "LOADTEST" ? "loadtest-measurement-row" : ""}">
 
         <div class="inspection-criteria">
           ${row.criterianame}
@@ -2391,6 +2506,15 @@ const assetCriteria = criteria.filter(
     >
 
 </div>
+        ${inspectiontype === "LOADTEST" && isLoadMassCriteria(row.criterianame) ? `
+          <div class="inspection-remarks">
+            <input
+              id="remarks-${row.criteriaid}"
+              type="text"
+              placeholder="Comments / Remarks"
+            >
+          </div>
+        ` : inspectiontype === "LOADTEST" ? `<div></div>` : ""}
       </div>
     `
   }).join('')}
@@ -2443,7 +2567,7 @@ const assetCriteria = criteria.filter(
 </div>
 
     <div class="filter-card">
-      <button onclick="saveInspection(${asset.assetid}, '${inspectiontype}', '${returnPage}')">
+      <button type="button" onclick="window.saveInspection(${asset.assetid}, '${inspectiontype}', '${returnPage}')">
         Save ${inspectiontype}
       </button>
 
@@ -2871,7 +2995,7 @@ async function loadDashboardUpcomingExpiries() {
 
 window.saveInspection = async function(assetid, inspectiontype = "VISUAL", returnPage = "quick") {
   const tagnumber =
-    document.querySelector('#inspectionTagNo')?.value || null
+    document.querySelector('#inspectionTagNo')?.value.trim() || ""
 
   const asset = assets.find(
     a => String(a.assetid) === String(assetid)
@@ -2882,11 +3006,11 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
     return
   }
 
-  const assetCriteria = criteria.filter(
+  const assetCriteria = getInspectionCriteriaRows(criteria.filter(
     c =>
       String(c.equiptypeid) === String(asset.equiptypeid) &&
       String(c.inspectioncategory) === String(inspectiontype)
-  )
+  ), inspectiontype)
 
   let results = []
   let overallStatus = "SAFE"
@@ -2903,9 +3027,11 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
       resultInput ? resultInput.value : "RECORDED"
 
       const remarks =
-        result === "FAIL"
+        inspectiontype === "LOADTEST"
           ? document.querySelector(`#remarks-${row.criteriaid}`)?.value || ""
-          : ""
+          : result === "FAIL"
+            ? document.querySelector(`#remarks-${row.criteriaid}`)?.value || ""
+            : ""
 
     if (
       row.criterianame === "Safe For Service" &&
@@ -2944,7 +3070,7 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
   formData.append("comments", "")
   formData.append("status", overallStatus)
   formData.append("inspectiontype", inspectiontype)
-  formData.append("tagnumber", tagnumber || "")
+  formData.append("tagnumber", tagnumber)
   formData.append("results", JSON.stringify(results))
   formData.append(
     "updateassetphotos",
@@ -2957,15 +3083,23 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
   if (photo1) formData.append("photo1", photo1)
   if (photo2) formData.append("photo2", photo2)
 
-  const response = await fetch(
-    "http://localhost:5000/inspections",
-    {
-      method: "POST",
-      body: formData
-    }
-  )
+  let response
+  let savedInspection
 
-  const savedInspection = await response.json()
+  try {
+    response = await fetch(
+      "http://localhost:5000/inspections",
+      {
+        method: "POST",
+        body: formData
+      }
+    )
+
+    savedInspection = await response.json()
+  } catch (err) {
+    alert("Error saving inspection: " + err.message)
+    return
+  }
 
   if (!response.ok) {
     alert("Error saving inspection: " + savedInspection.error)

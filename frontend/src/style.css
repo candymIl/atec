@@ -120,6 +120,10 @@ img {
 ======================================================= */
 
 button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   background: #2563eb;
   color: white;
   border: none;
@@ -128,6 +132,9 @@ button {
   cursor: pointer;
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.2;
+  min-height: 34px;
+  white-space: nowrap;
 }
 
 button:hover {
@@ -137,25 +144,75 @@ button:hover {
 .form-actions,
 .action-buttons {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
   flex-wrap: wrap;
 }
 
 .form-actions {
-  margin-top: 12px;
+  margin-top: 14px;
+  justify-content: flex-start;
 }
 
 .action-buttons {
   justify-content: center;
+  row-gap: 6px;
 }
 
 .action-buttons button {
-  min-width: 80px;
-  padding: 8px 10px;
+  min-width: 86px;
+  padding: 7px 10px;
   font-size: 13px;
-  line-height: 1;
-  white-space: nowrap;
+}
+
+.page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+td:last-child > button + button,
+.filter-card > button + button {
+  margin-left: 8px;
+}
+
+.form-group > button {
+  width: 100%;
+}
+
+.form-group > button + button {
+  margin-top: 8px;
+}
+
+td:last-child > button {
+  margin-top: 2px;
+  margin-bottom: 2px;
+}
+
+button[onclick*="delete"],
+button[onclick*="Delete"],
+button[onclick*="archive"],
+button[onclick*="Archive"] {
+  background: #dc2626;
+}
+
+button[onclick*="delete"]:hover,
+button[onclick*="Delete"]:hover,
+button[onclick*="archive"]:hover,
+button[onclick*="Archive"]:hover {
+  background: #b91c1c;
+}
+
+button[onclick*="cancel"],
+button[onclick*="Cancel"] {
+  background: #475569;
+}
+
+button[onclick*="cancel"]:hover,
+button[onclick*="Cancel"]:hover {
+  background: #334155;
 }
 
 .load-test-btn {
@@ -256,10 +313,6 @@ input[type="radio"] {
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   background: white;
-}
-
-.page-actions {
-  margin-bottom: 16px;
 }
 
 /* =======================================================
@@ -626,6 +679,66 @@ tr:hover {
   gap: 24px;
 }
 
+.inspection-asset-summary {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(420px, 2fr) auto;
+  gap: 18px;
+  align-items: center;
+}
+
+.inspection-asset-title {
+  display: grid;
+  gap: 4px;
+}
+
+.inspection-asset-title strong {
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.inspection-asset-title span {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.inspection-asset-details {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.inspection-asset-details div {
+  background: #f8fafc;
+  border: 1px solid #dde5ef;
+  border-radius: 6px;
+  padding: 8px 10px;
+  min-height: 54px;
+}
+
+.inspection-asset-details span {
+  display: block;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  margin-bottom: 3px;
+  text-transform: uppercase;
+}
+
+.inspection-asset-details strong {
+  display: block;
+  color: #1f2937;
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.inspection-asset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .quick-photo-grid {
   display: grid;
   grid-template-columns: repeat(2, 260px);
@@ -652,12 +765,12 @@ tr:hover {
 
 .inspection-row {
     display: grid;
-    grid-template-columns: 320px 260px 180px;
+    grid-template-columns: minmax(260px, 1.15fr) minmax(240px, 0.9fr) minmax(180px, 0.75fr);
     align-items: center;
-    gap: 20px;
+    gap: 14px;
 
-    padding: 10px 15px;
-    min-height: 55px;
+    padding: 9px 14px;
+    min-height: 52px;
 
     border-bottom: 1px solid #e5e7eb;
 }
@@ -669,6 +782,7 @@ tr:hover {
 .inspection-criteria {
     font-size: 15px;
     font-weight: 600;
+    line-height: 1.25;
     margin: 0;
 }
 
@@ -731,9 +845,9 @@ tr:hover {
 .inspection-header{
     display:grid;
     align-items:center;
-    gap:18px;
+    gap:14px;
 
-    padding:10px 14px;
+    padding:9px 14px;
 
     background:#eef3f8;
     border-bottom:1px solid #d9e1ec;
@@ -744,11 +858,16 @@ tr:hover {
 }
 
 .inspection-header.measurements{
-    grid-template-columns:320px 220px 220px;
+    grid-template-columns:minmax(260px, 1.15fr) minmax(240px, 0.9fr) minmax(180px, 0.75fr);
+}
+
+.inspection-header.measurements.loadtest-measurements,
+.inspection-row.loadtest-measurement-row {
+    grid-template-columns:minmax(260px, 1.1fr) minmax(240px, 0.85fr) minmax(180px, 0.7fr) minmax(220px, 1fr);
 }
 
 .inspection-header.visual{
-    grid-template-columns:320px 220px 1fr;
+    grid-template-columns:minmax(260px, 1.15fr) minmax(190px, 0.65fr) minmax(240px, 1fr);
 }
 
 /* =======================================================
@@ -1424,6 +1543,19 @@ tr:hover {
   .fb-cert-signature-section {
     grid-template-columns: 1fr;
   }
+
+  .inspection-asset-summary {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .inspection-asset-details {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .inspection-asset-actions {
+    justify-content: flex-start;
+  }
 }
 
 
@@ -1443,8 +1575,8 @@ tr:hover {
 
 .comparison-grid{
     display:grid;
-    grid-template-columns:160px 160px;
-    gap:14px;
+    grid-template-columns: minmax(105px, 1fr) minmax(105px, 1fr);
+    gap:10px;
     align-items:center;
 }
 
@@ -1459,7 +1591,7 @@ tr:hover {
 }
 
 .inspection-result select {
-  width: 220px;
+  width: 100%;
   height: 34px;
   margin: 0;
   max-width: none;
@@ -1474,10 +1606,9 @@ tr:hover {
 }
 
 .compact-row {
-  grid-template-columns: 320px 220px 1fr;
   min-height: 52px;
   padding: 8px 14px;
-  gap: 18px;
+  gap: 14px;
 }
 
 

@@ -3,10 +3,38 @@ export function renderEquipmentTypeCriteria(equipmentTypes, criteria) {
     (a.description || '').localeCompare(b.description || '')
   )
 
+  const selectedFilter =
+    window.criteriaEquipmentFilter || ""
+
+  const visibleCriteria = selectedFilter
+    ? criteria.filter(row => String(row.equiptypeid) === String(selectedFilter))
+    : criteria
+
   document.querySelector('#page').innerHTML = `
     <h1>Equipment Type Criteria Setup</h1>
 
+    <div class="filter-card">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Show Criteria For</label>
+          <select id="criteriaEquipmentFilter" onchange="filterEquipmentCriteria()">
+            <option value="">All Equipment Types</option>
+            ${sortedEquipmentTypes.map(type => `
+              <option
+                value="${type.equiptypeid}"
+                ${String(type.equiptypeid) === String(selectedFilter) ? "selected" : ""}
+              >
+                ${type.description}
+              </option>
+            `).join('')}
+          </select>
+        </div>
+      </div>
+    </div>
+
     <div class="form-row">
+
+  <input id="editingCriteriaId" type="hidden">
 
   <div class="form-group">
 
@@ -69,6 +97,10 @@ export function renderEquipmentTypeCriteria(equipmentTypes, criteria) {
       Save Criteria
     </button>
 
+    <button type="button" onclick="cancelCriteriaEdit()">
+      Cancel Edit
+    </button>
+
   </div>
 
 </div>
@@ -81,17 +113,32 @@ export function renderEquipmentTypeCriteria(equipmentTypes, criteria) {
           <th>Equipment Type</th>
           <th>Category</th>
           <th>Criteria</th>
+          <th>Field Type</th>
+          <th>Actions</th>
         </tr>
       </thead>
 
       <tbody>
-        ${criteria.map(row => `
+        ${visibleCriteria.map(row => `
           <tr>
             <td>${row.equipmenttype || ''}</td>
             <td>${row.inspectioncategory || ''}</td>
             <td>${row.criterianame || ''}</td>
+            <td>${row.fieldtype || ''}</td>
+            <td>
+              <button type="button" onclick="editCriteria(${row.criteriaid})">
+                Edit
+              </button>
+              <button type="button" onclick="deleteCriteria(${row.criteriaid})">
+                Delete
+              </button>
+            </td>
           </tr>
-        `).join('')}
+        `).join('') || `
+          <tr>
+            <td colspan="5">No criteria found for the selected equipment type.</td>
+          </tr>
+        `}
       </tbody>
     </table>
   `
