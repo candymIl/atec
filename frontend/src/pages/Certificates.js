@@ -376,6 +376,11 @@ window.previewCertificate = async function (testid) {
     </div>
 
     <div class="certificate-preview-row">
+      <span>Certificate Expiry Date</span>
+      <strong>${formatDate(inspection.validdate)}</strong>
+    </div>
+
+    <div class="certificate-preview-row">
       <span>Inspector</span>
       <strong>${inspection.inspector || "-"}</strong>
     </div>
@@ -499,7 +504,7 @@ window.openCertificateModal = async function (testid) {
             <div class="fb-cert-grid">
               <p><strong>Inspection Type:</strong> ${inspection.inspectiontype || "-"}</p>
               <p><strong>Inspection Date:</strong> ${formatDate(inspection.testdate)}</p>
-              <p><strong>Valid Until:</strong> ${formatDate(inspection.validdate)}</p>
+              <p><strong>Certificate Expiry Date:</strong> ${formatDate(inspection.validdate)}</p>
               <p><strong>Inspector:</strong> ${inspection.inspector || "-"}</p>
             </div>
           </div>

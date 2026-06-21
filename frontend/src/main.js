@@ -2937,9 +2937,11 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
 
   formData.append("assetid", assetid)
   formData.append("testdate", new Date().toISOString().split("T")[0])
-formData.append("validdate",
-   document.querySelector("#inspectionValidDate")?.value || null)  
-formData.append("comments", "")
+  formData.append(
+    "validdate",
+    document.querySelector("#inspectionValidDate")?.value || ""
+  )
+  formData.append("comments", "")
   formData.append("status", overallStatus)
   formData.append("inspectiontype", inspectiontype)
   formData.append("tagnumber", tagnumber || "")
