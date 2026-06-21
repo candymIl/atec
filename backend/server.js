@@ -2109,15 +2109,63 @@ function reportFileName(report, extension) {
   return `customer-detailed-report-${cleanName || "customers"}.${extension}`
 }
 
-async function getCustomerDetailedReport(clientid = "") {
+function customerReportFilters(query = {}) {
+  return {
+    clientid: query.clientid || "",
+    equiptypeid: query.equiptypeid || "",
+    datefrom: query.datefrom || "",
+    dateto: query.dateto || ""
+  }
+}
+
+async function getCustomerDetailedReport(filters = {}) {
+  const {
+    clientid = "",
+    equiptypeid = "",
+    datefrom = "",
+    dateto = ""
+  } = filters
+
+  const customerValues = []
   const values = []
   let customerWhere = "WHERE 1 = 1"
   let assetWhere = "WHERE 1 = 1"
+  const inspectionWhere = []
 
   if (clientid) {
+    customerValues.push(clientid)
+    customerWhere += ` AND c.clientid = $${customerValues.length}`
+
     values.push(clientid)
-    customerWhere += ` AND c.clientid = $${values.length}`
     assetWhere += ` AND a.clientid = $${values.length}`
+  }
+
+  if (equiptypeid) {
+    values.push(equiptypeid)
+    assetWhere += ` AND a.equiptypeid = $${values.length}`
+  }
+
+  if (datefrom) {
+    values.push(datefrom)
+    inspectionWhere.push(`testdate >= $${values.length}`)
+  }
+
+  if (dateto) {
+    values.push(dateto)
+    inspectionWhere.push(`testdate <= $${values.length}`)
+  }
+
+  const inspectionFilterSql = inspectionWhere.length
+    ? ` AND ${inspectionWhere.join(" AND ")}`
+    : ""
+
+  if (datefrom || dateto) {
+    assetWhere += `
+      AND (
+        lv.testdate IS NOT NULL
+        OR ll.testdate IS NOT NULL
+      )
+    `
   }
 
   const customerResult = await pool.query(
@@ -2141,7 +2189,7 @@ async function getCustomerDetailedReport(clientid = "") {
     GROUP BY c.clientid, c.clientname, c.clientaddr, c.archived
     ORDER BY c.clientname
     `,
-    values
+    customerValues
   )
 
   const assetResult = await pool.query(
@@ -2156,6 +2204,7 @@ async function getCustomerDetailedReport(clientid = "") {
         inspector
       FROM atec.tblinspection
       WHERE inspectiontype = 'VISUAL'
+      ${inspectionFilterSql}
       ORDER BY assetid, testdate DESC NULLS LAST, testid DESC
     ),
     latest_load AS (
@@ -2168,6 +2217,7 @@ async function getCustomerDetailedReport(clientid = "") {
         inspector
       FROM atec.tblinspection
       WHERE inspectiontype = 'LOADTEST'
+      ${inspectionFilterSql}
       ORDER BY assetid, testdate DESC NULLS LAST, testid DESC
     )
     SELECT
@@ -2195,6 +2245,7 @@ async function getCustomerDetailedReport(clientid = "") {
       ll.validdate AS loadvaliddate,
       ll.status AS loadstatus,
       ll.inspector AS loadinspector,
+      GREATEST(lv.testdate, ll.testdate) AS latestinspectiondate,
       CASE
         WHEN lv.testdate IS NULL THEN NULL
         ELSE (lv.testdate + INTERVAL '3 months')::date
@@ -2228,7 +2279,7 @@ async function getCustomerDetailedReport(clientid = "") {
     LEFT JOIN latest_load ll
       ON a.assetid = ll.assetid
     ${assetWhere}
-    ORDER BY c.clientname, s.sitename, sec.sectionname, a.assetid
+    ORDER BY latestinspectiondate DESC NULLS LAST, c.clientname, s.sitename, sec.sectionname, a.assetid
     `,
     values
   )
@@ -2243,7 +2294,10 @@ async function getCustomerDetailedReport(clientid = "") {
   return {
     generatedAt: new Date().toISOString(),
     filters: {
-      clientid: clientid || ""
+      clientid: clientid || "",
+      equiptypeid: equiptypeid || "",
+      datefrom: datefrom || "",
+      dateto: dateto || ""
     },
     customers: customerResult.rows,
     assets,
@@ -2444,6 +2498,7 @@ async function buildCustomerReportWorkbook(report) {
     { header: "Description", key: "description", width: 36 },
     { header: "Manufacturer", key: "manufacturer", width: 22 },
     { header: "WLL", key: "wll", width: 12 },
+    { header: "Latest Inspection Date", key: "latestinspectiondate", width: 20 },
     { header: "Last Visual Test ID", key: "visualtestid", width: 16 },
     { header: "Last Visual Date", key: "visualtestdate", width: 16 },
     { header: "Visual Valid Until", key: "visualvaliddate", width: 18 },
@@ -2463,6 +2518,7 @@ async function buildCustomerReportWorkbook(report) {
   report.assets.forEach(row => {
     assetSheet.addRow({
       ...row,
+      latestinspectiondate: reportDate(row.latestinspectiondate),
       visualtestdate: reportDate(row.visualtestdate),
       visualvaliddate: reportDate(row.visualvaliddate),
       nextvisualdue: reportDate(row.nextvisualdue),
@@ -2496,7 +2552,7 @@ async function buildCustomerReportWorkbook(report) {
 
   assetSheet.autoFilter = {
     from: "A1",
-    to: "Z1"
+    to: "AA1"
   }
 
   return workbook
@@ -2504,7 +2560,7 @@ async function buildCustomerReportWorkbook(report) {
 
 app.get("/reports/customer-detailed", async (req, res) => {
   try {
-    const report = await getCustomerDetailedReport(req.query.clientid || "")
+    const report = await getCustomerDetailedReport(customerReportFilters(req.query))
     res.json(report)
   } catch (err) {
     console.error("Customer detailed report error:", err)
@@ -2514,7 +2570,7 @@ app.get("/reports/customer-detailed", async (req, res) => {
 
 app.get("/reports/customer-detailed.pdf", async (req, res) => {
   try {
-    const report = await getCustomerDetailedReport(req.query.clientid || "")
+    const report = await getCustomerDetailedReport(customerReportFilters(req.query))
     const filename = reportFileName(report, "pdf")
 
     res.setHeader("Content-Type", "application/pdf")
@@ -2538,7 +2594,7 @@ app.get("/reports/customer-detailed.pdf", async (req, res) => {
 
 app.get("/reports/customer-detailed.xlsx", async (req, res) => {
   try {
-    const report = await getCustomerDetailedReport(req.query.clientid || "")
+    const report = await getCustomerDetailedReport(customerReportFilters(req.query))
     const workbook = await buildCustomerReportWorkbook(report)
     const filename = reportFileName(report, "xlsx")
 

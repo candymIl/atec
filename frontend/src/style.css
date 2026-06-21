@@ -1163,6 +1163,7 @@ tr:hover {
   display: grid;
   gap: 16px;
   min-width: 0;
+  overflow: hidden;
 }
 
 .report-hero {
@@ -1187,12 +1188,11 @@ tr:hover {
   border-radius: 8px;
   display: grid;
   gap: 12px;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   padding: 16px;
 }
 
 .report-filter-control {
-  max-width: 520px;
   min-width: 0;
   width: 100%;
 }
@@ -1209,10 +1209,15 @@ tr:hover {
   margin: 0;
 }
 
+.report-filter-control input {
+  margin: 0;
+}
+
 .report-toolbar-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  grid-column: 1 / -1;
   justify-content: flex-start;
 }
 
@@ -1227,6 +1232,13 @@ tr:hover {
   color: #6b7280;
   padding: 28px;
   text-align: center;
+}
+
+.report-preview-loaded {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .report-preview-empty h2 {
@@ -1280,7 +1292,9 @@ tr:hover {
 .report-summary-grid {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  max-width: 100%;
+  min-width: 0;
 }
 
 .report-summary-tile {
@@ -1310,11 +1324,79 @@ tr:hover {
   width: 100%;
 }
 
+.report-pagination-bar {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #d9e1ec;
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+}
+
+.report-page-size {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.report-page-size label,
+.report-page-controls span {
+  color: #1f3b5c;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.report-page-size select {
+  margin: 0;
+  min-width: 88px;
+  padding: 6px 10px;
+}
+
+.report-page-controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.report-page-controls button:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+.report-scroll-control {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #d9e1ec;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto 1fr auto;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+}
+
+.report-scroll-control span {
+  color: #1f3b5c;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.report-scroll-control input[type="range"] {
+  accent-color: #2563eb;
+  margin: 0;
+  width: 100%;
+}
+
 .report-table {
   border-collapse: separate;
   border-spacing: 0;
   margin: 0;
-  min-width: 1350px;
+  min-width: 1280px;
 }
 
 .report-table th {

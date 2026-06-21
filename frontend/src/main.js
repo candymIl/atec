@@ -1940,7 +1940,7 @@ window.showCertificateSearch = function () {
 window.showCustomerDetailedReport = function () {
   localStorage.setItem("currentPage", "customer-report")
 
-  renderCustomerDetailedReport(customers)
+  renderCustomerDetailedReport(customers, equipmentTypes)
 }
 
 window.handleCertificateEnter = function (event) {
