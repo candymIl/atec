@@ -7,6 +7,7 @@ const app = express();
 const multer = require("multer");
 const path = require("path");
 const PDFDocument = require("pdfkit");
+const ExcelJS = require("exceljs");
 
 app.use(cors());
 app.use(express.json());
@@ -2076,6 +2077,481 @@ app.get("/dashboard/visual-due", async (req, res) => {
     res.json({ total: 0 })
   } catch (err) {
     console.error(err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+function reportDate(value) {
+  if (!value) return "-"
+
+  if (value instanceof Date) {
+    return value.toISOString().split("T")[0]
+  }
+
+  return String(value).split("T")[0]
+}
+
+function reportValue(value) {
+  return value === null || value === undefined || value === "" ? "-" : String(value)
+}
+
+function reportFileName(report, extension) {
+  const customerName =
+    report.customers.length === 1
+      ? report.customers[0].clientname
+      : "all-customers"
+
+  const cleanName = String(customerName || "customer-report")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+
+  return `customer-detailed-report-${cleanName || "customers"}.${extension}`
+}
+
+async function getCustomerDetailedReport(clientid = "") {
+  const values = []
+  let customerWhere = "WHERE 1 = 1"
+  let assetWhere = "WHERE 1 = 1"
+
+  if (clientid) {
+    values.push(clientid)
+    customerWhere += ` AND c.clientid = $${values.length}`
+    assetWhere += ` AND a.clientid = $${values.length}`
+  }
+
+  const customerResult = await pool.query(
+    `
+    SELECT
+      c.clientid,
+      c.clientname,
+      c.clientaddr,
+      c.archived,
+      COUNT(DISTINCT s.siteid) AS sitecount,
+      COUNT(DISTINCT sec.sectionid) AS sectioncount,
+      COUNT(DISTINCT p.personid) AS responsiblecount
+    FROM atec.tblclients c
+    LEFT JOIN atec.tblsites s
+      ON c.clientid = s.clientid
+    LEFT JOIN atec.tblsection sec
+      ON c.clientid = sec.clientid
+    LEFT JOIN atec.tblpeople p
+      ON c.clientid = p.clientid
+    ${customerWhere}
+    GROUP BY c.clientid, c.clientname, c.clientaddr, c.archived
+    ORDER BY c.clientname
+    `,
+    values
+  )
+
+  const assetResult = await pool.query(
+    `
+    WITH latest_visual AS (
+      SELECT DISTINCT ON (assetid)
+        assetid,
+        testid,
+        testdate,
+        validdate,
+        status,
+        inspector
+      FROM atec.tblinspection
+      WHERE inspectiontype = 'VISUAL'
+      ORDER BY assetid, testdate DESC NULLS LAST, testid DESC
+    ),
+    latest_load AS (
+      SELECT DISTINCT ON (assetid)
+        assetid,
+        testid,
+        testdate,
+        validdate,
+        status,
+        inspector
+      FROM atec.tblinspection
+      WHERE inspectiontype = 'LOADTEST'
+      ORDER BY assetid, testdate DESC NULLS LAST, testid DESC
+    )
+    SELECT
+      c.clientid,
+      c.clientname,
+      c.clientaddr,
+      a.assetid,
+      a.assettagno,
+      a.serialno,
+      a.description,
+      a.manufacturer,
+      a.wll,
+      a.archived,
+      s.sitename,
+      sec.sectionname,
+      p.name AS responsiblename,
+      et.description AS equipmenttype,
+      lv.testid AS visualtestid,
+      lv.testdate AS visualtestdate,
+      lv.validdate AS visualvaliddate,
+      lv.status AS visualstatus,
+      lv.inspector AS visualinspector,
+      ll.testid AS loadtestid,
+      ll.testdate AS loadtestdate,
+      ll.validdate AS loadvaliddate,
+      ll.status AS loadstatus,
+      ll.inspector AS loadinspector,
+      CASE
+        WHEN lv.testdate IS NULL THEN NULL
+        ELSE (lv.testdate + INTERVAL '3 months')::date
+      END AS nextvisualdue,
+      CASE
+        WHEN ll.testdate IS NULL THEN NULL
+        ELSE (ll.testdate + INTERVAL '12 months')::date
+      END AS nextloaddue,
+      CASE
+        WHEN COALESCE(a.archived, false) = true THEN 'ARCHIVED'
+        WHEN lv.status = 'NOT SAFE' OR ll.status = 'NOT SAFE' THEN 'NOT SAFE'
+        WHEN lv.testdate IS NULL THEN 'NO VISUAL'
+        WHEN ll.testdate IS NULL THEN 'NO LOAD TEST'
+        WHEN (lv.testdate + INTERVAL '3 months')::date < CURRENT_DATE THEN 'VISUAL OVERDUE'
+        WHEN (ll.testdate + INTERVAL '12 months')::date < CURRENT_DATE THEN 'LOAD TEST OVERDUE'
+        ELSE 'OK'
+      END AS reportstatus
+    FROM atec.tblasset a
+    LEFT JOIN atec.tblclients c
+      ON a.clientid = c.clientid
+    LEFT JOIN atec.tblsites s
+      ON a.siteid = s.siteid
+    LEFT JOIN atec.tblsection sec
+      ON a.sectionid = sec.sectionid
+    LEFT JOIN atec.tblpeople p
+      ON a.responsibleid = p.personid
+    LEFT JOIN atec.tblequiptype et
+      ON a.equiptypeid = et.equiptypeid
+    LEFT JOIN latest_visual lv
+      ON a.assetid = lv.assetid
+    LEFT JOIN latest_load ll
+      ON a.assetid = ll.assetid
+    ${assetWhere}
+    ORDER BY c.clientname, s.sitename, sec.sectionname, a.assetid
+    `,
+    values
+  )
+
+  const assets = assetResult.rows
+  const activeAssets = assets.filter(row => row.archived !== true)
+  const statusCounts = activeAssets.reduce((counts, row) => {
+    counts[row.reportstatus] = (counts[row.reportstatus] || 0) + 1
+    return counts
+  }, {})
+
+  return {
+    generatedAt: new Date().toISOString(),
+    filters: {
+      clientid: clientid || ""
+    },
+    customers: customerResult.rows,
+    assets,
+    summary: {
+      customers: customerResult.rows.length,
+      assets: assets.length,
+      activeAssets: activeAssets.length,
+      archivedAssets: assets.length - activeAssets.length,
+      safeAssets: activeAssets.filter(row => row.reportstatus === "OK").length,
+      notSafeAssets: activeAssets.filter(row => row.reportstatus === "NOT SAFE").length,
+      visualOverdueAssets: activeAssets.filter(row => row.reportstatus === "VISUAL OVERDUE").length,
+      loadOverdueAssets: activeAssets.filter(row => row.reportstatus === "LOAD TEST OVERDUE").length,
+      noVisualAssets: activeAssets.filter(row => row.reportstatus === "NO VISUAL").length,
+      noLoadAssets: activeAssets.filter(row => row.reportstatus === "NO LOAD TEST").length,
+      statusCounts
+    }
+  }
+}
+
+function drawCustomerReportPdf(doc, report) {
+  const marginX = 32
+  const width = doc.page.width - (marginX * 2)
+  let y = 28
+
+  const title =
+    report.customers.length === 1
+      ? report.customers[0].clientname
+      : "All Customers"
+
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(18)
+    .fillColor("#1f2937")
+    .text("Customer Detailed Report", marginX, y, { width })
+
+  y += 24
+
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(11)
+    .fillColor("#1f3b5c")
+    .text(title, marginX, y, { width })
+
+  y += 16
+
+  doc
+    .font("Helvetica")
+    .fontSize(8)
+    .fillColor("#374151")
+    .text(`Generated: ${reportDate(report.generatedAt)}`, marginX, y)
+
+  y += 20
+
+  const summaryItems = [
+    ["Customers", report.summary.customers],
+    ["Assets", report.summary.assets],
+    ["Active", report.summary.activeAssets],
+    ["OK", report.summary.safeAssets],
+    ["Not Safe", report.summary.notSafeAssets],
+    ["Visual Overdue", report.summary.visualOverdueAssets],
+    ["Load Overdue", report.summary.loadOverdueAssets],
+    ["No Visual", report.summary.noVisualAssets],
+    ["No Load Test", report.summary.noLoadAssets]
+  ]
+
+  const summaryWidth = width / 3
+
+  summaryItems.forEach((item, index) => {
+    const col = index % 3
+    const row = Math.floor(index / 3)
+    const boxX = marginX + (col * summaryWidth)
+    const boxY = y + (row * 24)
+
+    doc.rect(boxX, boxY, summaryWidth - 8, 20).strokeColor("#d9e1ec").stroke()
+    doc.font("Helvetica-Bold").fontSize(7).fillColor("#1f3b5c").text(item[0], boxX + 5, boxY + 4, {
+      width: summaryWidth - 50
+    })
+    doc.font("Helvetica").fontSize(9).fillColor("#111827").text(reportValue(item[1]), boxX + summaryWidth - 45, boxY + 4, {
+      width: 36,
+      align: "right"
+    })
+  })
+
+  y += 84
+
+  const columns = [
+    ["Asset", 45],
+    ["Tag", 56],
+    ["Serial", 70],
+    ["Site", 72],
+    ["Section", 72],
+    ["Equipment", 82],
+    ["Description", 112],
+    ["Last Visual", 58],
+    ["Visual Status", 54],
+    ["Last Load", 58],
+    ["Load Status", 54],
+    ["Report Status", width - 733]
+  ]
+
+  const drawHeader = () => {
+    let x = marginX
+    doc.font("Helvetica-Bold").fontSize(6.5)
+    columns.forEach(([label, colWidth]) => {
+      doc.rect(x, y, colWidth, 16).fillAndStroke("#1f3b5c", "#1f3b5c")
+      doc.fillColor("#ffffff").text(label, x + 3, y + 5, { width: colWidth - 6 })
+      x += colWidth
+    })
+    y += 16
+    doc.fillColor("#111827").font("Helvetica").fontSize(6.4)
+  }
+
+  drawHeader()
+
+  report.assets.forEach(row => {
+    if (y > doc.page.height - 48) {
+      doc.addPage()
+      y = 28
+      drawHeader()
+    }
+
+    const values = [
+      row.assetid,
+      row.assettagno,
+      row.serialno,
+      row.sitename,
+      row.sectionname,
+      row.equipmenttype,
+      row.description,
+      reportDate(row.visualtestdate),
+      row.visualstatus,
+      reportDate(row.loadtestdate),
+      row.loadstatus,
+      row.reportstatus
+    ].map(reportValue)
+
+    const rowHeight = Math.max(
+      18,
+      doc.heightOfString(values[6], { width: columns[6][1] - 6 }) + 8,
+      doc.heightOfString(values[11], { width: columns[11][1] - 6 }) + 8
+    )
+
+    let x = marginX
+    columns.forEach(([, colWidth], index) => {
+      doc.rect(x, y, colWidth, rowHeight).strokeColor("#d9e1ec").stroke()
+      doc
+        .font(index === 11 ? "Helvetica-Bold" : "Helvetica")
+        .fillColor(values[index] === "NOT SAFE" ? "#d00000" : "#111827")
+        .text(values[index], x + 3, y + 4, { width: colWidth - 6 })
+      x += colWidth
+    })
+
+    y += rowHeight
+  })
+}
+
+async function buildCustomerReportWorkbook(report) {
+  const workbook = new ExcelJS.Workbook()
+  workbook.creator = "ATEC"
+  workbook.created = new Date()
+
+  const summarySheet = workbook.addWorksheet("Summary")
+  summarySheet.columns = [
+    { header: "Metric", key: "metric", width: 28 },
+    { header: "Value", key: "value", width: 18 }
+  ]
+
+  summarySheet.addRow(["Generated", reportDate(report.generatedAt)])
+  summarySheet.addRow(["Customers", report.summary.customers])
+  summarySheet.addRow(["Assets", report.summary.assets])
+  summarySheet.addRow(["Active Assets", report.summary.activeAssets])
+  summarySheet.addRow(["Archived Assets", report.summary.archivedAssets])
+  summarySheet.addRow(["OK Assets", report.summary.safeAssets])
+  summarySheet.addRow(["Not Safe Assets", report.summary.notSafeAssets])
+  summarySheet.addRow(["Visual Overdue Assets", report.summary.visualOverdueAssets])
+  summarySheet.addRow(["Load Overdue Assets", report.summary.loadOverdueAssets])
+  summarySheet.addRow(["No Visual Assets", report.summary.noVisualAssets])
+  summarySheet.addRow(["No Load Test Assets", report.summary.noLoadAssets])
+
+  summarySheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } }
+  summarySheet.getRow(1).fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FF1F3B5C" }
+  }
+
+  const assetSheet = workbook.addWorksheet("Assets")
+  assetSheet.columns = [
+    { header: "Customer", key: "clientname", width: 28 },
+    { header: "Address", key: "clientaddr", width: 32 },
+    { header: "Site", key: "sitename", width: 22 },
+    { header: "Section", key: "sectionname", width: 22 },
+    { header: "Responsible Person", key: "responsiblename", width: 24 },
+    { header: "Asset ID", key: "assetid", width: 12 },
+    { header: "Asset Tag No", key: "assettagno", width: 18 },
+    { header: "Serial No", key: "serialno", width: 20 },
+    { header: "Equipment Type", key: "equipmenttype", width: 28 },
+    { header: "Description", key: "description", width: 36 },
+    { header: "Manufacturer", key: "manufacturer", width: 22 },
+    { header: "WLL", key: "wll", width: 12 },
+    { header: "Last Visual Test ID", key: "visualtestid", width: 16 },
+    { header: "Last Visual Date", key: "visualtestdate", width: 16 },
+    { header: "Visual Valid Until", key: "visualvaliddate", width: 18 },
+    { header: "Visual Status", key: "visualstatus", width: 16 },
+    { header: "Visual Inspector", key: "visualinspector", width: 20 },
+    { header: "Next Visual Due", key: "nextvisualdue", width: 16 },
+    { header: "Last Load Test ID", key: "loadtestid", width: 16 },
+    { header: "Last Load Date", key: "loadtestdate", width: 16 },
+    { header: "Load Valid Until", key: "loadvaliddate", width: 18 },
+    { header: "Load Status", key: "loadstatus", width: 16 },
+    { header: "Load Inspector", key: "loadinspector", width: 20 },
+    { header: "Next Load Due", key: "nextloaddue", width: 16 },
+    { header: "Report Status", key: "reportstatus", width: 22 },
+    { header: "Archived", key: "archived", width: 12 }
+  ]
+
+  report.assets.forEach(row => {
+    assetSheet.addRow({
+      ...row,
+      visualtestdate: reportDate(row.visualtestdate),
+      visualvaliddate: reportDate(row.visualvaliddate),
+      nextvisualdue: reportDate(row.nextvisualdue),
+      loadtestdate: reportDate(row.loadtestdate),
+      loadvaliddate: reportDate(row.loadvaliddate),
+      nextloaddue: reportDate(row.nextloaddue),
+      archived: row.archived ? "Yes" : "No"
+    })
+  })
+
+  ;[summarySheet, assetSheet].forEach(sheet => {
+    sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } }
+    sheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF1F3B5C" }
+    }
+    sheet.getRow(1).alignment = { vertical: "middle", horizontal: "center" }
+    sheet.views = [{ state: "frozen", ySplit: 1 }]
+    sheet.eachRow(row => {
+      row.eachCell(cell => {
+        cell.border = {
+          top: { style: "thin", color: { argb: "FFD9E1EC" } },
+          left: { style: "thin", color: { argb: "FFD9E1EC" } },
+          bottom: { style: "thin", color: { argb: "FFD9E1EC" } },
+          right: { style: "thin", color: { argb: "FFD9E1EC" } }
+        }
+      })
+    })
+  })
+
+  assetSheet.autoFilter = {
+    from: "A1",
+    to: "Z1"
+  }
+
+  return workbook
+}
+
+app.get("/reports/customer-detailed", async (req, res) => {
+  try {
+    const report = await getCustomerDetailedReport(req.query.clientid || "")
+    res.json(report)
+  } catch (err) {
+    console.error("Customer detailed report error:", err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.get("/reports/customer-detailed.pdf", async (req, res) => {
+  try {
+    const report = await getCustomerDetailedReport(req.query.clientid || "")
+    const filename = reportFileName(report, "pdf")
+
+    res.setHeader("Content-Type", "application/pdf")
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`)
+
+    const doc = new PDFDocument({
+      size: "A4",
+      layout: "landscape",
+      margin: 28,
+      bufferPages: false
+    })
+
+    doc.pipe(res)
+    drawCustomerReportPdf(doc, report)
+    doc.end()
+  } catch (err) {
+    console.error("Customer detailed PDF error:", err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.get("/reports/customer-detailed.xlsx", async (req, res) => {
+  try {
+    const report = await getCustomerDetailedReport(req.query.clientid || "")
+    const workbook = await buildCustomerReportWorkbook(report)
+    const filename = reportFileName(report, "xlsx")
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`)
+
+    await workbook.xlsx.write(res)
+    res.end()
+  } catch (err) {
+    console.error("Customer detailed Excel error:", err)
     res.status(500).json({ error: err.message })
   }
 })

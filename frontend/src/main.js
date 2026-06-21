@@ -9,6 +9,7 @@ import { renderInspections } from './pages/Inspections.js'
 import { renderEquipmentTypeCriteria } from './pages/EquipmentTypeCriteria.js'
 import { renderQuickInspection } from './pages/QuickInspection.js'
 import { renderCertificateSearch } from './pages/Certificates.js'
+import { renderCustomerDetailedReport } from './pages/CustomerDetailedReport.js'
 
 
 async function loadData() {
@@ -84,6 +85,10 @@ async function loadData() {
 
     <button onclick="showCertificateSearch()">
       Certificates
+    </button>
+
+    <button onclick="showCustomerDetailedReport()">
+      Reports
     </button>
 
     <button onclick="showEquipmentTypeCriteria()">
@@ -1932,6 +1937,12 @@ window.showCertificateSearch = function () {
   )
 }
 
+window.showCustomerDetailedReport = function () {
+  localStorage.setItem("currentPage", "customer-report")
+
+  renderCustomerDetailedReport(customers)
+}
+
 window.handleCertificateEnter = function (event) {
   if (event.key === "Enter") {
     searchCertificates()
@@ -3339,6 +3350,10 @@ switch (currentPage) {
 
   case "certificates":
     showCertificateSearch()
+    break
+
+  case "customer-report":
+    showCustomerDetailedReport()
     break
 
   default:
