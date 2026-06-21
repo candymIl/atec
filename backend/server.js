@@ -6,6 +6,7 @@ require("dotenv").config();
 const app = express();
 const multer = require("multer");
 const path = require("path");
+const PDFDocument = require("pdfkit");
 
 app.use(cors());
 app.use(express.json());
@@ -611,6 +612,7 @@ app.put("/assets/:id", async (req, res) => {
 
     const {
       serialno,
+      assettagno,
       manufacturer,
       description,
       wll,
@@ -639,18 +641,22 @@ app.put("/assets/:id", async (req, res) => {
       )
         AND assetid <> $1
         AND COALESCE(archived, false) = false
-        AND LOWER(serialno) = LOWER($2)
+        AND (
+          LOWER(serialno) = LOWER($2)
+          OR LOWER(assettagno) = LOWER($3)
+        )
       LIMIT 1
       `,
       [
         id,
-        serialno || ''
+        serialno || '',
+        assettagno || ''
       ]
     );
 
     if (duplicateCheck.rows.length > 0) {
       return res.status(400).json({
-        error: "Duplicate asset found for this client. Serial No already exists."
+        error: "Duplicate asset found for this client. Serial No or Asset Tag No already exists."
       });
     }
 
@@ -672,8 +678,9 @@ app.put("/assets/:id", async (req, res) => {
         hooksize = $13,
         steelwireropemm = $14,
         hoistdescription = $15,
-        hoistserialno = $16
-       WHERE assetid = $17
+        hoistserialno = $16,
+        assettagno = $17
+       WHERE assetid = $18
        RETURNING *`,
       [
         serialno,
@@ -692,6 +699,7 @@ app.put("/assets/:id", async (req, res) => {
         steelwireropemm,
         hoistdescription,
         hoistserialno,
+        assettagno,
         id
       ]
     );
@@ -1614,71 +1622,445 @@ app.get("/certificates/count", async (req, res) => {
   }
 })
 
+async function getCertificateData(testid) {
+  const inspectionResult = await pool.query(
+    `
+    SELECT
+      i.*,
+      a.assetid,
+      a.serialno,
+      a.assettagno,
+      a.manufacturer,
+      a.description,
+      a.media1,
+      a.media2,
+      a.manufactdate,
+      a.wll,
+      a.heightoflift,
+      a.numberofchainfalls,
+      a.oemtophooksize,
+      a.oembottomhooksize,
+      a.loadchaindiameter,
+      a.effectivelength,
+      a.span,
+      a.permissibledeflection,
+      a.hooksize,
+      a.steelwireropemm,
+      a.hoistdescription,
+      a.hoistserialno,
+      c.clientname,
+      s.sitename,
+      sec.sectionname,
+      et.description AS equipmenttype
+    FROM atec.tblinspection i
+    LEFT JOIN atec.tblasset a
+      ON i.assetid = a.assetid
+    LEFT JOIN atec.tblclients c
+      ON a.clientid = c.clientid
+    LEFT JOIN atec.tblsites s
+      ON a.siteid = s.siteid
+    LEFT JOIN atec.tblsection sec
+      ON a.sectionid = sec.sectionid
+    LEFT JOIN atec.tblequiptype et
+      ON a.equiptypeid = et.equiptypeid
+    WHERE i.testid = $1
+    `,
+    [testid]
+  )
+
+  if (inspectionResult.rows.length === 0) {
+    return null
+  }
+
+  const resultsResult = await pool.query(
+    `
+    SELECT
+      r.resultid,
+      r.criteriaid,
+      COALESCE(c.criterianame, 'Criteria ' || r.criteriaid) AS criterianame,
+      c.fieldtype,
+      r.assetvalue,
+      r.measuredvalue,
+      r.result,
+      r.remarks
+    FROM atec.tblinspectionresult r
+    LEFT JOIN atec.tblequiptypecriteria c
+      ON r.criteriaid = c.criteriaid
+    WHERE r.testid = $1
+    ORDER BY
+      CASE
+        WHEN LOWER(COALESCE(c.criterianame, '')) = 'safe for service' THEN 1
+        ELSE 0
+      END,
+      c.sortorder,
+      c.criteriaid
+    `,
+    [testid]
+  )
+
+  return {
+    inspection: inspectionResult.rows[0],
+    results: resultsResult.rows
+  }
+}
+
+function formatPdfDate(value) {
+  if (!value) return "-"
+
+  if (value instanceof Date) {
+    return value.toISOString().split("T")[0]
+  }
+
+  return String(value).split("T")[0]
+}
+
+function valueOrDash(value) {
+  return value === null || value === undefined || value === "" ? "-" : String(value)
+}
+
+function certificateImagePath(imagePath) {
+  if (!imagePath) return null
+
+  const normalizedPath = imagePath.replace(/^\/+/, "")
+  const fullPath = path.join(__dirname, normalizedPath)
+
+  return fs.existsSync(fullPath) ? fullPath : null
+}
+
+function getCertificateTitle(inspection) {
+  return inspection.inspectiontype === "LOADTEST"
+    ? "CERTIFICATE OF EXAMINATION AND TEST"
+    : "CERTIFICATE OF INSPECTION"
+}
+
+function addPdfKeyValues(doc, items, x, y, width, options = {}) {
+  const columnCount = options.columns || 2
+  const columnGap = 18
+  const labelWidth = options.labelWidth || 106
+  const fontSize = options.fontSize || 7.5
+  const minRowHeight = options.rowHeight || 12
+  const columnWidth = (width - (columnGap * (columnCount - 1))) / columnCount
+  const rows = []
+
+  for (let index = 0; index < items.length; index += columnCount) {
+    rows.push(items.slice(index, index + columnCount))
+  }
+
+  rows.forEach(rowItems => {
+    const rowHeight = Math.max(
+      minRowHeight,
+      ...rowItems.map(item => {
+        const valueHeight = doc
+          .font("Helvetica")
+          .fontSize(fontSize)
+          .heightOfString(valueOrDash(item[1]), {
+            width: columnWidth - labelWidth - 4
+          })
+
+        return valueHeight + 3
+      })
+    )
+
+    rowItems.forEach((item, column) => {
+      const itemX = x + (column * (columnWidth + columnGap))
+      const valueX = itemX + labelWidth
+
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(fontSize)
+        .fillColor("#111827")
+        .text(`${item[0]}:`, itemX, y, {
+          width: labelWidth - 4,
+          lineBreak: false
+        })
+
+      doc
+        .font("Helvetica")
+        .fontSize(fontSize)
+        .text(valueOrDash(item[1]), valueX, y, {
+          width: columnWidth - labelWidth,
+          lineGap: 0
+        })
+    })
+
+    y += rowHeight
+  })
+
+  return y
+}
+
+function addPdfMetaValues(doc, items, x, y, width) {
+  const columnWidth = width / items.length
+
+  items.forEach((item, index) => {
+    const column = index
+    const itemX = x + (column * columnWidth)
+    const value = valueOrDash(item[1])
+    const isStatus = String(item[0]).toLowerCase() === "status"
+    const isSafe = value.toUpperCase() === "SAFE"
+    const statusColor = isSafe ? "#00843d" : "#d00000"
+
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(9)
+      .fillColor("#111827")
+      .text(`${item[0]}:`, itemX, y, {
+        width: columnWidth,
+        continued: false
+      })
+
+    doc
+      .font("Helvetica")
+      .fontSize(9)
+      .fillColor(isStatus ? statusColor : "#111827")
+      .text(value, itemX + 78, y, {
+        width: columnWidth - 82
+      })
+  })
+
+  doc.fillColor("#111827")
+
+  return y + 13
+}
+
+function addPdfSectionTitle(doc, title, x, y, width) {
+  doc
+    .moveTo(x, y + 12)
+    .lineTo(x + width, y + 12)
+    .strokeColor("#d9e1ec")
+    .stroke()
+
+  doc
+    .fillColor("#1f3b5c")
+    .font("Helvetica-Bold")
+    .fontSize(8.5)
+    .text(title, x, y)
+    .fillColor("#111827")
+
+  return y + 18
+}
+
+function drawCertificatePdf(doc, inspection, results) {
+  const pageWidth = doc.page.width
+  const marginX = 54
+  const width = pageWidth - (marginX * 2)
+  let y = 18
+
+  const headerPath = path.join(__dirname, "..", "frontend", "public", "header.jpg")
+  const footerPath = path.join(__dirname, "..", "frontend", "public", "footer.jpg")
+
+  if (fs.existsSync(headerPath)) {
+    doc.image(headerPath, marginX, y, { fit: [width, 82], align: "center" })
+  }
+
+  y += 86
+
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(12)
+    .fillColor("#1f2937")
+    .text(getCertificateTitle(inspection), marginX, y, {
+      width,
+      align: "center"
+    })
+
+  y += 18
+  doc.moveTo(marginX, y).lineTo(marginX + width, y).strokeColor("#9ca3af").stroke()
+  y += 6
+
+  y = addPdfMetaValues(doc, [
+    ["Certificate No", inspection.testid],
+    ["Tag Number", inspection.tagnumber],
+    ["Status", inspection.status]
+  ], marginX, y, width)
+
+  y += 8
+  doc.moveTo(marginX, y).lineTo(marginX + width, y).strokeColor("#9ca3af").stroke()
+  y += 10
+
+  y = addPdfSectionTitle(doc, "Customer Details", marginX, y, width)
+  y = addPdfKeyValues(doc, [
+    ["Client", inspection.clientname],
+    ["Site", inspection.sitename],
+    ["Section", inspection.sectionname]
+  ], marginX, y, width)
+
+  y += 8
+  y = addPdfSectionTitle(doc, "Asset Details", marginX, y, width)
+  y = addPdfKeyValues(doc, [
+    ["Asset ID", inspection.assetid],
+    ["Asset Tag No", inspection.assettagno],
+    ["Equipment Type", inspection.equipmenttype],
+    ["Description", inspection.description],
+    ["Serial No", inspection.serialno],
+    ["Manufacturer", inspection.manufacturer]
+  ], marginX, y, width)
+
+  const assetSpecs = [
+    ["WLL", inspection.wll ? `${inspection.wll} kg` : ""],
+    ["Height of Lift", inspection.heightoflift ? `${inspection.heightoflift} mm` : ""],
+    ["Span/Jib", inspection.span ? `${inspection.span} mm` : ""],
+    ["Permissible Deflection", inspection.permissibledeflection ? `${inspection.permissibledeflection} mm` : ""],
+    ["Hook Size", inspection.hooksize ? `${inspection.hooksize} mm` : ""],
+    ["Steel Wire Rope", inspection.steelwireropemm ? `${inspection.steelwireropemm} mm` : ""],
+    ["Manufacture Date", formatPdfDate(inspection.manufactdate)]
+  ].filter(([, value]) => value && value !== "-")
+
+  if (assetSpecs.length) {
+    y += 8
+    y = addPdfSectionTitle(doc, "Asset Specifications", marginX, y, width)
+    y = addPdfKeyValues(doc, assetSpecs, marginX, y, width)
+  }
+
+  y += 8
+  y = addPdfSectionTitle(doc, "Inspection Details", marginX, y, width)
+  y = addPdfKeyValues(doc, [
+    ["Inspection Type", inspection.inspectiontype],
+    ["Inspection Date", formatPdfDate(inspection.testdate)],
+    ["Certificate Expiry Date", formatPdfDate(inspection.validdate)],
+    ["Inspector", inspection.inspector]
+  ], marginX, y, width)
+
+  y += 8
+  y = addPdfSectionTitle(doc, "Inspection Photos", marginX, y, width)
+
+  const photo1Path = certificateImagePath(inspection.photo1 || inspection.media1)
+  const photo2Path = certificateImagePath(inspection.photo2 || inspection.media2)
+  const photoBoxWidth = (width - 12) / 2
+  const photoBoxHeight = 110
+
+  ;[photo1Path, photo2Path].forEach((photoPath, index) => {
+    const boxX = marginX + (index * (photoBoxWidth + 12))
+    doc.rect(boxX, y, photoBoxWidth, photoBoxHeight).strokeColor("#d9e1ec").stroke()
+
+    if (photoPath) {
+      doc.image(photoPath, boxX + 5, y + 5, {
+        fit: [photoBoxWidth - 10, photoBoxHeight - 18],
+        align: "center",
+        valign: "center"
+      })
+      doc.font("Helvetica").fontSize(6.5).text(`Photo ${index + 1}`, boxX, y + photoBoxHeight - 10, {
+        width: photoBoxWidth,
+        align: "center"
+      })
+    } else {
+      doc.font("Helvetica").fontSize(7).fillColor("#6b7280").text(`No Photo ${index + 1}`, boxX, y + 30, {
+        width: photoBoxWidth,
+        align: "center"
+      }).fillColor("#111827")
+    }
+  })
+
+  y += photoBoxHeight + 10
+  y = addPdfSectionTitle(doc, "Inspection Results", marginX, y, width)
+
+  const tableColumns = [
+    { title: "Criteria", width: 160 },
+    { title: "Asset Value", width: 70 },
+    { title: "Measured Value", width: 80 },
+    { title: "Result", width: 65 },
+    { title: "Remarks", width: width - 375 }
+  ]
+
+  let x = marginX
+  doc.font("Helvetica-Bold").fontSize(7)
+  tableColumns.forEach(column => {
+    doc.rect(x, y, column.width, 14).fillAndStroke("#1f3b5c", "#1f3b5c")
+    doc.fillColor("#ffffff")
+    doc.text(column.title, x + 3, y + 4, { width: column.width - 6 })
+    x += column.width
+  })
+
+  y += 14
+  doc.fillColor("#111827").font("Helvetica").fontSize(7)
+
+  results.forEach(row => {
+    const values = [
+      valueOrDash(row.criterianame),
+      row.assetvalue || "",
+      row.measuredvalue || "",
+      row.result || "",
+      row.remarks || ""
+    ]
+
+    const rowHeight = Math.max(
+      14,
+      doc.heightOfString(values[0], { width: tableColumns[0].width - 6 }) + 6,
+      doc.heightOfString(values[4], { width: tableColumns[4].width - 6 }) + 6
+    )
+
+    x = marginX
+    tableColumns.forEach((column, index) => {
+      doc.rect(x, y, column.width, rowHeight).strokeColor("#d9e1ec").stroke()
+      doc
+        .font(index === 3 ? "Helvetica-Bold" : "Helvetica")
+        .text(values[index], x + 3, y + 4, { width: column.width - 6 })
+      x += column.width
+    })
+
+    y += rowHeight
+  })
+
+  y += 14
+  doc.font("Helvetica-Bold").fontSize(8).text("Inspector Signature", marginX, y)
+  doc.moveTo(marginX, y + 30).lineTo(marginX + 180, y + 30).strokeColor("#111827").stroke()
+
+  if (fs.existsSync(footerPath)) {
+    doc.image(footerPath, marginX + 255, y - 6, { fit: [260, 50] })
+  }
+}
+
 app.get("/inspections/:testid/certificate", async (req, res) => {
   try {
     const { testid } = req.params
+    const certificate = await getCertificateData(testid)
 
-    const inspectionResult = await pool.query(
-      `
-      SELECT
-        i.*,
-        a.assetid,
-        a.serialno,
-        a.assettagno,
-        a.manufacturer,
-        a.description,
-        a.media1,
-        a.media2,
-        c.clientname,
-        s.sitename,
-        sec.sectionname,
-        et.description AS equipmenttype
-      FROM atec.tblinspection i
-      LEFT JOIN atec.tblasset a
-        ON i.assetid = a.assetid
-      LEFT JOIN atec.tblclients c
-        ON a.clientid = c.clientid
-      LEFT JOIN atec.tblsites s
-        ON a.siteid = s.siteid
-      LEFT JOIN atec.tblsection sec
-        ON a.sectionid = sec.sectionid
-      LEFT JOIN atec.tblequiptype et
-        ON a.equiptypeid = et.equiptypeid
-      WHERE i.testid = $1
-      `,
-      [testid]
-    )
-
-    if (inspectionResult.rows.length === 0) {
+    if (!certificate) {
       return res.status(404).json({
         error: "Certificate not found"
       })
     }
 
-    const resultsResult = await pool.query(
-      `
-      SELECT
-        r.resultid,
-        r.criteriaid,
-        c.criterianame,
-        c.fieldtype,
-        r.assetvalue,
-        r.measuredvalue,
-        r.result,
-        r.remarks
-      FROM atec.tblinspectionresult r
-      LEFT JOIN atec.tblequiptypecriteria c
-        ON r.criteriaid = c.criteriaid
-      WHERE r.testid = $1
-      ORDER BY c.sortorder, c.criteriaid
-      `,
-      [testid]
+    res.json(certificate)
+
+  } catch (err) {
+    console.error(err)
+
+    res.status(500).json({
+      error: err.message
+    })
+  }
+})
+
+app.get("/inspections/:testid/certificate.pdf", async (req, res) => {
+  try {
+    const { testid } = req.params
+    const certificate = await getCertificateData(testid)
+
+    if (!certificate) {
+      return res.status(404).json({
+        error: "Certificate not found"
+      })
+    }
+
+    res.setHeader("Content-Type", "application/pdf")
+    const disposition =
+      req.query.inline === "1" ? "inline" : "attachment"
+
+    res.setHeader(
+      "Content-Disposition",
+      `${disposition}; filename="certificate-${testid}.pdf"`
     )
 
-    res.json({
-      inspection: inspectionResult.rows[0],
-      results: resultsResult.rows
+    const doc = new PDFDocument({
+      size: "A4",
+      margin: 28,
+      bufferPages: false
     })
+
+    doc.pipe(res)
+    drawCertificatePdf(doc, certificate.inspection, certificate.results)
+    doc.end()
 
   } catch (err) {
     console.error(err)

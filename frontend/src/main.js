@@ -1010,6 +1010,11 @@ window.showAddAssetForm = function () {
   </div>
 
   <div class="form-group">
+    <label>Asset Tag Number</label>
+    <input id="assetTagNo" type="text">
+  </div>
+
+  <div class="form-group">
     <label>Manufacturer</label>
     <input id="assetManufacturer" type="text">
   </div>
@@ -1239,7 +1244,7 @@ window.saveAssetFromForm = async function () {
   const sectionid = document.querySelector('#assetSection').value
   const responsibleid = document.querySelector('#assetResponsible').value
   const equiptypeid = document.querySelector('#assetEquipType').value
-  const assettagno = null
+  const assettagno = document.querySelector('#assetTagNo')?.value || ""
   const serialno = document.querySelector('#assetSerialNo').value
   const manufacturer = document.querySelector('#assetManufacturer').value
   const description = document.querySelector('#assetDescription').value
@@ -1463,6 +1468,11 @@ window.editAsset = function (assetid) {
         </div>
 
         <div class="form-group">
+          <label>Asset Tag Number</label>
+          <input id="editAssetTagNo" type="text" value="${asset.assettagno || ''}">
+        </div>
+
+        <div class="form-group">
           <label>Manufacturer</label>
           <input id="editAssetManufacturer" type="text" value="${asset.manufacturer || ''}">
         </div>
@@ -1523,6 +1533,7 @@ window.editAsset = function (assetid) {
 
 window.saveAssetChanges = async function (assetid) {
   const serialno = document.querySelector('#editAssetSerialNo').value
+  const assettagno = document.querySelector('#editAssetTagNo')?.value || ""
   const manufacturer = document.querySelector('#editAssetManufacturer').value
   const description = document.querySelector('#editAssetDescription').value
 
@@ -1533,6 +1544,7 @@ window.saveAssetChanges = async function (assetid) {
     },
     body: JSON.stringify({
       serialno,
+      assettagno,
       manufacturer,
       description,
 
@@ -2061,8 +2073,17 @@ window.searchCertificates = async function () {
             </td>
             <td>${cert.inspector || "-"}</td>
             <td>
-             <button onclick="previewCertificate(${cert.testid})">Preview</button>
-              <button onclick="openCertificateModal(${cert.testid})">View</button>            </td>
+              <button onclick="previewCertificate(${cert.testid})">Preview</button>
+              <button onclick="openCertificateModal(${cert.testid})">View</button>
+              <a
+                class="cert-action-link"
+                href="http://localhost:5000/inspections/${cert.testid}/certificate.pdf"
+                download="certificate-${cert.testid}.pdf"
+              >
+                Download PDF
+              </a>
+              <button onclick="mailCertificate(${cert.testid})">Mail</button>
+            </td>
           </tr>
         `).join("")}
       </tbody>
@@ -2343,11 +2364,21 @@ function isTextCriteria(row) {
   )
 }
 
+function isSafeForServiceCriteria(row) {
+  return (row.criterianame || "").toLowerCase() === "safe for service"
+}
+
 function getInspectionCriteriaRows(allCriteria, inspectiontype) {
-  return allCriteria.filter(row =>
-    inspectiontype !== "LOADTEST" ||
-    !loadTestAssetOnlyCriteria.has(row.criterianame)
-  )
+  return allCriteria
+    .filter(row =>
+      inspectiontype !== "LOADTEST" ||
+      !loadTestAssetOnlyCriteria.has(row.criterianame)
+    )
+    .sort((a, b) => {
+      if (isSafeForServiceCriteria(a)) return 1
+      if (isSafeForServiceCriteria(b)) return -1
+      return 0
+    })
 }
 
 function getMeasurementLabels(criteriaName) {

@@ -256,6 +256,19 @@ function renderCertificateResults(certificates) {
               <button type="button" class="cert-view-btn" data-testid="${cert.testid}">
                 View
               </button>
+
+              <a
+                class="cert-action-link"
+                href="http://localhost:5000/inspections/${cert.testid}/certificate.pdf"
+                download="certificate-${cert.testid}.pdf"
+                onclick="event.stopPropagation()"
+              >
+                Download PDF
+              </a>
+
+              <button type="button" class="cert-mail-btn" data-testid="${cert.testid}">
+                Mail
+              </button>
             </td>
           </tr>
         `).join("")}
@@ -286,6 +299,14 @@ function bindCertificateResultEvents() {
       event.preventDefault()
       event.stopPropagation()
       window.openCertificateModal(button.dataset.testid)
+    })
+  })
+
+  document.querySelectorAll('.cert-mail-btn').forEach(button => {
+    button.addEventListener('click', event => {
+      event.preventDefault()
+      event.stopPropagation()
+      window.mailCertificate(button.dataset.testid)
     })
   })
 }
@@ -413,7 +434,10 @@ window.previewCertificate = async function (testid) {
     .querySelector('#previewPrintCertificateBtn')
     .addEventListener('click', async () => {
       await window.openCertificateModal(inspection.testid)
-      setTimeout(() => window.print(), 250)
+      setTimeout(() => {
+        prepareCertificatePrint()
+        window.print()
+      }, 250)
     })
 }
 
@@ -431,6 +455,9 @@ window.openCertificateModal = async function (testid) {
 
   const inspection = data.inspection
   const results = data.results || []
+  const [photo1, photo2] = getCertificatePhotos(inspection)
+  const assetDetails = getCertificateAssetDetails(inspection)
+  const certificateTitle = getCertificateTitle(inspection)
 
   const existingModal = document.querySelector("#certificateModal")
   if (existingModal) existingModal.remove()
@@ -445,7 +472,23 @@ window.openCertificateModal = async function (testid) {
       <div class="certificate-modal-header screen-only">
         <h2>Certificate ${inspection.testid}</h2>
         <div class="form-actions">
-          <button type="button" id="certificatePrintBtn">Print</button>
+          <a
+            id="certificatePrintBtn"
+            class="cert-action-link"
+            href="http://localhost:5000/inspections/${inspection.testid}/certificate.pdf?inline=1"
+            target="_blank"
+          >
+            Print
+          </a>
+          <a
+            id="certificateDownloadPdfBtn"
+            class="cert-action-link"
+            href="http://localhost:5000/inspections/${inspection.testid}/certificate.pdf"
+            download="certificate-${inspection.testid}.pdf"
+          >
+            Download PDF
+          </a>
+          <button type="button" id="certificateMailBtn">Mail</button>
           <button type="button" id="certificateCloseBtn">Close</button>
         </div>
       </div>
@@ -457,7 +500,7 @@ window.openCertificateModal = async function (testid) {
           <img src="/header.jpg" class="fb-cert-header" alt="FB Cranes Header">
 
           <div class="fb-cert-title">
-            <h1>Certificate of Inspection</h1>
+            <h1>${certificateTitle}</h1>
           </div>
 
           <div class="fb-cert-meta">
@@ -492,12 +535,24 @@ window.openCertificateModal = async function (testid) {
             <h3>Asset Details</h3>
             <div class="fb-cert-grid">
               <p><strong>Asset ID:</strong> ${inspection.assetid || "-"}</p>
+              <p><strong>Asset Tag No:</strong> ${inspection.assettagno || "-"}</p>
               <p><strong>Equipment Type:</strong> ${inspection.equipmenttype || "-"}</p>
               <p><strong>Description:</strong> ${inspection.description || "-"}</p>
               <p><strong>Serial No:</strong> ${inspection.serialno || "-"}</p>
               <p><strong>Manufacturer:</strong> ${inspection.manufacturer || "-"}</p>
             </div>
           </div>
+
+          ${assetDetails.length ? `
+            <div class="fb-cert-section">
+              <h3>Asset Specifications</h3>
+              <div class="fb-cert-grid">
+                ${assetDetails.map(([label, value]) => `
+                  <p><strong>${label}:</strong> ${value}</p>
+                `).join("")}
+              </div>
+            </div>
+          ` : ""}
 
           <div class="fb-cert-section">
             <h3>Inspection Details</h3>
@@ -512,18 +567,18 @@ window.openCertificateModal = async function (testid) {
           <div class="fb-cert-section">
             <h3>Inspection Photos</h3>
             <div class="fb-cert-photo-grid">
-              ${inspection.photo1 ? `
+              ${photo1 ? `
                 <div>
-                  <img src="http://localhost:5000${inspection.photo1}">
+                  <img src="http://localhost:5000${photo1}">
                   <p>Photo 1</p>
                 </div>
               ` : `
                 <div class="fb-cert-no-photo">No Photo 1</div>
               `}
 
-              ${inspection.photo2 ? `
+              ${photo2 ? `
                 <div>
-                  <img src="http://localhost:5000${inspection.photo2}">
+                  <img src="http://localhost:5000${photo2}">
                   <p>Photo 2</p>
                 </div>
               ` : `
@@ -591,13 +646,120 @@ window.openCertificateModal = async function (testid) {
     .addEventListener('click', window.closeCertificateModal)
 
   document
-    .querySelector('#certificatePrintBtn')
-    .addEventListener('click', () => window.print())
+    .querySelector('#certificateMailBtn')
+    .addEventListener('click', () => {
+      window.mailCertificate(inspection.testid)
+    })
+}
+
+window.printCertificatePdf = function (testid) {
+  window.open(
+    `http://localhost:5000/inspections/${testid}/certificate.pdf?inline=1`,
+    "_blank"
+  )
+}
+
+window.downloadCertificatePdf = async function (testid) {
+  const response = await fetch(
+    `http://localhost:5000/inspections/${testid}/certificate.pdf`
+  )
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({
+      error: "Unable to download certificate PDF"
+    }))
+
+    alert("Error downloading certificate PDF: " + error.error)
+    return
+  }
+
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+
+  link.href = url
+  link.download = `certificate-${testid}.pdf`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
+window.mailCertificate = async function (testid) {
+  const response = await fetch(
+    `http://localhost:5000/inspections/${testid}/certificate`
+  )
+
+  const data = await response.json()
+
+  if (!response.ok) {
+    alert("Error loading certificate email details: " + data.error)
+    return
+  }
+
+  const inspection = data.inspection
+  const subject = `Certificate ${inspection.testid}`
+  const body = [
+    `Certificate No: ${inspection.testid}`,
+    `Client: ${inspection.clientname || "-"}`,
+    `Site: ${inspection.sitename || "-"}`,
+    `Asset: ${inspection.description || "-"}`,
+    `Serial No: ${inspection.serialno || "-"}`,
+    `Inspection Type: ${inspection.inspectiontype || "-"}`,
+    `Inspection Date: ${formatDate(inspection.testdate)}`,
+    `Status: ${inspection.status || "-"}`,
+    "",
+    "The PDF certificate has been downloaded. Please attach it before sending."
+  ].join("\n")
+
+  await window.downloadCertificatePdf(testid)
+
+  window.location.href =
+    `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
 }
 
 window.closeCertificateModal = function () {
   const modal = document.querySelector("#certificateModal")
   if (modal) modal.remove()
+}
+
+function getCertificatePhotos(inspection) {
+  return [
+    inspection.photo1 || inspection.media1,
+    inspection.photo2 || inspection.media2
+  ]
+}
+
+function getCertificateAssetDetails(inspection) {
+  return [
+    ["WLL", inspection.wll ? `${inspection.wll} kg` : ""],
+    ["Height of Lift", inspection.heightoflift ? `${inspection.heightoflift} mm` : ""],
+    ["Number of Chain Falls", inspection.numberofchainfalls],
+    ["OEM Top Hook Size", inspection.oemtophooksize ? `${inspection.oemtophooksize} mm` : ""],
+    ["OEM Bottom Hook Size", inspection.oembottomhooksize ? `${inspection.oembottomhooksize} mm` : ""],
+    ["Load Chain Diameter", inspection.loadchaindiameter ? `${inspection.loadchaindiameter} mm` : ""],
+    ["Effective Length", inspection.effectivelength ? `${inspection.effectivelength} mm` : ""],
+    ["Span/Jib", inspection.span ? `${inspection.span} mm` : ""],
+    ["Permissible Deflection", inspection.permissibledeflection ? `${inspection.permissibledeflection} mm` : ""],
+    ["Hook Size", inspection.hooksize ? `${inspection.hooksize} mm` : ""],
+    ["Steel Wire Rope", inspection.steelwireropemm ? `${inspection.steelwireropemm} mm` : ""],
+    ["Hoist Description", inspection.hoistdescription],
+    ["Hoist Serial No", inspection.hoistserialno],
+    ["Manufacture Date", formatDate(inspection.manufactdate)]
+  ].filter(([, value]) => value && value !== "-")
+}
+
+function getCertificateTitle(inspection) {
+  return inspection.inspectiontype === "LOADTEST"
+    ? "CERTIFICATE OF EXAMINATION AND TEST"
+    : "CERTIFICATE OF INSPECTION"
+}
+
+function prepareCertificatePrint() {
+  const page = document.querySelector("#certificateModal .fb-cert-page")
+  if (!page) return
+
+  page.style.removeProperty("--cert-print-scale")
 }
 
 function formatDate(value) {

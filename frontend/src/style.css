@@ -141,6 +141,30 @@ button:hover {
   background: #1d4ed8;
 }
 
+.cert-action-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: #2563eb;
+  color: white;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  min-height: 34px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.cert-action-link:hover {
+  background: #1d4ed8;
+  color: white;
+}
+
 .form-actions,
 .action-buttons {
   display: flex;
@@ -1124,6 +1148,17 @@ tr:hover {
   justify-content: flex-end;
 }
 
+.criteria-row-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.criteria-row-actions button {
+  white-space: nowrap;
+}
+
 .criteria-modal-overlay {
   position: fixed;
   inset: 0;
@@ -1603,25 +1638,152 @@ tr:hover {
     margin: 8mm;
   }
 
+  html,
+  body {
+    width: auto;
+    height: auto;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+    overflow: visible !important;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  #certificateModal,
+  #certificateModal * {
+    visibility: visible;
+  }
+
+  #certificateModal {
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: white !important;
+    overflow: visible !important;
+  }
+
+  .certificate-modal {
+    width: 100% !important;
+    max-width: none !important;
+    height: auto !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+  }
+
+  .certificate-modal-header,
+  .certificate-modal-footer,
+  .sidebar,
+  .form-actions {
+    display: none !important;
+  }
+
   .screen-only {
     display: none !important;
   }
 
   .certificate-modal-body {
     padding: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
   }
 
   .fb-cert-page {
-    max-width: 100%;
-    font-size: 11px;
+    width: 100%;
+    max-width: 1000px;
+    margin: 0 auto;
+    font-size: 13px;
+    line-height: normal;
+    overflow: visible;
+    transform: none !important;
+    page-break-after: auto;
+    page-break-before: auto;
+    page-break-inside: auto;
+  }
+
+  .fb-cert-header {
+    margin-bottom: 14px;
+    max-height: none;
+    object-fit: initial;
   }
 
   .fb-cert-title h1 {
-    font-size: 20px;
+    font-size: 24px;
+    margin: 10px 0 16px;
+  }
+
+  .fb-cert-meta {
+    gap: 15px;
+    padding: 10px 0;
+    margin-bottom: 16px;
+  }
+
+  .fb-cert-section {
+    margin: 14px 0;
+  }
+
+  .fb-cert-section h3 {
+    padding-bottom: 5px;
+    margin-bottom: 8px;
+    font-size: 1.17em;
+  }
+
+  .fb-cert-grid {
+    gap: 4px 24px;
+  }
+
+  .fb-cert-grid p {
+    margin: 4px 0;
+  }
+
+  .fb-cert-photo-grid {
+    gap: 14px;
+  }
+
+  .fb-cert-photo-grid div {
+    min-height: 120px;
+    padding: 8px;
   }
 
   .fb-cert-photo-grid img {
-    max-height: 120px;
+    max-height: 180px;
+  }
+
+  .fb-cert-photo-grid p {
+    margin: revert;
+  }
+
+  .fb-cert-results-table {
+    font-size: 12px;
+    line-height: normal;
+  }
+
+  .fb-cert-results-table th {
+    padding: 7px;
+  }
+
+  .fb-cert-results-table td {
+    padding: 6px;
+  }
+
+  .fb-cert-signature-section {
+    gap: 60px;
+    margin: 30px 0 15px;
+  }
+
+  .fb-cert-signature-line {
+    height: 45px;
+  }
+
+  .fb-cert-footer {
+    margin-top: 24px;
+    max-height: none;
+    object-fit: initial;
   }
 }
 
@@ -1823,6 +1985,26 @@ tr:hover {
 #certificateStats,
 #certificatePreviewPanel {
   margin-top: 15px;
+}
+
+#certificateResults th:last-child,
+#certificateResults td:last-child {
+  width: 220px !important;
+  min-width: 220px !important;
+  white-space: normal !important;
+}
+
+#certificateResults td:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+}
+
+#certificateResults td:last-child button {
+  padding: 5px 8px;
+  font-size: 11px;
+  min-height: 28px;
 }
 
 

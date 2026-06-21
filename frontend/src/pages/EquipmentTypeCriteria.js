@@ -56,7 +56,7 @@ export function renderEquipmentTypeCriteria(equipmentTypes, criteria) {
             <td>${row.inspectioncategory || ''}</td>
             <td>${row.criterianame || ''}</td>
             <td>${row.fieldtype || ''}</td>
-            <td>
+            <td class="criteria-row-actions">
               <button type="button" onclick="editCriteria(${row.criteriaid})">
                 Edit
               </button>
