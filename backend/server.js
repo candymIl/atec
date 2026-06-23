@@ -1,6 +1,10 @@
 const fs = require("fs")
 const express = require("express");
 const cors = require("cors");
+const cookieParser = require("cookie-parser")
+const helmet = require("helmet")
+const rateLimit = require("express-rate-limit")
+const bcrypt = require("bcryptjs")
 const pool = require("./db");
 require("dotenv").config();
 const app = express();
@@ -8,26 +12,655 @@ const multer = require("multer");
 const path = require("path");
 const PDFDocument = require("pdfkit");
 const ExcelJS = require("exceljs");
+const {
+  asyncRoute,
+  auditLogger,
+  authCookieOptions,
+  errorHandler,
+  isSafeUpload,
+  publicUser,
+  requireAuth,
+  sanitizeFilename,
+  signAuthToken
+} = require("./middleware/security")
 
-app.use(cors());
+const allowedOrigins = (process.env.FRONTEND_ORIGIN || "http://localhost:5174,http://localhost:5173")
+  .split(",")
+  .map(origin => origin.trim())
+  .filter(Boolean)
+
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true)
+    }
+
+    return callback(new Error("Origin not allowed by CORS"))
+  },
+  credentials: true
+}));
 app.use(express.json());
-app.use("/uploads", express.static("uploads"));
+app.use(cookieParser());
+
+const logAudit = auditLogger(pool)
+
+app.use((req, res, next) => {
+  req.logAudit = (...args) => logAudit(req, ...args)
+  next()
+})
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, "uploads/assets");
+    const folder = file.fieldname === "signature" ? "uploads/signatures" : "uploads/assets"
+    fs.mkdirSync(folder, { recursive: true })
+    cb(null, folder);
   },
   filename: function (req, file, cb) {
-    const uniqueName = Date.now() + "-" + file.originalname;
-    cb(null, uniqueName);
+    cb(null, sanitizeFilename(file.originalname));
   },
 });
 
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024
+  },
+  fileFilter: function (req, file, cb) {
+    if (!isSafeUpload(file)) {
+      return cb(new Error("Only JPG, PNG and WebP images are allowed"))
+    }
+
+    return cb(null, true)
+  }
+});
 
 app.get("/", (req, res) => {
   res.send("ATEC backend is running");
 });
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false
+})
+
+function roleToUserLevel(role) {
+  return {
+    ADMIN: 1,
+    MANAGER: 2,
+    INSPECTOR: 3,
+    VIEWER: 4,
+    CUSTOMER: 5
+  }[role] || 5
+}
+
+function validRoles() {
+  return ["ADMIN", "MANAGER", "INSPECTOR", "VIEWER", "CUSTOMER"]
+}
+
+async function ensureTblUsersHaveIds() {
+  await pool.query(`
+    WITH numbered AS (
+      SELECT
+        ctid,
+        ROW_NUMBER() OVER (
+          ORDER BY COALESCE(NULLIF(fullname, ''), username, email, ctid::text)
+        ) AS row_number
+      FROM atec.tblusers
+      WHERE userid IS NULL
+    ),
+    base AS (
+      SELECT COALESCE(MAX(userid), 0) AS max_userid
+      FROM atec.tblusers
+    )
+    UPDATE atec.tblusers users
+    SET userid = base.max_userid + numbered.row_number,
+        updated_at = now()
+    FROM numbered, base
+    WHERE users.ctid = numbered.ctid
+  `)
+}
+
+app.post("/auth/login", loginLimiter, asyncRoute(async (req, res) => {
+  const username = String(req.body.username || "").trim()
+  const password = String(req.body.password || "")
+
+  if (!username || !password) {
+    return res.status(400).json({ error: "Username and password are required" })
+  }
+
+  const result = await pool.query(
+    `
+    SELECT
+      userid AS user_id,
+      username,
+      email,
+      password AS password_hash,
+      COALESCE(NULLIF(fullname, ''), username) AS full_name,
+      COALESCE(
+        role,
+        CASE
+          WHEN userlevel = 1 THEN 'ADMIN'
+          WHEN userlevel = 2 THEN 'MANAGER'
+          WHEN userlevel = 3 THEN 'INSPECTOR'
+          WHEN userlevel = 4 THEN 'VIEWER'
+          WHEN userlevel = 5 THEN 'CUSTOMER'
+          ELSE 'VIEWER'
+        END
+      ) AS role,
+      lmi_no AS lmi_number,
+      usersignature AS signature_image,
+      clientid,
+      siteid,
+      sectionid,
+      is_active
+    FROM atec.tblusers
+    WHERE LOWER(username) = LOWER($1)
+       OR LOWER(COALESCE(email, '')) = LOWER($1)
+    LIMIT 1
+    `,
+    [username]
+  )
+
+  const user = result.rows[0]
+  const isValid = user
+    ? await bcrypt.compare(password, user.password_hash)
+    : false
+
+  if (!user || !isValid || !user.is_active) {
+    return res.status(401).json({ error: "Invalid username or password" })
+  }
+
+  await pool.query(
+    "UPDATE atec.tblusers SET last_login_at = now() WHERE userid = $1",
+    [user.user_id]
+  )
+
+  req.user = publicUser(user)
+  await req.logAudit("LOGIN", "auth", user.user_id)
+
+  res.cookie("atec_session", signAuthToken(user), authCookieOptions())
+  res.json({ user: publicUser(user) })
+}))
+
+app.post("/auth/logout", requireAuth, asyncRoute(async (req, res) => {
+  await req.logAudit("LOGOUT", "auth", req.user.user_id)
+  res.clearCookie("atec_session", authCookieOptions())
+  res.json({ success: true })
+}))
+
+app.get("/auth/me", requireAuth, (req, res) => {
+  res.json({ user: req.user })
+})
+
+function authorizeRequest(req, res, next) {
+  const role = req.user?.role
+  const method = req.method
+  const routePath = req.path
+
+  if (role === "ADMIN") return next()
+
+  const isRead = method === "GET"
+  const isWrite = ["POST", "PUT", "PATCH", "DELETE"].includes(method)
+
+  if (role === "MANAGER") {
+    if (
+      isRead &&
+      (
+        routePath.startsWith("/customers") ||
+        routePath.startsWith("/sites") ||
+        routePath.startsWith("/sections") ||
+        routePath.startsWith("/responsible-persons") ||
+        routePath.startsWith("/assets") ||
+        routePath.startsWith("/inspections") ||
+        routePath.startsWith("/inspection-results") ||
+        routePath.startsWith("/certificates") ||
+        routePath.includes("/certificate") ||
+        routePath.startsWith("/reports") ||
+        routePath.startsWith("/dashboard") ||
+        routePath.startsWith("/equipment-types")
+      )
+    ) {
+      return next()
+    }
+
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  if (role === "VIEWER") {
+    if (
+      isRead &&
+      (
+        routePath.startsWith("/assets") ||
+        routePath.startsWith("/certificates") ||
+        routePath.includes("/certificate") ||
+        routePath.startsWith("/dashboard") ||
+        routePath === "/equipment-types"
+      )
+    ) {
+      return next()
+    }
+
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  if (role === "CUSTOMER") {
+    if (
+      isRead &&
+      (
+        routePath.startsWith("/certificates") ||
+        routePath.includes("/certificate") ||
+        routePath.startsWith("/reports/customer-detailed")
+      )
+    ) {
+      return next()
+    }
+
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  if (role === "INSPECTOR") {
+    if (
+      isRead &&
+      (
+        routePath.startsWith("/assets") ||
+        routePath.startsWith("/equipment-types") ||
+        routePath.startsWith("/equipment-type-criteria") ||
+        routePath.startsWith("/inspections") ||
+        routePath.startsWith("/inspection-results") ||
+        routePath.startsWith("/certificates") ||
+        routePath.includes("/certificate") ||
+        routePath.startsWith("/dashboard") ||
+        routePath === "/auth/me"
+      )
+    ) {
+      return next()
+    }
+
+    if (
+      method === "POST" &&
+      (
+        routePath === "/inspections" ||
+        /^\/inspections\/[^/]+\/results$/.test(routePath)
+      )
+    ) {
+      return next()
+    }
+
+    if (
+      method === "PUT" &&
+      (
+        /^\/assets\/[^/]+$/.test(routePath) ||
+        /^\/assets\/[^/]+\/photos$/.test(routePath)
+      )
+    ) {
+      return next()
+    }
+
+    if (routePath.startsWith("/users/me/signature")) return next()
+
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  return res.status(403).json({ error: "Access denied" })
+}
+
+app.use("/uploads", requireAuth, express.static("uploads"));
+app.use(requireAuth)
+app.use(authorizeRequest)
+app.use((req, res, next) => {
+  const methodAction = {
+    POST: "CREATE",
+    PUT: "UPDATE",
+    PATCH: "UPDATE",
+    DELETE: "DELETE"
+  }[req.method]
+
+  if (!methodAction) return next()
+
+  res.on("finish", () => {
+    if (res.statusCode >= 400) return
+
+    const module = req.path.split("/").filter(Boolean)[0] || "api"
+    const recordId =
+      req.params.id ||
+      req.params.testid ||
+      req.params.assetid ||
+      req.body?.assetid ||
+      null
+
+    logAudit(req, methodAction, module, recordId, {
+      method: req.method,
+      path: req.path
+    })
+  })
+
+  next()
+})
+
+app.get("/users", asyncRoute(async (req, res) => {
+  await ensureTblUsersHaveIds()
+
+  const result = await pool.query(
+    `
+    SELECT
+      userid AS user_id,
+      username,
+      email,
+      COALESCE(NULLIF(fullname, ''), username) AS full_name,
+      COALESCE(
+        role,
+        CASE
+          WHEN userlevel = 1 THEN 'ADMIN'
+          WHEN userlevel = 2 THEN 'MANAGER'
+          WHEN userlevel = 3 THEN 'INSPECTOR'
+          WHEN userlevel = 4 THEN 'VIEWER'
+          WHEN userlevel = 5 THEN 'CUSTOMER'
+          ELSE 'VIEWER'
+        END
+      ) AS role,
+      lmi_no AS lmi_number,
+      usersignature AS signature_image,
+      clientid,
+      siteid,
+      sectionid,
+      is_active,
+      created_at,
+      last_login_at
+    FROM atec.tblusers
+    ORDER BY COALESCE(NULLIF(fullname, ''), username), username
+    `
+  )
+
+  res.json(result.rows)
+}))
+
+app.post("/users", asyncRoute(async (req, res) => {
+  const {
+    username,
+    email,
+    password,
+    full_name,
+    role,
+    lmi_number,
+    clientid,
+    siteid,
+    sectionid,
+    is_active
+  } = req.body
+
+  if (!username || !password || !full_name || !role) {
+    return res.status(400).json({ error: "Username, password, full name and role are required" })
+  }
+
+  if (!validRoles().includes(role)) {
+    return res.status(400).json({ error: "Invalid role" })
+  }
+
+  const passwordHash = await bcrypt.hash(String(password), 12)
+
+  const result = await pool.query(
+    `
+    INSERT INTO atec.tblusers
+      (userid, username, email, password, fullname, userlevel, role, lmi_no, clientid, siteid, sectionid, is_active)
+    VALUES
+      ((SELECT COALESCE(MAX(userid), 0) + 1 FROM atec.tblusers), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, true))
+    RETURNING
+      userid AS user_id,
+      username,
+      email,
+      COALESCE(NULLIF(fullname, ''), username) AS full_name,
+      role,
+      lmi_no AS lmi_number,
+      usersignature AS signature_image,
+      clientid,
+      siteid,
+      sectionid,
+      is_active
+    `,
+    [
+      String(username).trim(),
+      email ? String(email).trim() : null,
+      passwordHash,
+      String(full_name).trim(),
+      roleToUserLevel(role),
+      role,
+      lmi_number ? String(lmi_number).trim() : null,
+      clientid || null,
+      siteid || null,
+      sectionid || null,
+      is_active
+    ]
+  )
+
+  await req.logAudit("CREATE", "users", result.rows[0].user_id)
+  res.status(201).json(result.rows[0])
+}))
+
+app.put("/users/:id", asyncRoute(async (req, res) => {
+  const {
+    email,
+    password,
+    full_name,
+    role,
+    lmi_number,
+    clientid,
+    siteid,
+    sectionid,
+    is_active
+  } = req.body
+
+  if (!full_name || !role) {
+    return res.status(400).json({ error: "Full name and role are required" })
+  }
+
+  if (!validRoles().includes(role)) {
+    return res.status(400).json({ error: "Invalid role" })
+  }
+
+  const params = [
+    email ? String(email).trim() : null,
+    String(full_name).trim(),
+    roleToUserLevel(role),
+    role,
+    lmi_number ? String(lmi_number).trim() : null,
+    clientid || null,
+    siteid || null,
+    sectionid || null,
+    is_active === false ? false : true,
+    req.params.id
+  ]
+
+  let passwordSql = ""
+  if (password) {
+    params.push(await bcrypt.hash(String(password), 12))
+    passwordSql = `, password = $${params.length}`
+  }
+
+  const result = await pool.query(
+    `
+    UPDATE atec.tblusers
+    SET
+      email = $1,
+      fullname = $2,
+      userlevel = $3,
+      role = $4,
+      lmi_no = $5,
+      clientid = $6,
+      siteid = $7,
+      sectionid = $8,
+      is_active = $9,
+      updated_at = now()
+      ${passwordSql}
+    WHERE userid = $10
+    RETURNING
+      userid AS user_id,
+      username,
+      email,
+      COALESCE(NULLIF(fullname, ''), username) AS full_name,
+      role,
+      lmi_no AS lmi_number,
+      usersignature AS signature_image,
+      clientid,
+      siteid,
+      sectionid,
+      is_active
+    `,
+    params
+  )
+
+  if (result.rows.length === 0) {
+    return res.status(404).json({ error: "User not found" })
+  }
+
+  await req.logAudit("UPDATE", "users", req.params.id)
+  res.json(result.rows[0])
+}))
+
+app.delete("/users/:id", asyncRoute(async (req, res) => {
+  if (String(req.params.id) === String(req.user.user_id)) {
+    return res.status(400).json({ error: "You cannot delete your own logged-in user" })
+  }
+
+  const result = await pool.query(
+    `
+    UPDATE atec.tblusers
+    SET is_active = false,
+        updated_at = now()
+    WHERE userid = $1
+    RETURNING
+      userid AS user_id,
+      username,
+      email,
+      COALESCE(NULLIF(fullname, ''), username) AS full_name,
+      role,
+      lmi_no AS lmi_number,
+      usersignature AS signature_image,
+      clientid,
+      siteid,
+      sectionid,
+      is_active
+    `,
+    [req.params.id]
+  )
+
+  if (result.rows.length === 0) {
+    return res.status(404).json({ error: "User not found" })
+  }
+
+  await req.logAudit("DELETE", "users", req.params.id)
+  res.json({ success: true, user: result.rows[0] })
+}))
+
+app.post("/users/me/signature",
+  upload.single("signature"),
+  asyncRoute(async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: "Signature image is required" })
+    }
+
+    const signatureImage = `/uploads/signatures/${req.file.filename}`
+    const result = await pool.query(
+      `
+      UPDATE atec.tblusers
+      SET usersignature = $1, updated_at = now()
+      WHERE userid = $2
+      RETURNING
+        userid AS user_id,
+        username,
+        email,
+        COALESCE(NULLIF(fullname, ''), username) AS full_name,
+        role,
+        lmi_no AS lmi_number,
+        usersignature AS signature_image,
+        clientid,
+        siteid,
+        sectionid,
+        is_active
+      `,
+      [signatureImage, req.user.user_id]
+    )
+
+    await req.logAudit("SIGNATURE_CHANGE", "users", req.user.user_id)
+    res.json({ user: result.rows[0] })
+  })
+)
+
+app.post("/users/:id/signature",
+  upload.single("signature"),
+  asyncRoute(async (req, res) => {
+    if (req.user.role !== "ADMIN") {
+      return res.status(403).json({ error: "Only admins can change user signatures" })
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: "Signature image is required" })
+    }
+
+    const signatureImage = `/uploads/signatures/${req.file.filename}`
+    const result = await pool.query(
+      `
+      UPDATE atec.tblusers
+      SET usersignature = $1, updated_at = now()
+      WHERE userid = $2
+      RETURNING
+        userid AS user_id,
+        username,
+        email,
+        COALESCE(NULLIF(fullname, ''), username) AS full_name,
+        role,
+        lmi_no AS lmi_number,
+        usersignature AS signature_image,
+        clientid,
+        siteid,
+        sectionid,
+        is_active
+      `,
+      [signatureImage, req.params.id]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "User not found" })
+    }
+
+    await req.logAudit("SIGNATURE_CHANGE", "users", req.params.id)
+    res.json({ user: result.rows[0] })
+  })
+)
+
+app.post("/users/:id/reset-password", asyncRoute(async (req, res) => {
+  if (req.user.role !== "ADMIN") {
+    return res.status(403).json({ error: "Only admins can reset passwords" })
+  }
+
+  const password = String(req.body.password || "")
+  if (password.length < 8) {
+    return res.status(400).json({ error: "Password must be at least 8 characters" })
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12)
+  const result = await pool.query(
+    `
+    UPDATE atec.tblusers
+    SET password = $1,
+        updated_at = now()
+    WHERE userid = $2
+    RETURNING userid AS user_id
+    `,
+    [passwordHash, req.params.id]
+  )
+
+  if (result.rows.length === 0) {
+    return res.status(404).json({ error: "User not found" })
+  }
+
+  await req.logAudit("PASSWORD_RESET", "users", req.params.id)
+  res.json({ success: true })
+}))
 
 app.get("/customers", async (req, res) => {
   try {
@@ -40,7 +673,7 @@ app.get("/customers", async (req, res) => {
     res.json(result.rows)
   } catch (err) {
     console.error(err)
-    res.status(500).json({ error: err.message })
+    res.status(500).json({ error: "An unexpected server error occurred" })
   }
 })
 
@@ -58,7 +691,7 @@ app.post("/customers", async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "An unexpected server error occurred" });
   }
 });
 
@@ -101,7 +734,7 @@ app.put("/customers/:id/archive", async (req, res) => {
   } catch (err) {
     await client.query("ROLLBACK")
     console.error(err)
-    res.status(500).json({ error: err.message })
+    res.status(500).json({ error: "An unexpected server error occurred" })
   } finally {
     client.release()
   }
@@ -146,7 +779,7 @@ app.put("/customers/:id/unarchive", async (req, res) => {
   } catch (err) {
     await client.query("ROLLBACK")
     console.error(err)
-    res.status(500).json({ error: err.message })
+    res.status(500).json({ error: "An unexpected server error occurred" })
   } finally {
     client.release()
   }
@@ -186,7 +819,7 @@ app.put("/customers/:id", async (req, res) => {
     console.error(err)
 
     res.status(500).json({
-      error: err.message
+      error: "An unexpected server error occurred"
     })
 
   }
@@ -210,7 +843,7 @@ app.get("/sites", async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "An unexpected server error occurred" });
   }
 });
 
@@ -228,7 +861,7 @@ app.post("/sites", async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "An unexpected server error occurred" });
   }
 });
 
@@ -258,7 +891,7 @@ app.put("/sites/:id", async (req, res) => {
     console.error(err)
 
     res.status(500).json({
-      error: err.message
+      error: "An unexpected server error occurred"
     })
 
   }
@@ -313,7 +946,7 @@ SELECT
   } catch (err) {
     console.error(err)
     res.status(500).json({
-      error: err.message
+      error: "An unexpected server error occurred"
     })
   }
 })
@@ -452,7 +1085,7 @@ app.get("/assets/:id/quick-details", async (req, res) => {
   } catch (err) {
     console.error(err)
     res.status(500).json({
-      error: err.message
+      error: "An unexpected server error occurred"
     })
   }
 })
@@ -486,7 +1119,7 @@ app.get("/assets/:id", async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "An unexpected server error occurred" });
   }
 });
 
@@ -603,7 +1236,7 @@ app.post("/assets", async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "An unexpected server error occurred" });
   }
 });
 
@@ -708,7 +1341,7 @@ app.put("/assets/:id", async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "An unexpected server error occurred" });
   }
 });
 
@@ -727,7 +1360,7 @@ app.put("/assets/:id/archive", async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "An unexpected server error occurred" });
   }
 });
 
@@ -746,7 +1379,7 @@ app.put("/assets/:id/unarchive", async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "An unexpected server error occurred" });
   }
 });
 
@@ -780,7 +1413,7 @@ app.post("/assets/:id/photos",
       res.json(result.rows[0]);
     } catch (err) {
       console.error(err);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "An unexpected server error occurred" });
     }
   }
 );
@@ -811,7 +1444,7 @@ app.get("/assets/:id/inspection-history", async (req, res) => {
     console.error(err)
 
     res.status(500).json({
-      error: err.message
+      error: "An unexpected server error occurred"
     })
   }
 })
@@ -833,7 +1466,7 @@ app.get("/equipment-types", async (req, res) => {
     console.error(err)
 
     res.status(500).json({
-      error: err.message
+      error: "An unexpected server error occurred"
     })
   }
 })
@@ -883,7 +1516,7 @@ app.get("/equipment-type-criteria", async (req, res) => {
     console.error(err)
 
     res.status(500).json({
-      error: err.message
+      error: "An unexpected server error occurred"
     })
   }
 })
@@ -933,7 +1566,7 @@ app.post("/equipment-type-criteria", async (req, res) => {
     console.error(err)
 
     res.status(500).json({
-      error: err.message
+      error: "An unexpected server error occurred"
     })
 
   }
@@ -985,7 +1618,7 @@ app.put("/equipment-type-criteria/:id", async (req, res) => {
   } catch (err) {
     console.error(err)
     res.status(500).json({
-      error: err.message
+      error: "An unexpected server error occurred"
     })
   }
 })
@@ -1011,7 +1644,7 @@ app.delete("/equipment-type-criteria/:id", async (req, res) => {
   } catch (err) {
     console.error(err)
     res.status(500).json({
-      error: err.message
+      error: "An unexpected server error occurred"
     })
   }
 })
@@ -1033,7 +1666,7 @@ app.get("/responsible-persons", async (req, res) => {
     res.json(result.rows);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "An unexpected server error occurred" });
   }
 });
 
@@ -1061,7 +1694,7 @@ app.post("/responsible-persons", async (req, res) => {
     console.error(err);
 
     res.status(500).json({
-      error: err.message
+      error: "An unexpected server error occurred"
     });
   }
 });
@@ -1094,7 +1727,7 @@ app.put("/responsible-persons/:id", async (req, res) => {
     console.error(err);
 
     res.status(500).json({
-      error: err.message
+      error: "An unexpected server error occurred"
     });
   }
 });
@@ -1128,7 +1761,7 @@ app.get("/sections", async (req, res) => {
     console.error(err);
 
     res.status(500).json({
-      error: err.message
+      error: "An unexpected server error occurred"
     });
   }
 });
@@ -1148,7 +1781,7 @@ app.post("/sections", async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "An unexpected server error occurred" });
   }
 });
 
@@ -1185,7 +1818,7 @@ app.put("/sections/:id", async (req, res) => {
     console.error(err)
 
     res.status(500).json({
-      error: err.message
+      error: "An unexpected server error occurred"
     })
 
   }
@@ -1209,13 +1842,33 @@ app.post("/inspections",
         comments,
         status,
         inspectiontype,
-        inspector,
         tagnumber,
         results,
         updateassetphotos
       } = req.body
 
       const parsedResults = JSON.parse(results || "[]")
+
+      const inspectorProfileResult = await client.query(
+        `
+        SELECT
+          userid AS user_id,
+          COALESCE(NULLIF(fullname, ''), username) AS full_name,
+          lmi_no AS lmi_number,
+          usersignature AS signature_image
+        FROM atec.tblusers
+        WHERE userid = $1
+          AND is_active = true
+        `,
+        [req.user.user_id]
+      )
+
+      const inspectorProfile = inspectorProfileResult.rows[0]
+
+      if (!inspectorProfile) {
+        await client.query("ROLLBACK")
+        return res.status(403).json({ error: "Inspector profile is not active" })
+      }
 
       const photo1 = req.files?.photo1
         ? `/uploads/assets/${req.files.photo1[0].filename}`
@@ -1244,13 +1897,17 @@ app.post("/inspections",
           status,
           inspectiontype,
           inspector,
+          inspector_user_id,
+          inspector_name,
+          inspector_lmi_number,
+          inspector_signature_image,
           tagnumber,
           photo1,
           photo2,
           updateassetphotos
         )
         VALUES
-        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
         RETURNING testid
         `,
         [
@@ -1260,7 +1917,11 @@ app.post("/inspections",
           comments || "",
           status,
           inspectiontype,
-          inspector || "",
+          inspectorProfile.full_name || req.user.full_name || "",
+          inspectorProfile.user_id,
+          inspectorProfile.full_name || req.user.full_name || "",
+          inspectorProfile.lmi_number || "",
+          inspectorProfile.signature_image || "",
           inspectionTagNumber,
           photo1,
           photo2,
@@ -1310,6 +1971,11 @@ app.post("/inspections",
       }
 
       await client.query("COMMIT")
+      await req.logAudit("CREATE", "inspections", testid, {
+        assetid,
+        inspectiontype,
+        inspector_user_id: inspectorProfile.user_id
+      })
 
       res.json({
         success: true,
@@ -1320,7 +1986,7 @@ app.post("/inspections",
     } catch (err) {
       await client.query("ROLLBACK")
       console.error(err)
-      res.status(500).json({ error: err.message })
+      res.status(500).json({ error: "An unexpected server error occurred" })
     } finally {
       client.release()
     }
@@ -1357,7 +2023,7 @@ app.get("/inspection-results/:testid", async (req, res) => {
     console.error(err)
 
     res.status(500).json({
-      error: err.message
+      error: "An unexpected server error occurred"
     })
 
   }
@@ -1463,7 +2129,7 @@ app.post("/inspection-results", async (req, res) => {
     console.error(err)
 
     res.status(500).json({
-      error: err.message
+      error: "An unexpected server error occurred"
     })
 
   }
@@ -1542,8 +2208,17 @@ app.get("/certificates/search", async (req, res) => {
       where += ` AND i.status = $${values.length}`
     }
 
-    if (clientid) {
-      values.push(clientid)
+    const effectiveClientId =
+      req.user.role === "CUSTOMER"
+        ? req.user.clientid
+        : clientid
+
+    if (req.user.role === "CUSTOMER" && !effectiveClientId) {
+      return res.json([])
+    }
+
+    if (effectiveClientId) {
+      values.push(effectiveClientId)
       where += ` AND a.clientid = $${values.length}`
     }
 
@@ -1575,7 +2250,8 @@ app.get("/certificates/search", async (req, res) => {
         i.validdate,
         i.inspectiontype,
         i.status,
-        i.inspector,
+        COALESCE(i.inspector_name, i.inspector) AS inspector,
+        i.inspector_lmi_number,
         i.tagnumber,
         a.assetid,
         a.assettagno,
@@ -1602,7 +2278,7 @@ app.get("/certificates/search", async (req, res) => {
 
   } catch (err) {
     console.error(err)
-    res.status(500).json({ error: err.message })
+    res.status(500).json({ error: "An unexpected server error occurred" })
   }
 })
 
@@ -1618,7 +2294,7 @@ app.get("/certificates/count", async (req, res) => {
   } catch (err) {
     console.error(err)
     res.status(500).json({
-      error: err.message
+      error: "An unexpected server error occurred"
     })
   }
 })
@@ -1628,7 +2304,9 @@ async function getCertificateData(testid) {
     `
     SELECT
       i.*,
+      COALESCE(i.inspector_name, i.inspector) AS inspector,
       a.assetid,
+      a.equiptypeid,
       a.serialno,
       a.assettagno,
       a.manufacturer,
@@ -1649,6 +2327,7 @@ async function getCertificateData(testid) {
       a.steelwireropemm,
       a.hoistdescription,
       a.hoistserialno,
+      c.clientid,
       c.clientname,
       s.sitename,
       sec.sectionname,
@@ -1739,8 +2418,22 @@ function shouldShowDrivenMachineryNote(inspection) {
   return ["400", "500"].includes(String(inspection.equipgroupid || ""))
 }
 
+function canViewCertificate(user, certificate) {
+  if (!user || !certificate) return false
+  if (user.role !== "CUSTOMER") return true
+
+  return String(certificate.inspection?.clientid || "") === String(user.clientid || "")
+}
+
 const DRIVEN_MACHINERY_CERTIFICATE_NOTE =
   "Certification that the item has been inspected in accordance with the requirements of Driven Machinery and SANS Regulations and the responsible person has been informed of all defects."
+
+const SANS_500_CERTIFICATE_NOTE =
+  "EXAMINED IN ACCORDANCE WITH SANS 500"
+
+function shouldShowSans500Note(inspection) {
+  return ["101", "102"].includes(String(inspection.equiptypeid || ""))
+}
 
 function addPdfKeyValues(doc, items, x, y, width, options = {}) {
   const columnCount = options.columns || 2
@@ -1927,7 +2620,8 @@ function drawCertificatePdf(doc, inspection, results) {
     ["Inspection Type", inspection.inspectiontype],
     ["Inspection Date", formatPdfDate(inspection.testdate)],
     ["Certificate Expiry Date", formatPdfDate(inspection.validdate)],
-    ["Inspector", inspection.inspector]
+    ["Inspector", inspection.inspector],
+    ["LMI Number", inspection.inspector_lmi_number]
   ], marginX, y, width)
 
   y += 8
@@ -2028,9 +2722,35 @@ function drawCertificatePdf(doc, inspection, results) {
     }) + 4
   }
 
+  if (shouldShowSans500Note(inspection)) {
+    y += 6
+    doc
+      .font("Helvetica-Oblique")
+      .fontSize(8)
+      .fillColor("#d00000")
+      .text(SANS_500_CERTIFICATE_NOTE, marginX, y, {
+        width,
+        align: "center"
+      })
+      .fillColor("#111827")
+
+    y += doc.heightOfString(SANS_500_CERTIFICATE_NOTE, {
+      width,
+      align: "center"
+    }) + 4
+  }
+
   y += 14
   doc.font("Helvetica-Bold").fontSize(8).text("Inspector Signature", marginX, y)
-  doc.moveTo(marginX, y + 30).lineTo(marginX + 180, y + 30).strokeColor("#111827").stroke()
+  const signaturePath = certificateImagePath(inspection.inspector_signature_image)
+  if (signaturePath) {
+    doc.image(signaturePath, marginX, y + 8, {
+      fit: [180, 28],
+      align: "left",
+      valign: "center"
+    })
+  }
+  doc.moveTo(marginX, y + 36).lineTo(marginX + 180, y + 36).strokeColor("#111827").stroke()
 
   if (fs.existsSync(footerPath)) {
     doc.image(footerPath, marginX + (width * 0.38), y - 12, { fit: [width * 0.62, 70] })
@@ -2048,13 +2768,18 @@ app.get("/inspections/:testid/certificate", async (req, res) => {
       })
     }
 
+    if (!canViewCertificate(req.user, certificate)) {
+      return res.status(403).json({ error: "Access denied" })
+    }
+
+    await req.logAudit("VIEW", "certificates", testid)
     res.json(certificate)
 
   } catch (err) {
     console.error(err)
 
     res.status(500).json({
-      error: err.message
+      error: "An unexpected server error occurred"
     })
   }
 })
@@ -2069,6 +2794,12 @@ app.get("/inspections/:testid/certificate.pdf", async (req, res) => {
         error: "Certificate not found"
       })
     }
+
+    if (!canViewCertificate(req.user, certificate)) {
+      return res.status(403).json({ error: "Access denied" })
+    }
+
+    await req.logAudit("GENERATE_PDF", "certificates", testid)
 
     res.setHeader("Content-Type", "application/pdf")
     const disposition =
@@ -2093,7 +2824,7 @@ app.get("/inspections/:testid/certificate.pdf", async (req, res) => {
     console.error(err)
 
     res.status(500).json({
-      error: err.message
+      error: "An unexpected server error occurred"
     })
   }
 })
@@ -2103,7 +2834,7 @@ app.get("/dashboard/visual-due", async (req, res) => {
     res.json({ total: 0 })
   } catch (err) {
     console.error(err)
-    res.status(500).json({ error: err.message })
+    res.status(500).json({ error: "An unexpected server error occurred" })
   }
 })
 
@@ -2142,6 +2873,16 @@ function customerReportFilters(query = {}) {
     datefrom: query.datefrom || "",
     dateto: query.dateto || ""
   }
+}
+
+function customerScopedReportFilters(req) {
+  const filters = customerReportFilters(req.query)
+
+  if (req.user.role === "CUSTOMER") {
+    filters.clientid = req.user.clientid || "-1"
+  }
+
+  return filters
 }
 
 async function getCustomerDetailedReport(filters = {}) {
@@ -2586,17 +3327,17 @@ async function buildCustomerReportWorkbook(report) {
 
 app.get("/reports/customer-detailed", async (req, res) => {
   try {
-    const report = await getCustomerDetailedReport(customerReportFilters(req.query))
+    const report = await getCustomerDetailedReport(customerScopedReportFilters(req))
     res.json(report)
   } catch (err) {
     console.error("Customer detailed report error:", err)
-    res.status(500).json({ error: err.message })
+    res.status(500).json({ error: "An unexpected server error occurred" })
   }
 })
 
 app.get("/reports/customer-detailed.pdf", async (req, res) => {
   try {
-    const report = await getCustomerDetailedReport(customerReportFilters(req.query))
+    const report = await getCustomerDetailedReport(customerScopedReportFilters(req))
     const filename = reportFileName(report, "pdf")
 
     res.setHeader("Content-Type", "application/pdf")
@@ -2614,13 +3355,13 @@ app.get("/reports/customer-detailed.pdf", async (req, res) => {
     doc.end()
   } catch (err) {
     console.error("Customer detailed PDF error:", err)
-    res.status(500).json({ error: err.message })
+    res.status(500).json({ error: "An unexpected server error occurred" })
   }
 })
 
 app.get("/reports/customer-detailed.xlsx", async (req, res) => {
   try {
-    const report = await getCustomerDetailedReport(customerReportFilters(req.query))
+    const report = await getCustomerDetailedReport(customerScopedReportFilters(req))
     const workbook = await buildCustomerReportWorkbook(report)
     const filename = reportFileName(report, "xlsx")
 
@@ -2634,7 +3375,7 @@ app.get("/reports/customer-detailed.xlsx", async (req, res) => {
     res.end()
   } catch (err) {
     console.error("Customer detailed Excel error:", err)
-    res.status(500).json({ error: err.message })
+    res.status(500).json({ error: "An unexpected server error occurred" })
   }
 })
 
@@ -2708,7 +3449,7 @@ app.get("/dashboard/stats", async (req, res) => {
 
   } catch (err) {
     console.error("Dashboard stats error:", err)
-    res.status(500).json({ error: err.message })
+    res.status(500).json({ error: "An unexpected server error occurred" })
   }
 })
 
@@ -2904,12 +3645,15 @@ app.get("/dashboard/alerts", async (req, res) => {
     console.error(err)
 
     res.status(500).json({
-      error: err.message
+      error: "An unexpected server error occurred"
     })
 
   }
 })
 
+app.use(errorHandler)
+
 app.listen(PORT, () => {
   console.log(`ATEC server running on port ${PORT}`);
 });
+

@@ -487,6 +487,7 @@ window.openCertificateModal = async function (testid) {
   const assetDetails = getCertificateAssetDetails(inspection)
   const certificateTitle = getCertificateTitle(inspection)
   const drivenMachineryNote = getDrivenMachineryCertificateNote(inspection)
+  const sans500Note = getSans500CertificateNote(inspection)
 
   const existingModal = document.querySelector("#certificateModal")
   if (existingModal) existingModal.remove()
@@ -590,6 +591,7 @@ window.openCertificateModal = async function (testid) {
               <p><strong>Inspection Date:</strong> ${formatDate(inspection.testdate)}</p>
               <p><strong>Certificate Expiry Date:</strong> ${formatDate(inspection.validdate)}</p>
               <p><strong>Inspector:</strong> ${inspection.inspector || "-"}</p>
+              <p><strong>LMI Number:</strong> ${inspection.inspector_lmi_number || "-"}</p>
             </div>
           </div>
 
@@ -660,9 +662,22 @@ window.openCertificateModal = async function (testid) {
             </p>
           ` : ""}
 
+          ${sans500Note ? `
+            <p class="fb-cert-driven-note">
+              ${sans500Note}
+            </p>
+          ` : ""}
+
           <div class="fb-cert-signature-section">
             <div>
               <strong>Inspector Signature</strong>
+              ${inspection.inspector_signature_image ? `
+                <img
+                  class="fb-cert-signature-image"
+                  src="http://localhost:5000${inspection.inspector_signature_image}"
+                  alt="Inspector Signature"
+                >
+              ` : ""}
               <div class="fb-cert-signature-line"></div>
             </div>
 
@@ -795,6 +810,14 @@ function getDrivenMachineryCertificateNote(inspection) {
 
   return shouldShowNote
     ? "Certification that the item has been inspected in accordance with the requirements of Driven Machinery and SANS Regulations and the responsible person has been informed of all defects."
+    : ""
+}
+
+function getSans500CertificateNote(inspection) {
+  const shouldShowNote = ["101", "102"].includes(String(inspection.equiptypeid || ""))
+
+  return shouldShowNote
+    ? "EXAMINED IN ACCORDANCE WITH SANS 500"
     : ""
 }
 

@@ -12,30 +12,535 @@ import { renderCertificateSearch } from './pages/Certificates.js'
 import { renderCustomerDetailedReport } from './pages/CustomerDetailedReport.js'
 import { getPaginationState, renderPaginationControls } from './pagination.js'
 
+const API_BASE = 'http://localhost:5000'
+const originalFetch = window.fetch.bind(window)
+
+window.fetch = function (input, options = {}) {
+  const url = typeof input === 'string' ? input : input?.url || ''
+  const isApiRequest = url.startsWith(API_BASE)
+
+  return originalFetch(input, {
+    ...options,
+    credentials: isApiRequest ? 'include' : options.credentials
+  })
+}
+
+let currentUser = null
+
+const pageAccess = {
+  dashboard: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER'],
+  customers: ['ADMIN', 'MANAGER'],
+  sites: ['ADMIN', 'MANAGER'],
+  responsible: ['ADMIN'],
+  sections: ['ADMIN', 'MANAGER'],
+  assets: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER'],
+  inspections: ['ADMIN', 'INSPECTOR'],
+  'quick-inspection': ['ADMIN', 'INSPECTOR'],
+  certificates: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER'],
+  'customer-report': ['ADMIN', 'MANAGER', 'CUSTOMER'],
+  criteria: ['ADMIN'],
+  users: ['ADMIN']
+}
+
+function hasAccess(pageKey) {
+  return currentUser?.role === 'ADMIN' || (pageAccess[pageKey] || []).includes(currentUser?.role)
+}
+
+function showAccessDenied() {
+  document.querySelector('#page').innerHTML = `
+    <div class="filter-card">
+      <h2>Access denied</h2>
+      <p>You do not have permission to view this page.</p>
+    </div>
+  `
+}
+
+function ensurePageAccess(pageKey) {
+  if (hasAccess(pageKey)) return true
+
+  showAccessDenied()
+  return false
+}
+
+function menuButton(pageKey, label, action) {
+  return hasAccess(pageKey)
+    ? `<button onclick="${action}">${label}</button>`
+    : ''
+}
+
+function renderLogin(message = '') {
+  document.querySelector('#app').innerHTML = `
+    <div class="login-page">
+      <div class="login-card">
+        <img src="/logo.png" alt="ATEC Logo" class="login-logo">
+        <h1>ATEC Login</h1>
+        ${message ? `<p class="login-error">${message}</p>` : ''}
+        <label>Username or Email</label>
+        <input id="loginUsername" type="text" autocomplete="username">
+        <label>Password</label>
+        <input id="loginPassword" type="password" autocomplete="current-password">
+        <button onclick="loginUser()">Login</button>
+      </div>
+    </div>
+  `
+}
+
+window.loginUser = async function () {
+  const username = document.querySelector('#loginUsername')?.value || ''
+  const password = document.querySelector('#loginPassword')?.value || ''
+
+  const response = await fetch(`${API_BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password })
+  })
+
+  const result = await response.json()
+
+  if (!response.ok) {
+    renderLogin(result.error || 'Login failed')
+    return
+  }
+
+  currentUser = result.user
+  localStorage.setItem('currentPage', currentUser.role === 'CUSTOMER' ? 'certificates' : 'dashboard')
+  await loadData()
+}
+
+window.logoutUser = async function () {
+  await fetch(`${API_BASE}/auth/logout`, { method: 'POST' })
+  currentUser = null
+  localStorage.removeItem('currentPage')
+  renderLogin()
+}
+
+const userManagementSortColumns = {
+  username: user => user.username,
+  email: user => user.email,
+  full_name: user => user.full_name,
+  role: user => user.role,
+  lmi_number: user => user.lmi_number,
+  clientid: user => user.clientid,
+  siteid: user => user.siteid,
+  sectionid: user => user.sectionid,
+  is_active: user => user.is_active ? 1 : 0,
+  signature_image: user => user.signature_image ? 1 : 0
+}
+
+function getUserManagementSort() {
+  window.userManagementSort = window.userManagementSort || {
+    key: 'username',
+    direction: 'asc'
+  }
+
+  return window.userManagementSort
+}
+
+function sortUserManagementRows(users) {
+  const sort = getUserManagementSort()
+  const getValue = userManagementSortColumns[sort.key] || userManagementSortColumns.username
+  const direction = sort.direction === 'desc' ? -1 : 1
+
+  return [...users].sort((left, right) => {
+    const leftValue = getValue(left)
+    const rightValue = getValue(right)
+    const leftNumber = Number(leftValue)
+    const rightNumber = Number(rightValue)
+
+    if (leftValue !== '' && rightValue !== '' && !Number.isNaN(leftNumber) && !Number.isNaN(rightNumber)) {
+      return (leftNumber - rightNumber) * direction
+    }
+
+    return String(leftValue || '').localeCompare(String(rightValue || ''), undefined, {
+      numeric: true,
+      sensitivity: 'base'
+    }) * direction
+  })
+}
+
+function userSortHeader(label, key) {
+  const sort = getUserManagementSort()
+  const isActive = sort.key === key
+  const directionClass = isActive ? sort.direction : ''
+
+  return `
+    <span class="user-table-heading">
+      <span>${label}</span>
+      <button
+        type="button"
+        class="user-sort-btn ${isActive ? `active ${directionClass}` : ''}"
+        onclick="sortUserManagement('${key}')"
+        aria-label="Sort ${label}"
+        title="Sort ${label}"
+      ></button>
+    </span>
+  `
+}
+
+window.sortUserManagement = function (key) {
+  const sort = getUserManagementSort()
+
+  window.userManagementSort = {
+    key,
+    direction: sort.key === key && sort.direction === 'asc' ? 'desc' : 'asc'
+  }
+
+  showUserManagement()
+}
+
+window.showUserManagement = async function () {
+  if (!ensurePageAccess('users')) return
+
+  localStorage.setItem('currentPage', 'users')
+
+  const response = await fetch(`${API_BASE}/users`)
+  const users = await response.json()
+
+  if (!response.ok) {
+    alert(users.error || 'Unable to load users')
+    return
+  }
+
+  const sortedUsers = sortUserManagementRows(users)
+
+  document.querySelector('#page').innerHTML = `
+    <div class="user-management-page">
+    <h1>User Management</h1>
+
+    <div class="filter-card user-create-card">
+      <h2>Create User</h2>
+      <div class="asset-form-grid">
+        <div class="form-group">
+          <label>Username</label>
+          <input id="newUserUsername" type="text">
+        </div>
+        <div class="form-group">
+          <label>Email</label>
+          <input id="newUserEmail" type="email">
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input id="newUserPassword" type="password">
+        </div>
+        <div class="form-group">
+          <label>Full Name</label>
+          <input id="newUserFullName" type="text">
+        </div>
+        <div class="form-group">
+          <label>Role</label>
+          <select id="newUserRole">
+            <option value="ADMIN">ADMIN</option>
+            <option value="MANAGER">MANAGER</option>
+            <option value="INSPECTOR">INSPECTOR</option>
+            <option value="VIEWER">VIEWER</option>
+            <option value="CUSTOMER">CUSTOMER</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>LMI Number</label>
+          <input id="newUserLmi" type="text">
+        </div>
+        <div class="form-group">
+          <label>Customer ID</label>
+          <input id="newUserClientId" type="number">
+        </div>
+        <div class="form-group">
+          <label>Site ID</label>
+          <input id="newUserSiteId" type="number">
+        </div>
+        <div class="form-group">
+          <label>Section ID</label>
+          <input id="newUserSectionId" type="number">
+        </div>
+      </div>
+      <button onclick="createUser()">Create User</button>
+    </div>
+
+    <div class="filter-card user-signature-card">
+      <h2>My Signature</h2>
+      <p>Upload your own inspector signature. It will be used on new inspections saved under your login.</p>
+      <input id="mySignatureUpload" type="file" accept="image/*">
+      <button onclick="uploadMySignature()">Upload Signature</button>
+    </div>
+
+    <div class="user-management-table-wrap">
+    <table class="user-management-table">
+      <thead>
+        <tr>
+          <th>${userSortHeader('User', 'username')}</th>
+          <th>${userSortHeader('Email', 'email')}</th>
+          <th>${userSortHeader('Full Name', 'full_name')}</th>
+          <th>${userSortHeader('Role', 'role')}</th>
+          <th>${userSortHeader('LMI Number', 'lmi_number')}</th>
+          <th>${userSortHeader('Customer', 'clientid')}</th>
+          <th>${userSortHeader('Site ID', 'siteid')}</th>
+          <th>${userSortHeader('Section ID', 'sectionid')}</th>
+          <th>${userSortHeader('Active', 'is_active')}</th>
+          <th>${userSortHeader('Signature', 'signature_image')}</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${sortedUsers.map(user => `
+          <tr class="${user.is_active ? '' : 'inactive-user-row'}">
+            <td class="user-name-cell">${user.username}</td>
+            <td><input id="user-email-${user.user_id}" value="${user.email || ''}"></td>
+            <td><input id="user-name-${user.user_id}" value="${user.full_name || ''}"></td>
+            <td>
+              <select id="user-role-${user.user_id}">
+                ${['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER'].map(role => `
+                  <option value="${role}" ${role === user.role ? 'selected' : ''}>${role}</option>
+                `).join('')}
+              </select>
+            </td>
+            <td><input id="user-lmi-${user.user_id}" value="${user.lmi_number || ''}"></td>
+            <td><input id="user-client-${user.user_id}" type="number" value="${user.clientid || ''}"></td>
+            <td><input id="user-site-${user.user_id}" type="number" value="${user.siteid || ''}"></td>
+            <td><input id="user-section-${user.user_id}" type="number" value="${user.sectionid || ''}"></td>
+            <td class="user-active-cell">
+              <input class="user-status-check" id="user-active-${user.user_id}" type="checkbox" ${user.is_active ? 'checked' : ''}>
+            </td>
+            <td>
+              <div class="user-signature-cell">
+                <span class="${user.signature_image ? 'signature-status saved' : 'signature-status'}">${user.signature_image ? 'Saved' : '-'}</span>
+                <input id="user-signature-${user.user_id}" type="file" accept="image/*">
+                <button type="button" class="secondary-small-btn" onclick="uploadUserSignature(${user.user_id})">Upload</button>
+              </div>
+            </td>
+            <td class="user-row-actions">
+              <button onclick="saveUser(${user.user_id})">Save</button>
+              <button class="secondary-small-btn" onclick="resetUserPassword(${user.user_id})">Reset Password</button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    </div>
+    </div>
+  `
+}
+
+window.createUser = async function () {
+  const response = await fetch(`${API_BASE}/users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      username: document.querySelector('#newUserUsername').value,
+      email: document.querySelector('#newUserEmail').value,
+      password: document.querySelector('#newUserPassword').value,
+      full_name: document.querySelector('#newUserFullName').value,
+      role: document.querySelector('#newUserRole').value,
+      lmi_number: document.querySelector('#newUserLmi').value,
+      clientid: document.querySelector('#newUserClientId').value,
+      siteid: document.querySelector('#newUserSiteId').value,
+      sectionid: document.querySelector('#newUserSectionId').value
+    })
+  })
+
+  const result = await response.json()
+
+  if (!response.ok) {
+    alert(result.error || 'Unable to create user')
+    return
+  }
+
+  alert('User created successfully')
+  showUserManagement()
+}
+
+window.saveUser = async function (userId) {
+  if (!userId || userId === 'null') {
+    alert('This user record is missing an account ID. The list will refresh now.')
+    showUserManagement()
+    return
+  }
+
+  const response = await fetch(`${API_BASE}/users/${userId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: document.querySelector(`#user-email-${userId}`).value,
+      full_name: document.querySelector(`#user-name-${userId}`).value,
+      role: document.querySelector(`#user-role-${userId}`).value,
+      lmi_number: document.querySelector(`#user-lmi-${userId}`).value,
+      clientid: document.querySelector(`#user-client-${userId}`).value,
+      siteid: document.querySelector(`#user-site-${userId}`).value,
+      sectionid: document.querySelector(`#user-section-${userId}`).value,
+      is_active: document.querySelector(`#user-active-${userId}`).checked
+    })
+  })
+
+  const result = await response.json()
+
+  if (!response.ok) {
+    alert(result.error || 'Unable to save user')
+    return
+  }
+
+  alert('User saved successfully')
+  showUserManagement()
+}
+
+window.uploadUserSignature = async function (userId) {
+  if (!userId || userId === 'null') {
+    alert('This user record is missing an account ID. The list will refresh now.')
+    showUserManagement()
+    return
+  }
+
+  const file = document.querySelector(`#user-signature-${userId}`)?.files[0]
+  if (!file) {
+    alert('Choose a signature image for this user')
+    return
+  }
+
+  const formData = new FormData()
+  formData.append('signature', file)
+
+  const response = await fetch(`${API_BASE}/users/${userId}/signature`, {
+    method: 'POST',
+    body: formData
+  })
+
+  const result = await response.json()
+
+  if (!response.ok) {
+    alert(result.error || 'Unable to upload signature')
+    return
+  }
+
+  alert('Signature saved successfully')
+  showUserManagement()
+}
+
+window.resetUserPassword = async function (userId) {
+  if (!userId || userId === 'null') {
+    alert('This user record is missing an account ID. The list will refresh now.')
+    showUserManagement()
+    return
+  }
+
+  const password = prompt('Enter the new password for this user. It must be at least 8 characters.')
+
+  if (password === null) return
+
+  if (password.length < 8) {
+    alert('Password must be at least 8 characters')
+    return
+  }
+
+  const confirmPassword = prompt('Confirm the new password')
+
+  if (confirmPassword === null) return
+
+  if (password !== confirmPassword) {
+    alert('Passwords do not match')
+    return
+  }
+
+  const response = await fetch(`${API_BASE}/users/${userId}/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password })
+  })
+
+  const result = await response.json()
+
+  if (!response.ok) {
+    alert(result.error || 'Unable to reset password')
+    return
+  }
+
+  alert('Password reset successfully')
+}
+
+window.deleteUser = async function (userId) {
+  if (!confirm('Delete this user? This will deactivate the login and keep old records safe.')) return
+
+  const response = await fetch(`${API_BASE}/users/${userId}`, {
+    method: 'DELETE'
+  })
+
+  const result = await response.json()
+
+  if (!response.ok) {
+    alert(result.error || 'Unable to delete user')
+    return
+  }
+
+  showUserManagement()
+}
+
+window.uploadMySignature = async function () {
+  const file = document.querySelector('#mySignatureUpload')?.files[0]
+  if (!file) {
+    alert('Choose a signature image')
+    return
+  }
+
+  const formData = new FormData()
+  formData.append('signature', file)
+
+  const response = await fetch(`${API_BASE}/users/me/signature`, {
+    method: 'POST',
+    body: formData
+  })
+
+  const result = await response.json()
+
+  if (!response.ok) {
+    alert(result.error || 'Unable to upload signature')
+    return
+  }
+
+  currentUser = result.user
+  alert('Signature saved successfully')
+  showUserManagement()
+}
+
+async function fetchJsonOrDefault(url, fallback) {
+  const response = await fetch(url)
+
+  if (!response.ok) {
+    if ([401, 403].includes(response.status)) return fallback
+    throw new Error(`Unable to load ${url}`)
+  }
+
+  return response.json()
+}
 
 async function loadData() {
-  const customerResponse = await fetch('http://localhost:5000/customers')
-  let customers = await customerResponse.json()
+  let sessionResponse
 
-  const assetResponse = await fetch('http://localhost:5000/assets')
-  const assets = await assetResponse.json()
+  try {
+    sessionResponse = await fetch(`${API_BASE}/auth/me`)
+  } catch (err) {
+    renderLogin('Cannot connect to the ATEC backend. Please check that the backend is running.')
+    return
+  }
+
+  if (!sessionResponse.ok) {
+    renderLogin()
+    return
+  }
+
+  const session = await sessionResponse.json()
+  currentUser = session.user
+
+  let customers = await fetchJsonOrDefault(`${API_BASE}/customers`, [])
+
+  const assets = await fetchJsonOrDefault(`${API_BASE}/assets`, [])
   
-  const siteResponse = await fetch('http://localhost:5000/sites')
-  const sites = await siteResponse.json()
+  const sites = await fetchJsonOrDefault(`${API_BASE}/sites`, [])
 
-  const responsibleResponse = await fetch('http://localhost:5000/responsible-persons')
-  const responsiblePersons = await responsibleResponse.json()
+  const responsiblePersons = await fetchJsonOrDefault(`${API_BASE}/responsible-persons`, [])
 
-  const sectionResponse = await fetch('http://localhost:5000/sections')
-  const sections = await sectionResponse.json()
+  const sections = await fetchJsonOrDefault(`${API_BASE}/sections`, [])
 
-  const equipmentTypeResponse = await fetch('http://localhost:5000/equipment-types')
-  const equipmentTypes = await equipmentTypeResponse.json()
-  const dashboardResponse = await fetch("http://localhost:5000/dashboard/stats")
-  const dashboardStats = await dashboardResponse.json()
+  const equipmentTypes = await fetchJsonOrDefault(`${API_BASE}/equipment-types`, [])
+  const dashboardStats = await fetchJsonOrDefault(`${API_BASE}/dashboard/stats`, {})
 
-  const criteriaResponse = await fetch('http://localhost:5000/equipment-type-criteria')
-  const criteria = await criteriaResponse.json()
+  const criteria = await fetchJsonOrDefault(`${API_BASE}/equipment-type-criteria`, [])
 
          document.querySelector('#app').innerHTML = `
     <div class="app">
@@ -52,49 +557,25 @@ async function loadData() {
             Inspection Platform
           </div>
 
-    <button onclick="showDashboard()">
-      Dashboard
-    </button>
+    <div class="user-panel">
+      <strong>${currentUser.full_name}</strong>
+      <span>${currentUser.role}${currentUser.lmi_number ? ` | LMI ${currentUser.lmi_number}` : ''}</span>
+    </div>
 
-    <button onclick="showCustomerSetup()">
-      Customer Setup
-    </button>
+    ${menuButton('dashboard', 'Dashboard', 'showDashboard()')}
+    ${menuButton('customers', 'Customer Setup', 'showCustomerSetup()')}
+    ${menuButton('sites', 'Sites', 'showSites()')}
+    ${menuButton('responsible', 'Responsible Persons', 'showResponsiblePersons()')}
+    ${menuButton('sections', 'Sections', 'showSections()')}
+    ${menuButton('assets', 'Assets', 'showAssetSetup()')}
+    ${menuButton('inspections', 'Inspection/Testing', 'showInspections()')}
+    ${menuButton('quick-inspection', 'Quick Inspection/Testing', 'showQuickInspection()')}
+    ${menuButton('certificates', 'Certificates', 'showCertificateSearch()')}
+    ${menuButton('customer-report', 'Reports', 'showCustomerDetailedReport()')}
+    ${menuButton('criteria', 'Equipment Type Criteria', 'showEquipmentTypeCriteria()')}
+    ${menuButton('users', 'User Management', 'showUserManagement()')}
 
-    <button onclick="showSites()">
-      Sites
-    </button>
-    
-    <button onclick="showResponsiblePersons()">
-    Responsible Persons
-    </button>
-
-    <button onclick="showSections()">
-      Sections
-    </button>
-
-    <button onclick="showAssetSetup()">
-      Assets
-    </button>
-
-    <button onclick="showInspections()">
-      Inspection/Testing
-    </button>
-
-    <button onclick="showQuickInspection()">
-      Quick Inspection/Testing
-    </button>
-
-    <button onclick="showCertificateSearch()">
-      Certificates
-    </button>
-
-    <button onclick="showCustomerDetailedReport()">
-      Reports
-    </button>
-
-    <button onclick="showEquipmentTypeCriteria()">
-      Equipment Type Criteria
-    </button>
+    <button onclick="logoutUser()">Logout</button>
 
   </div>
 
@@ -108,6 +589,7 @@ async function loadData() {
 
   `
 window.showDashboard = function () {
+  if (!ensurePageAccess('dashboard')) return
 
   localStorage.setItem("currentPage", "dashboard")
 
@@ -128,6 +610,7 @@ window.showDashboard = function () {
 let customerArchiveMode = localStorage.getItem("customerArchiveMode") || "active"
 
 window.showCustomerSetup = function (mode = customerArchiveMode) {
+  if (!ensurePageAccess('customers')) return
 
   customerArchiveMode = mode
 
@@ -354,6 +837,8 @@ window.unarchiveClient = async function (clientid) {
 }
 
 window.showResponsiblePersons = function () {
+  if (!ensurePageAccess('responsible')) return
+
   localStorage.setItem("currentPage", "responsible")
   renderResponsiblePersons(responsiblePersons)
 }
@@ -557,6 +1042,8 @@ window.goToResponsiblePage = function (page) {
 }
 
 window.showSections = function () {
+  if (!ensurePageAccess('sections')) return
+
   localStorage.setItem("currentPage", "sections")
   renderSections(sections)
 }
@@ -837,6 +1324,7 @@ window.saveSectionFromForm = async function () {
 }
 
 window.showSites = function () {
+  if (!ensurePageAccess('sites')) return
 
   localStorage.setItem("currentPage", "sites")
 
@@ -1036,6 +1524,7 @@ window.saveSiteFromForm = async function () {
 }
 
 window.showAssetSetup = function () {
+  if (!ensurePageAccess('assets')) return
 
   localStorage.setItem("currentPage", "assets")
   window.assetCurrentPage = window.assetCurrentPage || 1
@@ -1906,6 +2395,7 @@ window.uploadAssetPhotos = async function (assetid) {
 }
 
 window.showEquipmentTypeCriteria = function () {
+  if (!ensurePageAccess('criteria')) return
 
   localStorage.setItem("currentPage", "criteria")
 
@@ -2170,6 +2660,7 @@ window.deleteCriteria = async function (criteriaid) {
 }
 
 window.showInspections = function () {
+  if (!ensurePageAccess('inspections')) return
 
   localStorage.setItem("currentPage", "inspections")
 
@@ -2178,6 +2669,8 @@ window.showInspections = function () {
 }
 
 window.showCertificateSearch = function () {
+  if (!ensurePageAccess('certificates')) return
+
   localStorage.setItem("currentPage", "certificates")
 
   renderCertificateSearch(
@@ -2188,6 +2681,8 @@ window.showCertificateSearch = function () {
 }
 
 window.showCustomerDetailedReport = function () {
+  if (!ensurePageAccess('customer-report')) return
+
   localStorage.setItem("currentPage", "customer-report")
 
   renderCustomerDetailedReport(customers, equipmentTypes)
@@ -2392,6 +2887,8 @@ window.openCertificateFromSearch = function () {
 }
 
 window.showQuickInspection = function () {
+  if (!ensurePageAccess('quick-inspection')) return
+
   localStorage.setItem("currentPage", "quick-inspection")
   renderQuickInspection()
 }
@@ -2893,6 +3390,17 @@ const assetCriteria = getInspectionCriteriaRows(criteria.filter(
 
   <div class="inspection-tag-title">
     INSPECTION DETAILS
+  </div>
+
+  <div class="inspector-identity-card">
+    <div>
+      <span>Logged-in Inspector</span>
+      <strong>${currentUser?.full_name || '-'}</strong>
+    </div>
+    <div>
+      <span>LMI Number</span>
+      <strong>${currentUser?.lmi_number || '-'}</strong>
+    </div>
   </div>
 
   <div class="form-row">
@@ -3641,8 +4149,13 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
 
 
 
-const currentPage =
+let currentPage =
   localStorage.getItem("currentPage") || "dashboard"
+
+if (!hasAccess(currentPage)) {
+  currentPage = currentUser.role === "CUSTOMER" ? "certificates" : "dashboard"
+  localStorage.setItem("currentPage", currentPage)
+}
 
 switch (currentPage) {
 
@@ -3688,6 +4201,10 @@ switch (currentPage) {
 
   case "customer-report":
     showCustomerDetailedReport()
+    break
+
+  case "users":
+    showUserManagement()
     break
 
   default:
