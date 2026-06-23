@@ -1,4 +1,5 @@
 import { getPaginationState, renderPaginationControls } from '../pagination.js'
+import { sortHeader, sortTableRows } from '../tableSort.js'
 
 export function renderCustomerSetup(customers, customerArchiveMode = "active") {
   const filteredCustomers = customers.filter(customer => {
@@ -8,7 +9,13 @@ export function renderCustomerSetup(customers, customerArchiveMode = "active") {
   if (customerArchiveMode === "archived") return isArchived;
   return true;
 });
-  const pagination = getPaginationState(filteredCustomers, "customerCurrentPage", "customerRowsPerPage")
+  const sortedCustomers = sortTableRows(filteredCustomers, 'customers', {
+    clientid: customer => customer.clientid,
+    clientname: customer => customer.clientname,
+    clientaddr: customer => customer.clientaddr,
+    archived: customer => customer.archived ? 'Archived' : 'Active'
+  }, 'clientname')
+  const pagination = getPaginationState(sortedCustomers, "customerCurrentPage", "customerRowsPerPage")
 
   document.querySelector("#page").innerHTML = `
     <h2>Customer Setup</h2>
@@ -79,10 +86,10 @@ export function renderCustomerSetup(customers, customerArchiveMode = "active") {
       <table>
       <thead>
         <tr>
-          <th>Client ID</th>
-          <th>Client Name</th>
-          <th>Address</th>
-          <th>Status</th>
+          <th>${sortHeader('Client ID', 'customers', 'clientid', 'showCustomerSetup')}</th>
+          <th>${sortHeader('Client Name', 'customers', 'clientname', 'showCustomerSetup')}</th>
+          <th>${sortHeader('Address', 'customers', 'clientaddr', 'showCustomerSetup')}</th>
+          <th>${sortHeader('Status', 'customers', 'archived', 'showCustomerSetup')}</th>
           <th>Actions</th>
         </tr>
       </thead>

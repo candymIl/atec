@@ -1,7 +1,18 @@
 import { getPaginationState, renderPaginationControls } from '../pagination.js'
+import { sortHeader, sortTableRows } from '../tableSort.js'
 
 export function renderInspections(assets) {
-  const sortedAssets = [...assets].reverse()
+  const defaultAssets = [...assets].reverse()
+  const sortedAssets = sortTableRows(defaultAssets, 'inspectionAssets', {
+    assetid: asset => asset.assetid,
+    assettagno: asset => asset.assettagno,
+    serialno: asset => asset.serialno,
+    clientname: asset => asset.clientname,
+    sitename: asset => asset.sitename,
+    sectionname: asset => asset.sectionname,
+    description: asset => asset.description,
+    equipmenttype: asset => asset.equipmenttype
+  }, 'assetid')
   const pagination = getPaginationState(sortedAssets, "inspectionCurrentPage", "inspectionRowsPerPage")
 
   document.querySelector('#page').innerHTML = `
@@ -69,14 +80,14 @@ export function renderInspections(assets) {
     <table>
       <thead>
         <tr>
-          <th>Asset ID</th>
-          <th>Asset Tag</th>
-          <th>Serial No</th>
-          <th>Client</th>
-          <th>Site</th>
-          <th>Section</th>
-          <th>Description</th>
-          <th>Equipment Type</th>
+          <th>${sortHeader('Asset ID', 'inspectionAssets', 'assetid', 'showInspections')}</th>
+          <th>${sortHeader('Asset Tag', 'inspectionAssets', 'assettagno', 'showInspections')}</th>
+          <th>${sortHeader('Serial No', 'inspectionAssets', 'serialno', 'showInspections')}</th>
+          <th>${sortHeader('Client', 'inspectionAssets', 'clientname', 'showInspections')}</th>
+          <th>${sortHeader('Site', 'inspectionAssets', 'sitename', 'showInspections')}</th>
+          <th>${sortHeader('Section', 'inspectionAssets', 'sectionname', 'showInspections')}</th>
+          <th>${sortHeader('Description', 'inspectionAssets', 'description', 'showInspections')}</th>
+          <th>${sortHeader('Equipment Type', 'inspectionAssets', 'equipmenttype', 'showInspections')}</th>
           <th>Actions</th>
         </tr>
       </thead>

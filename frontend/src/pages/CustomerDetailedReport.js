@@ -1,3 +1,5 @@
+import { sortHeader, sortTableRows } from '../tableSort.js'
+
 let currentReport = null
 let currentReportPage = 1
 let currentReportPageSize = 25
@@ -173,11 +175,27 @@ function renderCustomerReportPreview(report) {
       : "All Customers"
 
   const pageSize = getReportPageSize()
-  const totalPages = Math.max(1, Math.ceil(report.assets.length / pageSize))
+  const sortedAssets = sortTableRows(report.assets, 'customerReport', {
+    clientname: row => row.clientname,
+    assetid: row => row.assetid,
+    assettagno: row => row.assettagno,
+    serialno: row => row.serialno,
+    sitename: row => row.sitename,
+    sectionname: row => row.sectionname,
+    equipmenttype: row => row.equipmenttype,
+    description: row => row.description,
+    latestinspectiondate: row => row.latestinspectiondate,
+    visualtestdate: row => row.visualtestdate,
+    visualstatus: row => row.visualstatus,
+    loadtestdate: row => row.loadtestdate,
+    loadstatus: row => row.loadstatus,
+    reportstatus: row => row.reportstatus
+  }, 'latestinspectiondate')
+  const totalPages = Math.max(1, Math.ceil(sortedAssets.length / pageSize))
   const currentPage = Math.min(currentReportPage, totalPages)
   const startIndex = (currentPage - 1) * pageSize
-  const rows = report.assets.slice(startIndex, startIndex + pageSize)
-  const endIndex = report.assets.length === 0
+  const rows = sortedAssets.slice(startIndex, startIndex + pageSize)
+  const endIndex = sortedAssets.length === 0
     ? 0
     : startIndex + rows.length
 
@@ -249,20 +267,20 @@ function renderCustomerReportPreview(report) {
         <table class="report-table">
           <thead>
             <tr>
-              <th>Customer</th>
-              <th>Asset ID</th>
-              <th>Asset Tag</th>
-              <th>Serial No</th>
-              <th>Site</th>
-              <th>Section</th>
-              <th>Equipment Type</th>
-              <th>Description</th>
-              <th>Latest Inspection</th>
-              <th>Last Visual</th>
-              <th>Visual Status</th>
-              <th>Last Load</th>
-              <th>Load Status</th>
-              <th>Report Status</th>
+              <th>${sortHeader('Customer', 'customerReport', 'clientname', 'rerenderCustomerReport')}</th>
+              <th>${sortHeader('Asset ID', 'customerReport', 'assetid', 'rerenderCustomerReport')}</th>
+              <th>${sortHeader('Asset Tag', 'customerReport', 'assettagno', 'rerenderCustomerReport')}</th>
+              <th>${sortHeader('Serial No', 'customerReport', 'serialno', 'rerenderCustomerReport')}</th>
+              <th>${sortHeader('Site', 'customerReport', 'sitename', 'rerenderCustomerReport')}</th>
+              <th>${sortHeader('Section', 'customerReport', 'sectionname', 'rerenderCustomerReport')}</th>
+              <th>${sortHeader('Equipment Type', 'customerReport', 'equipmenttype', 'rerenderCustomerReport')}</th>
+              <th>${sortHeader('Description', 'customerReport', 'description', 'rerenderCustomerReport')}</th>
+              <th>${sortHeader('Latest Inspection', 'customerReport', 'latestinspectiondate', 'rerenderCustomerReport')}</th>
+              <th>${sortHeader('Last Visual', 'customerReport', 'visualtestdate', 'rerenderCustomerReport')}</th>
+              <th>${sortHeader('Visual Status', 'customerReport', 'visualstatus', 'rerenderCustomerReport')}</th>
+              <th>${sortHeader('Last Load', 'customerReport', 'loadtestdate', 'rerenderCustomerReport')}</th>
+              <th>${sortHeader('Load Status', 'customerReport', 'loadstatus', 'rerenderCustomerReport')}</th>
+              <th>${sortHeader('Report Status', 'customerReport', 'reportstatus', 'rerenderCustomerReport')}</th>
             </tr>
           </thead>
           <tbody>
@@ -378,6 +396,11 @@ function renderCustomerReportPageButtons(currentPage, totalPages) {
 
 window.goToCustomerReportPage = function (page) {
   currentReportPage = Math.max(1, Number(page) || 1)
+  renderCustomerReportPage()
+}
+
+window.rerenderCustomerReport = function () {
+  currentReportPage = 1
   renderCustomerReportPage()
 }
 

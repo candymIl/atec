@@ -54,7 +54,16 @@ app.use((req, res, next) => {
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    const folder = file.fieldname === "signature" ? "uploads/signatures" : "uploads/assets"
+    let folder = "uploads/assets"
+
+    if (file.fieldname === "signature") {
+      folder = "uploads/signatures"
+    }
+
+    if (file.fieldname === "inspectionPhotos") {
+      folder = "uploads/inspections"
+    }
+
     fs.mkdirSync(folder, { recursive: true })
     cb(null, folder);
   },
@@ -100,6 +109,89 @@ function roleToUserLevel(role) {
 
 function validRoles() {
   return ["ADMIN", "MANAGER", "INSPECTOR", "VIEWER", "CUSTOMER"]
+}
+
+function normalizeCriteriaResultType(value, fieldtype = "") {
+  const resultType = String(value || "").toUpperCase()
+
+  if (["PASS_FAIL", "MEASURED", "YES_NO"].includes(resultType)) {
+    return resultType
+  }
+
+  return String(fieldtype || "").toUpperCase() === "NUMBER"
+    ? "MEASURED"
+    : "PASS_FAIL"
+}
+
+function isSafeForContinuedOperation(name) {
+  const normalized = String(name || "").trim().toUpperCase()
+  return normalized === "SAFE FOR CONTINUED OPERATION" ||
+    normalized === "SAFE FOR SERVICE"
+}
+
+function isCriticalFailure(resultRow, criteriaRow) {
+  if (String(criteriaRow?.severity || "").toUpperCase() !== "CRITICAL") {
+    return false
+  }
+
+  const result = String(resultRow?.result || "").trim().toUpperCase()
+  const measuredValue = String(resultRow?.measuredvalue || "").trim().toUpperCase()
+
+  return result === "FAIL" ||
+    result === "NO" ||
+    measuredValue === "FAIL" ||
+    measuredValue === "NO"
+}
+
+function applyCriticalSafetyRule(results, criteriaRows) {
+  const criteriaById = new Map(
+    criteriaRows.map(row => [String(row.criteriaid), row])
+  )
+
+  const criticalFailures = results.filter(row =>
+    isCriticalFailure(row, criteriaById.get(String(row.criteriaid)))
+  )
+
+  if (criticalFailures.length === 0) {
+    return {
+      results,
+      status: null,
+      criticalFailures
+    }
+  }
+
+  const safeCriteria = criteriaRows.find(row =>
+    isSafeForContinuedOperation(row.criterianame || row.criteriadescription)
+  )
+
+  if (safeCriteria) {
+    const existingSafeRow = results.find(row =>
+      String(row.criteriaid) === String(safeCriteria.criteriaid)
+    )
+
+    if (existingSafeRow) {
+      existingSafeRow.result = "NO"
+      existingSafeRow.measuredvalue = "NO"
+      existingSafeRow.remarks =
+        existingSafeRow.remarks ||
+        "Automatically marked NOT SAFE because a critical criterion failed."
+    } else {
+      results.push({
+        criteriaid: safeCriteria.criteriaid,
+        criterianame: safeCriteria.criterianame || safeCriteria.criteriadescription,
+        assetvalue: null,
+        measuredvalue: "NO",
+        result: "NO",
+        remarks: "Automatically marked NOT SAFE because a critical criterion failed."
+      })
+    }
+  }
+
+  return {
+    results,
+    status: "NOT SAFE",
+    criticalFailures
+  }
 }
 
 async function ensureTblUsersHaveIds() {
@@ -833,6 +925,7 @@ app.get("/sites", async (req, res) => {
         s.siteid,
         s.clientid,
         s.sitename,
+        COALESCE(s.archived, false) AS archived,
         c.clientname
       FROM atec.tblsites s
       LEFT JOIN atec.tblclients c
@@ -894,6 +987,64 @@ app.put("/sites/:id", async (req, res) => {
       error: "An unexpected server error occurred"
     })
 
+  }
+})
+
+app.put("/sites/:id/archive", async (req, res) => {
+  try {
+    const { id } = req.params
+
+    const activeAssets = await pool.query(
+      `
+      SELECT COUNT(*)::int AS count
+      FROM atec.tblasset
+      WHERE siteid = $1
+        AND COALESCE(archived, false) = false
+      `,
+      [id]
+    )
+
+    if (activeAssets.rows[0].count > 0) {
+      return res.status(400).json({
+        error: "This site has active assets. Move or archive the assets first."
+      })
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE atec.tblsites
+      SET archived = true
+      WHERE siteid = $1
+      RETURNING *
+      `,
+      [id]
+    )
+
+    res.json(result.rows[0])
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
+
+app.put("/sites/:id/unarchive", async (req, res) => {
+  try {
+    const { id } = req.params
+
+    const result = await pool.query(
+      `
+      UPDATE atec.tblsites
+      SET archived = false
+      WHERE siteid = $1
+      RETURNING *
+      `,
+      [id]
+    )
+
+    res.json(result.rows[0])
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
   }
 })
 
@@ -1345,6 +1496,83 @@ app.put("/assets/:id", async (req, res) => {
   }
 });
 
+app.put("/assets/:id/move", async (req, res) => {
+  try {
+    const { id } = req.params
+    const { siteid, sectionid } = req.body
+
+    if (!siteid || !sectionid) {
+      return res.status(400).json({ error: "Site and section are required" })
+    }
+
+    const assetResult = await pool.query(
+      `
+      SELECT assetid, clientid, siteid, sectionid
+      FROM atec.tblasset
+      WHERE assetid = $1
+      `,
+      [id]
+    )
+
+    if (assetResult.rows.length === 0) {
+      return res.status(404).json({ error: "Asset not found" })
+    }
+
+    const asset = assetResult.rows[0]
+
+    const targetResult = await pool.query(
+      `
+      SELECT
+        s.siteid,
+        sec.sectionid,
+        sec.responsibleid
+      FROM atec.tblsites s
+      JOIN atec.tblsection sec
+        ON sec.siteid = s.siteid
+       AND sec.sectionid = $2
+      WHERE s.siteid = $1
+        AND s.clientid = $3
+        AND sec.clientid = $3
+        AND COALESCE(s.archived, false) = false
+        AND COALESCE(sec.archived, false) = false
+      LIMIT 1
+      `,
+      [siteid, sectionid, asset.clientid]
+    )
+
+    if (targetResult.rows.length === 0) {
+      return res.status(400).json({
+        error: "Select an active site and section for the same customer as this asset."
+      })
+    }
+
+    const target = targetResult.rows[0]
+    const result = await pool.query(
+      `
+      UPDATE atec.tblasset
+      SET siteid = $1,
+          sectionid = $2,
+          responsibleid = $3
+      WHERE assetid = $4
+      RETURNING *
+      `,
+      [target.siteid, target.sectionid, target.responsibleid, id]
+    )
+
+    await req.logAudit("MOVE", "assets", id, {
+      from_siteid: asset.siteid,
+      from_sectionid: asset.sectionid,
+      to_siteid: target.siteid,
+      to_sectionid: target.sectionid
+    })
+
+    res.json(result.rows[0])
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
+
 app.put("/assets/:id/archive", async (req, res) => {
   try {
     const { id } = req.params;
@@ -1387,6 +1615,7 @@ app.post("/assets/:id/photos",
   upload.fields([
     { name: "photo1", maxCount: 1 },
     { name: "photo2", maxCount: 1 },
+    { name: "inspectionPhotos", maxCount: 20 },
   ]),
   async (req, res) => {
     try {
@@ -1482,10 +1711,18 @@ app.get("/equipment-type-criteria", async (req, res) => {
         c.criteriaid,
         c.equiptypeid,
         c.criterianame,
+        COALESCE(c.criteriadescription, c.criterianame) AS criteriadescription,
         c.fieldtype,
+        COALESCE(c.resulttype,
+          CASE WHEN UPPER(COALESCE(c.fieldtype, '')) = 'NUMBER' THEN 'MEASURED' ELSE 'PASS_FAIL' END
+        ) AS resulttype,
         c.required,
         c.sortorder,
+        COALESCE(c.displayorder, c.sortorder, c.criteriaid) AS displayorder,
         c.inspectioncategory,
+        COALESCE(c.inspection_category, 'PERIODIC_THOROUGH_INSPECTION') AS inspection_category,
+        COALESCE(c.severity, 'MINOR') AS severity,
+        COALESCE(c.active, true) AS active,
         t.description AS equipmenttype
       FROM atec.tblequiptypecriteria c
       LEFT JOIN atec.tblequiptype t
@@ -1505,7 +1742,7 @@ app.get("/equipment-type-criteria", async (req, res) => {
       ORDER BY
         t.description,
         c.inspectioncategory,
-        c.sortorder
+        COALESCE(c.displayorder, c.sortorder, c.criteriaid)
     `
 
     const result = await pool.query(query, values)
@@ -1522,17 +1759,26 @@ app.get("/equipment-type-criteria", async (req, res) => {
 })
 
 app.post("/equipment-type-criteria", async (req, res) => {
-
   try {
-
     const {
       equiptypeid,
       criterianame,
+      criteriadescription,
       fieldtype,
+      resulttype,
       required,
       sortorder,
-      inspectioncategory
+      displayorder,
+      inspectioncategory,
+      inspection_category,
+      severity,
+      active
     } = req.body
+
+    const normalizedResultType = normalizeCriteriaResultType(resulttype, fieldtype)
+    const normalizedFieldType =
+      normalizedResultType === "MEASURED" ? "NUMBER" : (fieldtype || "PASS_FAIL")
+    const normalizedDescription = criteriadescription || criterianame
 
     const result = await pool.query(
       `
@@ -1540,37 +1786,44 @@ app.post("/equipment-type-criteria", async (req, res) => {
       (
         equiptypeid,
         criterianame,
+        criteriadescription,
         fieldtype,
+        resulttype,
         required,
         sortorder,
-        inspectioncategory
+        displayorder,
+        inspectioncategory,
+        inspection_category,
+        severity,
+        active
       )
       VALUES
-      ($1,$2,$3,$4,$5,$6)
+      ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
       RETURNING *
       `,
       [
         equiptypeid,
-        criterianame,
-        fieldtype,
-        required,
-        sortorder,
-        inspectioncategory
+        normalizedDescription,
+        normalizedDescription,
+        normalizedFieldType,
+        normalizedResultType,
+        required !== false,
+        sortorder || displayorder || null,
+        displayorder || sortorder || null,
+        inspectioncategory || "VISUAL",
+        inspection_category || "PERIODIC_THOROUGH_INSPECTION",
+        severity || "MINOR",
+        active !== false
       ]
     )
 
     res.json(result.rows[0])
-
   } catch (err) {
-
     console.error(err)
-
     res.status(500).json({
       error: "An unexpected server error occurred"
     })
-
   }
-
 })
 
 app.put("/equipment-type-criteria/:id", async (req, res) => {
@@ -1580,11 +1833,22 @@ app.put("/equipment-type-criteria/:id", async (req, res) => {
     const {
       equiptypeid,
       criterianame,
+      criteriadescription,
       fieldtype,
+      resulttype,
       required,
       sortorder,
-      inspectioncategory
+      displayorder,
+      inspectioncategory,
+      inspection_category,
+      severity,
+      active
     } = req.body
+
+    const normalizedResultType = normalizeCriteriaResultType(resulttype, fieldtype)
+    const normalizedFieldType =
+      normalizedResultType === "MEASURED" ? "NUMBER" : (fieldtype || "PASS_FAIL")
+    const normalizedDescription = criteriadescription || criterianame
 
     const result = await pool.query(
       `
@@ -1592,20 +1856,32 @@ app.put("/equipment-type-criteria/:id", async (req, res) => {
       SET
         equiptypeid = $1,
         criterianame = $2,
-        fieldtype = $3,
-        required = $4,
-        sortorder = $5,
-        inspectioncategory = $6
-      WHERE criteriaid = $7
+        criteriadescription = $3,
+        fieldtype = $4,
+        resulttype = $5,
+        required = $6,
+        sortorder = $7,
+        displayorder = $8,
+        inspectioncategory = $9,
+        inspection_category = $10,
+        severity = $11,
+        active = $12
+      WHERE criteriaid = $13
       RETURNING *
       `,
       [
         equiptypeid,
-        criterianame,
-        fieldtype,
-        required,
-        sortorder,
-        inspectioncategory,
+        normalizedDescription,
+        normalizedDescription,
+        normalizedFieldType,
+        normalizedResultType,
+        required !== false,
+        sortorder || displayorder || null,
+        displayorder || sortorder || null,
+        inspectioncategory || "VISUAL",
+        inspection_category || "PERIODIC_THOROUGH_INSPECTION",
+        severity || "MINOR",
+        active !== false,
         id
       ]
     )
@@ -1741,6 +2017,7 @@ app.get("/sections", async (req, res) => {
         sec.siteid,
         sec.responsibleid,
         sec.sectionname,
+        COALESCE(sec.archived, false) AS archived,
         c.clientname,
         s.sitename,
         p.name AS responsiblename
@@ -1751,7 +2028,6 @@ app.get("/sections", async (req, res) => {
         ON sec.siteid = s.siteid
       LEFT JOIN atec.tblpeople p
         ON sec.responsibleid = p.personid
-        WHERE COALESCE(sec.archived, false) = false
         ORDER BY c.clientname, s.sitename, sec.sectionname
     `);
 
@@ -1881,6 +2157,39 @@ app.post("/inspections",
       const updatePhotos =
         updateassetphotos === "true" || updateassetphotos === true
 
+      const criteriaIds = parsedResults
+        .map(row => row.criteriaid)
+        .filter(Boolean)
+
+      let finalStatus = status || "SAFE"
+      let criticalFailures = []
+
+      if (criteriaIds.length) {
+        const criteriaResult = await client.query(
+          `
+          SELECT
+            criteriaid,
+            criterianame,
+            COALESCE(criteriadescription, criterianame) AS criteriadescription,
+            fieldtype,
+            COALESCE(resulttype,
+              CASE WHEN UPPER(COALESCE(fieldtype, '')) = 'NUMBER' THEN 'MEASURED' ELSE 'PASS_FAIL' END
+            ) AS resulttype,
+            COALESCE(severity, 'MINOR') AS severity
+          FROM atec.tblequiptypecriteria
+          WHERE criteriaid = ANY($1::int[])
+          `,
+          [criteriaIds]
+        )
+
+        const safetyRule = applyCriticalSafetyRule(parsedResults, criteriaResult.rows)
+
+        if (safetyRule.status) {
+          finalStatus = safetyRule.status
+          criticalFailures = safetyRule.criticalFailures
+        }
+      }
+
       const inspectionTagNumber =
         typeof tagnumber === "string" && tagnumber.trim()
           ? tagnumber.trim()
@@ -1907,7 +2216,7 @@ app.post("/inspections",
           updateassetphotos
         )
         VALUES
-        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
         RETURNING testid
         `,
         [
@@ -1915,7 +2224,7 @@ app.post("/inspections",
           testdate,
           validdate || null,
           comments || "",
-          status,
+          finalStatus,
           inspectiontype,
           inspectorProfile.full_name || req.user.full_name || "",
           inspectorProfile.user_id,
@@ -1930,6 +2239,56 @@ app.post("/inspections",
       )
 
       const testid = inspection.rows[0].testid
+
+      const photoFiles = req.files?.inspectionPhotos || []
+      const captions = Array.isArray(req.body.photoCaptions)
+        ? req.body.photoCaptions
+        : req.body.photoCaptions ? [req.body.photoCaptions] : []
+      const photoTypes = Array.isArray(req.body.photoTypes)
+        ? req.body.photoTypes
+        : req.body.photoTypes ? [req.body.photoTypes] : []
+      const allowedPhotoTypes = new Set([
+        "GENERAL",
+        "DEFECT",
+        "REPAIR",
+        "LOAD_TEST",
+        "NAMEPLATE",
+        "HOOK",
+        "WIRE_ROPE",
+        "STRUCTURE",
+        "ELECTRICAL"
+      ])
+
+      for (let index = 0; index < photoFiles.length; index += 1) {
+        const file = photoFiles[index]
+        const photoType = String(photoTypes[index] || "GENERAL").toUpperCase()
+
+        await client.query(
+          `
+          INSERT INTO atec.tblinspectionphoto
+          (
+            testid,
+            assetid,
+            uploaded_by_user_id,
+            photo_path,
+            original_filename,
+            caption,
+            photo_type
+          )
+          VALUES
+          ($1,$2,$3,$4,$5,$6,$7)
+          `,
+          [
+            testid,
+            assetid,
+            inspectorProfile.user_id,
+            `/uploads/inspections/${file.filename}`,
+            file.originalname || "",
+            captions[index] || "",
+            allowedPhotoTypes.has(photoType) ? photoType : "GENERAL"
+          ]
+        )
+      }
 
       for (const row of parsedResults) {
         await client.query(
@@ -1974,13 +2333,25 @@ app.post("/inspections",
       await req.logAudit("CREATE", "inspections", testid, {
         assetid,
         inspectiontype,
-        inspector_user_id: inspectorProfile.user_id
+        inspector_user_id: inspectorProfile.user_id,
+        critical_failures: criticalFailures.length,
+        inspection_photos: req.files?.inspectionPhotos?.length || 0
       })
+
+      if (photoFiles.length) {
+        await req.logAudit("UPLOAD", "inspection_photos", testid, {
+          assetid,
+          photo_count: photoFiles.length
+        })
+      }
 
       res.json({
         success: true,
         testid,
-        resultcount: parsedResults.length
+        resultcount: parsedResults.length,
+        status: finalStatus,
+        critical_failures: criticalFailures.length,
+        photocount: photoFiles.length
       })
 
     } catch (err) {
@@ -2042,6 +2413,42 @@ app.post('/inspections/:testid/results', async (req, res) => {
 
   try {
     await client.query('BEGIN')
+
+    const criteriaIds = results
+      .map(row => row.criteriaid)
+      .filter(Boolean)
+
+    if (criteriaIds.length) {
+      const criteriaResult = await client.query(
+        `
+        SELECT
+          criteriaid,
+          criterianame,
+          COALESCE(criteriadescription, criterianame) AS criteriadescription,
+          fieldtype,
+          COALESCE(resulttype,
+            CASE WHEN UPPER(COALESCE(fieldtype, '')) = 'NUMBER' THEN 'MEASURED' ELSE 'PASS_FAIL' END
+          ) AS resulttype,
+          COALESCE(severity, 'MINOR') AS severity
+        FROM atec.tblequiptypecriteria
+        WHERE criteriaid = ANY($1::int[])
+        `,
+        [criteriaIds]
+      )
+
+      const safetyRule = applyCriticalSafetyRule(results, criteriaResult.rows)
+
+      if (safetyRule.status) {
+        await client.query(
+          `
+          UPDATE atec.tblinspection
+          SET status = $1
+          WHERE testid = $2
+          `,
+          [safetyRule.status, testid]
+        )
+      }
+    }
 
     // remove old rows if re-saving
     await client.query(
@@ -2299,6 +2706,64 @@ app.get("/certificates/count", async (req, res) => {
   }
 })
 
+app.put("/sections/:id/archive", async (req, res) => {
+  try {
+    const { id } = req.params
+
+    const activeAssets = await pool.query(
+      `
+      SELECT COUNT(*)::int AS count
+      FROM atec.tblasset
+      WHERE sectionid = $1
+        AND COALESCE(archived, false) = false
+      `,
+      [id]
+    )
+
+    if (activeAssets.rows[0].count > 0) {
+      return res.status(400).json({
+        error: "This section has active assets. Move or archive the assets first."
+      })
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE atec.tblsection
+      SET archived = true
+      WHERE sectionid = $1
+      RETURNING *
+      `,
+      [id]
+    )
+
+    res.json(result.rows[0])
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
+
+app.put("/sections/:id/unarchive", async (req, res) => {
+  try {
+    const { id } = req.params
+
+    const result = await pool.query(
+      `
+      UPDATE atec.tblsection
+      SET archived = false
+      WHERE sectionid = $1
+      RETURNING *
+      `,
+      [id]
+    )
+
+    res.json(result.rows[0])
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
+
 async function getCertificateData(testid) {
   const inspectionResult = await pool.query(
     `
@@ -2358,8 +2823,13 @@ async function getCertificateData(testid) {
     SELECT
       r.resultid,
       r.criteriaid,
-      COALESCE(c.criterianame, 'Criteria ' || r.criteriaid) AS criterianame,
+      COALESCE(c.criteriadescription, c.criterianame, 'Criteria ' || r.criteriaid) AS criterianame,
       c.fieldtype,
+      COALESCE(c.resulttype,
+        CASE WHEN UPPER(COALESCE(c.fieldtype, '')) = 'NUMBER' THEN 'MEASURED' ELSE 'PASS_FAIL' END
+      ) AS resulttype,
+      COALESCE(c.inspection_category, 'PERIODIC_THOROUGH_INSPECTION') AS inspection_category,
+      COALESCE(c.severity, 'MINOR') AS severity,
       r.assetvalue,
       r.measuredvalue,
       r.result,
@@ -2379,9 +2849,29 @@ async function getCertificateData(testid) {
     [testid]
   )
 
+  const photosResult = await pool.query(
+    `
+    SELECT
+      photoid,
+      testid,
+      assetid,
+      uploaded_by_user_id,
+      photo_path,
+      original_filename,
+      caption,
+      photo_type,
+      uploaded_at
+    FROM atec.tblinspectionphoto
+    WHERE testid = $1
+    ORDER BY photoid
+    `,
+    [testid]
+  )
+
   return {
     inspection: inspectionResult.rows[0],
-    results: resultsResult.rows
+    results: resultsResult.rows,
+    photos: photosResult.rows
   }
 }
 
@@ -2542,7 +3032,121 @@ function addPdfSectionTitle(doc, title, x, y, width) {
   return y + 18
 }
 
-function drawCertificatePdf(doc, inspection, results) {
+function drawPdfPageFrame(doc, inspection, pageNumber) {
+  const pageWidth = doc.page.width
+  const pageHeight = doc.page.height
+  const marginX = 28.35
+  const width = pageWidth - (marginX * 2)
+  const headerPath = path.join(__dirname, "..", "frontend", "public", "header.jpg")
+  const footerPath = path.join(__dirname, "..", "frontend", "public", "footer.jpg")
+
+  if (fs.existsSync(headerPath)) {
+    doc.image(headerPath, marginX, 14, { width, height: 82 })
+  }
+
+  if (fs.existsSync(footerPath)) {
+    doc.image(footerPath, marginX, pageHeight - 76, { width, height: 42 })
+  }
+
+  doc
+    .font("Helvetica")
+    .fontSize(6.5)
+    .fillColor("#1f2937")
+    .text(
+      `FB Crane Builders & Repairs | Certificate ${inspection.testid} | Page ${pageNumber}`,
+      marginX,
+      pageHeight - 28,
+      { width: width * 0.62 }
+    )
+    .text(
+      `Tel: 011 824 2896 | Email: info@fbcranes.co.za`,
+      marginX + (width * 0.62),
+      pageHeight - 28,
+      { width: width * 0.38, align: "right" }
+    )
+    .fillColor("#111827")
+}
+
+function addCertificatePhotoPages(doc, inspection, photos, startPageNumber) {
+  const savedPhotos = photos.filter(photo => photo?.photo_path)
+  if (!savedPhotos.length) return
+
+  const marginX = 28.35
+  const width = doc.page.width - (marginX * 2)
+  let pageNumber = startPageNumber
+
+  for (let index = 0; index < savedPhotos.length; index += 2) {
+    doc.addPage()
+    drawPdfPageFrame(doc, inspection, pageNumber)
+
+    let y = 106
+
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(12)
+      .fillColor("#1f2937")
+      .text("INSPECTION PHOTO REPORT", marginX, y, {
+        width,
+        align: "center"
+      })
+
+    y += 24
+    y = addPdfMetaValues(doc, [
+      ["Certificate No", inspection.testid],
+      ["Asset ID", inspection.assetid],
+      ["Inspection Date", formatPdfDate(inspection.testdate)]
+    ], marginX, y, width)
+
+    y += 8
+    y = addPdfKeyValues(doc, [
+      ["Client", inspection.clientname],
+      ["Site", inspection.sitename],
+      ["Asset", inspection.description],
+      ["Serial No", inspection.serialno],
+      ["Inspector", inspection.inspector],
+      ["LMI Number", inspection.inspector_lmi_number]
+    ], marginX, y, width)
+
+    y += 12
+
+    savedPhotos.slice(index, index + 2).forEach((photo, photoIndex) => {
+      const photoPath = certificateImagePath(photo.photo_path)
+      const boxWidth = (width - 14) / 2
+      const boxHeight = 430
+      const x = marginX + (photoIndex * (boxWidth + 14))
+
+      doc.rect(x, y, boxWidth, boxHeight).strokeColor("#d9e1ec").stroke()
+
+      if (photoPath) {
+        doc.image(photoPath, x + 8, y + 8, {
+          fit: [boxWidth - 16, boxHeight - 72],
+          align: "center",
+          valign: "center"
+        })
+      }
+
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(7.5)
+        .fillColor("#1f3b5c")
+        .text(valueOrDash(photo.photo_type).replaceAll("_", " "), x + 8, y + boxHeight - 58, {
+          width: boxWidth - 16,
+          align: "center"
+        })
+        .font("Helvetica")
+        .fontSize(7)
+        .fillColor("#111827")
+        .text(valueOrDash(photo.caption), x + 8, y + boxHeight - 42, {
+          width: boxWidth - 16,
+          align: "center"
+        })
+    })
+
+    pageNumber += 1
+  }
+}
+
+function drawCertificatePdf(doc, inspection, results, photos = []) {
   const pageWidth = doc.page.width
   const marginX = 28.35
   const width = pageWidth - (marginX * 2)
@@ -2755,6 +3359,9 @@ function drawCertificatePdf(doc, inspection, results) {
   if (fs.existsSync(footerPath)) {
     doc.image(footerPath, marginX + (width * 0.38), y - 12, { fit: [width * 0.62, 70] })
   }
+
+  drawPdfPageFrame(doc, inspection, 1)
+  addCertificatePhotoPages(doc, inspection, photos, 2)
 }
 
 app.get("/inspections/:testid/certificate", async (req, res) => {
@@ -2817,7 +3424,7 @@ app.get("/inspections/:testid/certificate.pdf", async (req, res) => {
     })
 
     doc.pipe(res)
-    drawCertificatePdf(doc, certificate.inspection, certificate.results)
+    drawCertificatePdf(doc, certificate.inspection, certificate.results, certificate.photos || [])
     doc.end()
 
   } catch (err) {

@@ -1,7 +1,13 @@
 import { getPaginationState, renderPaginationControls } from '../pagination.js'
+import { sortHeader, sortTableRows } from '../tableSort.js'
 
 export function renderResponsiblePersons(responsiblePersons) {
-  const pagination = getPaginationState(responsiblePersons, "responsibleCurrentPage", "responsibleRowsPerPage")
+  const sortedPeople = sortTableRows(responsiblePersons, 'responsible', {
+    personid: person => person.personid,
+    clientname: person => person.clientname,
+    name: person => person.name
+  }, 'name')
+  const pagination = getPaginationState(sortedPeople, "responsibleCurrentPage", "responsibleRowsPerPage")
 
   document.querySelector('#page').innerHTML = `
     <h2>Responsible Persons</h2>
@@ -40,9 +46,9 @@ export function renderResponsiblePersons(responsiblePersons) {
     <table>
       <thead>
         <tr>
-          <th>Person ID</th>
-          <th>Client</th>
-          <th>Name</th>
+          <th>${sortHeader('Person ID', 'responsible', 'personid', 'showResponsiblePersons')}</th>
+          <th>${sortHeader('Client', 'responsible', 'clientname', 'showResponsiblePersons')}</th>
+          <th>${sortHeader('Name', 'responsible', 'name', 'showResponsiblePersons')}</th>
           <th>Actions</th>
         </tr>
       </thead>

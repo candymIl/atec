@@ -1,3 +1,5 @@
+import { sortHeader, sortTableRows } from '../tableSort.js'
+
 export function showDashboard(
     customers,
     assets,
@@ -22,6 +24,41 @@ export function showDashboard(
     Object.entries(equipmentTotals)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 10)
+
+  const customerAssetRows = customers
+    .map(customer => {
+      const customerSites = sites.filter(site =>
+        String(site.clientid) === String(customer.clientid)
+      )
+
+      const customerSiteIds = customerSites.map(site =>
+        String(site.siteid)
+      )
+
+      const customerAssets = assets.filter(asset =>
+        customerSiteIds.includes(String(asset.siteid))
+      )
+
+      return {
+        clientname: customer.clientname || "",
+        sites: customerSites.length,
+        assets: customerAssets.length
+      }
+    })
+
+  const sortedCustomerAssetRows = sortTableRows(customerAssetRows, 'dashboardCustomers', {
+    clientname: row => row.clientname,
+    sites: row => row.sites,
+    assets: row => row.assets
+  }, 'assets').slice(0, 10)
+
+  const sortedTopEquipment = sortTableRows(topEquipment.map(item => ({
+    equipmenttype: item[0],
+    total: item[1]
+  })), 'dashboardEquipment', {
+    equipmenttype: row => row.equipmenttype,
+    total: row => row.total
+  }, 'total')
 
   document.querySelector('#page').innerHTML = `
 
@@ -137,12 +174,12 @@ export function showDashboard(
 
     <thead>
       <tr>
-        <th>Asset</th>
-        <th>Customer</th>
-        <th>Site</th>
-        <th>Equipment</th>
-        <th>Reason</th>
-        <th>Days Overdue</th>
+        <th>${sortHeader('Asset', 'dashboardAttention', 'assettagno', 'showDashboard')}</th>
+        <th>${sortHeader('Customer', 'dashboardAttention', 'clientname', 'showDashboard')}</th>
+        <th>${sortHeader('Site', 'dashboardAttention', 'sitename', 'showDashboard')}</th>
+        <th>${sortHeader('Equipment', 'dashboardAttention', 'equipmenttype', 'showDashboard')}</th>
+        <th>${sortHeader('Reason', 'dashboardAttention', 'reason', 'showDashboard')}</th>
+        <th>${sortHeader('Days Overdue', 'dashboardAttention', 'daysoverdue', 'showDashboard')}</th>
         <th>Action</th>
       </tr>
     </thead>
@@ -167,12 +204,12 @@ export function showDashboard(
 
     <thead>
       <tr>
-        <th>Asset</th>
-        <th>Customer</th>
-        <th>Site</th>
-        <th>Equipment</th>
-        <th>Failed Date</th>
-        <th>Inspector</th>
+        <th>${sortHeader('Asset', 'dashboardFailed', 'assettagno', 'showDashboard')}</th>
+        <th>${sortHeader('Customer', 'dashboardFailed', 'clientname', 'showDashboard')}</th>
+        <th>${sortHeader('Site', 'dashboardFailed', 'sitename', 'showDashboard')}</th>
+        <th>${sortHeader('Equipment', 'dashboardFailed', 'equipmenttype', 'showDashboard')}</th>
+        <th>${sortHeader('Failed Date', 'dashboardFailed', 'testdate', 'showDashboard')}</th>
+        <th>${sortHeader('Inspector', 'dashboardFailed', 'inspector', 'showDashboard')}</th>
         <th>Action</th>
       </tr>
     </thead>
@@ -195,13 +232,13 @@ export function showDashboard(
   <table class="dashboard-table">
     <thead>
       <tr>
-        <th>Asset</th>
-        <th>Customer</th>
-        <th>Site</th>
-        <th>Equipment</th>
-        <th>Type</th>
-        <th>Expiry Date</th>
-        <th>Days Left</th>
+        <th>${sortHeader('Asset', 'dashboardExpiries', 'assettagno', 'showDashboard')}</th>
+        <th>${sortHeader('Customer', 'dashboardExpiries', 'clientname', 'showDashboard')}</th>
+        <th>${sortHeader('Site', 'dashboardExpiries', 'sitename', 'showDashboard')}</th>
+        <th>${sortHeader('Equipment', 'dashboardExpiries', 'equipmenttype', 'showDashboard')}</th>
+        <th>${sortHeader('Type', 'dashboardExpiries', 'inspectiontype', 'showDashboard')}</th>
+        <th>${sortHeader('Expiry Date', 'dashboardExpiries', 'validdate', 'showDashboard')}</th>
+        <th>${sortHeader('Days Left', 'dashboardExpiries', 'daysremaining', 'showDashboard')}</th>
         <th>Action</th>
       </tr>
     </thead>
@@ -221,36 +258,14 @@ export function showDashboard(
 <table>
   <thead>
     <tr>
-      <th>Client</th>
-      <th>Sites</th>
-      <th>Assets</th>
+      <th>${sortHeader('Client', 'dashboardCustomers', 'clientname', 'showDashboard')}</th>
+      <th>${sortHeader('Sites', 'dashboardCustomers', 'sites', 'showDashboard')}</th>
+      <th>${sortHeader('Assets', 'dashboardCustomers', 'assets', 'showDashboard')}</th>
     </tr>
   </thead>
 
 <tbody>
-  ${customers
-    .map(customer => {
-      const customerSites = sites.filter(site =>
-        String(site.clientid) === String(customer.clientid)
-      )
-
-      const customerSiteIds = customerSites.map(site =>
-        String(site.siteid)
-      )
-
-      const customerAssets = assets.filter(asset =>
-        customerSiteIds.includes(String(asset.siteid))
-      )
-
-      return {
-        clientname: customer.clientname || "",
-        sites: customerSites.length,
-        assets: customerAssets.length
-      }
-    })
-    .sort((a, b) => b.assets - a.assets)
-    .slice(0, 10)
-    .map(row => `
+  ${sortedCustomerAssetRows.map(row => `
       <tr>
         <td>${row.clientname}</td>
         <td>${row.sites}</td>
@@ -273,17 +288,17 @@ export function showDashboard(
 
         <thead>
             <tr>
-                <th>Equipment Type</th>
-                <th>Total</th>
+                <th>${sortHeader('Equipment Type', 'dashboardEquipment', 'equipmenttype', 'showDashboard')}</th>
+                <th>${sortHeader('Total', 'dashboardEquipment', 'total', 'showDashboard')}</th>
             </tr>
         </thead>
 
         <tbody>
 
-            ${topEquipment.map(item => `
+            ${sortedTopEquipment.map(item => `
                 <tr>
-                    <td>${item[0]}</td>
-                    <td><strong>${item[1]}</strong></td>
+                    <td>${item.equipmenttype}</td>
+                    <td><strong>${item.total}</strong></td>
                 </tr>
             `).join('')}
 

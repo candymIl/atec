@@ -11,6 +11,7 @@ import { renderQuickInspection } from './pages/QuickInspection.js'
 import { renderCertificateSearch } from './pages/Certificates.js'
 import { renderCustomerDetailedReport } from './pages/CustomerDetailedReport.js'
 import { getPaginationState, renderPaginationControls } from './pagination.js'
+import { sortTableRows } from './tableSort.js'
 
 const API_BASE = 'http://localhost:5000'
 const originalFetch = window.fetch.bind(window)
@@ -23,6 +24,22 @@ window.fetch = function (input, options = {}) {
     ...options,
     credentials: isApiRequest ? 'include' : options.credentials
   })
+}
+
+async function readApiResponse(response) {
+  const text = await response.text()
+
+  if (!text) return {}
+
+  try {
+    return JSON.parse(text)
+  } catch (err) {
+    return {
+      error: response.ok
+        ? 'The server returned an unexpected response'
+        : 'The server returned an unexpected error. Please try again.'
+    }
+  }
 }
 
 let currentUser = null
@@ -402,7 +419,7 @@ window.uploadUserSignature = async function (userId) {
     body: formData
   })
 
-  const result = await response.json()
+  const result = await readApiResponse(response)
 
   if (!response.ok) {
     alert(result.error || 'Unable to upload signature')
@@ -444,7 +461,7 @@ window.resetUserPassword = async function (userId) {
     body: JSON.stringify({ password })
   })
 
-  const result = await response.json()
+  const result = await readApiResponse(response)
 
   if (!response.ok) {
     alert(result.error || 'Unable to reset password')
@@ -503,10 +520,28 @@ async function fetchJsonOrDefault(url, fallback) {
 
   if (!response.ok) {
     if ([401, 403].includes(response.status)) return fallback
-    throw new Error(`Unable to load ${url}`)
+    const errorBody = await response.json().catch(() => ({}))
+    throw new Error(errorBody.error || `Unable to load ${url}`)
   }
 
   return response.json()
+}
+
+function renderStartupError(message) {
+  document.querySelector('#app').innerHTML = `
+    <div class="login-page">
+      <div class="login-card">
+        <img src="/logo.png" alt="ATEC Logo" class="login-logo">
+        <h1>ATEC needs a database update</h1>
+        <p>${message}</p>
+        <p>
+          Please run:
+          <strong>database/2026-06-23-equipment-400-photos-and-critical-rule.sql</strong>
+        </p>
+        <button type="button" onclick="location.reload()">Reload</button>
+      </div>
+    </div>
+  `
 }
 
 async function loadData() {
@@ -527,20 +562,28 @@ async function loadData() {
   const session = await sessionResponse.json()
   currentUser = session.user
 
-  let customers = await fetchJsonOrDefault(`${API_BASE}/customers`, [])
+  let customers
+  let assets
+  let sites
+  let responsiblePersons
+  let sections
+  let equipmentTypes
+  let dashboardStats
+  let criteria
 
-  const assets = await fetchJsonOrDefault(`${API_BASE}/assets`, [])
-  
-  const sites = await fetchJsonOrDefault(`${API_BASE}/sites`, [])
-
-  const responsiblePersons = await fetchJsonOrDefault(`${API_BASE}/responsible-persons`, [])
-
-  const sections = await fetchJsonOrDefault(`${API_BASE}/sections`, [])
-
-  const equipmentTypes = await fetchJsonOrDefault(`${API_BASE}/equipment-types`, [])
-  const dashboardStats = await fetchJsonOrDefault(`${API_BASE}/dashboard/stats`, {})
-
-  const criteria = await fetchJsonOrDefault(`${API_BASE}/equipment-type-criteria`, [])
+  try {
+    customers = await fetchJsonOrDefault(`${API_BASE}/customers`, [])
+    assets = await fetchJsonOrDefault(`${API_BASE}/assets`, [])
+    sites = await fetchJsonOrDefault(`${API_BASE}/sites`, [])
+    responsiblePersons = await fetchJsonOrDefault(`${API_BASE}/responsible-persons`, [])
+    sections = await fetchJsonOrDefault(`${API_BASE}/sections`, [])
+    equipmentTypes = await fetchJsonOrDefault(`${API_BASE}/equipment-types`, [])
+    dashboardStats = await fetchJsonOrDefault(`${API_BASE}/dashboard/stats`, {})
+    criteria = await fetchJsonOrDefault(`${API_BASE}/equipment-type-criteria`, [])
+  } catch (err) {
+    renderStartupError(err.message || "The database update has not been completed.")
+    return
+  }
 
          document.querySelector('#app').innerHTML = `
     <div class="app">
@@ -1041,11 +1084,15 @@ window.goToResponsiblePage = function (page) {
   filterResponsiblePersons()
 }
 
-window.showSections = function () {
+let sectionArchiveMode = localStorage.getItem("sectionArchiveMode") || "active"
+
+window.showSections = function (mode = sectionArchiveMode) {
   if (!ensurePageAccess('sections')) return
 
+  sectionArchiveMode = mode
   localStorage.setItem("currentPage", "sections")
-  renderSections(sections)
+  localStorage.setItem("sectionArchiveMode", mode)
+  renderSections(sections, sectionArchiveMode)
 }
 
 window.showAddSectionForm = function () {
@@ -1109,7 +1156,10 @@ window.filterSectionDropdowns = function () {
   }
 
   const filteredSites = sites
-    .filter(site => String(site.clientid) === String(clientid))
+    .filter(site =>
+      String(site.clientid) === String(clientid) &&
+      !(site.archived === true || site.archived === "true")
+    )
     .sort((a, b) => (a.sitename || '').localeCompare(b.sitename || ''))
 
   const filteredResponsiblePersons = responsiblePersons
@@ -1147,6 +1197,10 @@ window.filterSections = function (resetPage = false) {
     .trim()
 
   const filtered = sections.filter(section => {
+    const isArchived = section.archived === true || section.archived === "true"
+    if (sectionArchiveMode === "active" && isArchived) return false
+    if (sectionArchiveMode === "archived" && !isArchived) return false
+
     const fieldValue = String(section[searchType] || "")
       .toLowerCase()
 
@@ -1172,10 +1226,16 @@ window.filterSections = function (resetPage = false) {
         <td>${section.sitename || ""}</td>
         <td>${section.responsiblename || ""}</td>
         <td>${section.sectionname || ""}</td>
+        <td>${section.archived ? "Archived" : "Active"}</td>
         <td>
           <button onclick="editSection(${section.sectionid})">
             Edit
           </button>
+          ${
+            section.archived
+              ? `<button onclick="unarchiveSection(${section.sectionid})">Restore</button>`
+              : `<button onclick="archiveSection(${section.sectionid})">Archive</button>`
+          }
         </td>
       </tr>
     `).join("")
@@ -1323,12 +1383,49 @@ window.saveSectionFromForm = async function () {
   showSections()
 }
 
-window.showSites = function () {
+window.archiveSection = async function (sectionid) {
+  if (!confirm("Archive this section? Active assets must be moved or archived first.")) return
+
+  const response = await fetch(`http://localhost:5000/sections/${sectionid}/archive`, {
+    method: "PUT"
+  })
+  const result = await response.json()
+
+  if (!response.ok) {
+    alert(result.error || "Unable to archive section")
+    return
+  }
+
+  alert("Section archived")
+  await loadData()
+  showSections()
+}
+
+window.unarchiveSection = async function (sectionid) {
+  const response = await fetch(`http://localhost:5000/sections/${sectionid}/unarchive`, {
+    method: "PUT"
+  })
+  const result = await response.json()
+
+  if (!response.ok) {
+    alert(result.error || "Unable to restore section")
+    return
+  }
+
+  alert("Section restored")
+  await loadData()
+  showSections()
+}
+
+let siteArchiveMode = localStorage.getItem("siteArchiveMode") || "active"
+
+window.showSites = function (mode = siteArchiveMode) {
   if (!ensurePageAccess('sites')) return
 
+  siteArchiveMode = mode
   localStorage.setItem("currentPage", "sites")
-
-  renderSites(sites)
+  localStorage.setItem("siteArchiveMode", mode)
+  renderSites(sites, siteArchiveMode)
 
 }
 
@@ -1341,11 +1438,19 @@ window.filterSites = function (resetPage = false) {
     .toLowerCase()
     .trim()
 
-  const filtered = sites.filter(site =>
-    String(site.siteid || '').includes(search) ||
-    (site.clientname || '').toLowerCase().includes(search) ||
-    (site.sitename || '').toLowerCase().includes(search)
-  )
+  const filtered = sites.filter(site => {
+    const isArchived = site.archived === true || site.archived === "true"
+    const archiveMatch =
+      siteArchiveMode === "all" ||
+      (siteArchiveMode === "active" && !isArchived) ||
+      (siteArchiveMode === "archived" && isArchived)
+    const searchMatch =
+      String(site.siteid || '').includes(search) ||
+      (site.clientname || '').toLowerCase().includes(search) ||
+      (site.sitename || '').toLowerCase().includes(search)
+
+    return archiveMatch && searchMatch
+  })
 
   const pagination = getPaginationState(filtered, "siteCurrentPage", "siteRowsPerPage")
   const paginationBar = document.querySelector(".report-pagination-bar")
@@ -1364,10 +1469,16 @@ window.filterSites = function (resetPage = false) {
         <td>${site.siteid}</td>
         <td>${site.clientname || ''}</td>
         <td>${site.sitename || ''}</td>
+        <td>${site.archived ? "Archived" : "Active"}</td>
         <td>
           <button onclick="editSite(${site.siteid})">
             Edit
           </button>
+          ${
+            site.archived
+              ? `<button onclick="unarchiveSite(${site.siteid})">Restore</button>`
+              : `<button onclick="archiveSite(${site.siteid})">Archive</button>`
+          }
         </td>
       </tr>
     `).join('')
@@ -1456,6 +1567,40 @@ window.saveSiteChanges = async function (siteid) {
 
   await loadData()
 
+  showSites()
+}
+
+window.archiveSite = async function (siteid) {
+  if (!confirm("Archive this site? Active assets must be moved or archived first.")) return
+
+  const response = await fetch(`http://localhost:5000/sites/${siteid}/archive`, {
+    method: "PUT"
+  })
+  const result = await response.json()
+
+  if (!response.ok) {
+    alert(result.error || "Unable to archive site")
+    return
+  }
+
+  alert("Site archived")
+  await loadData()
+  showSites()
+}
+
+window.unarchiveSite = async function (siteid) {
+  const response = await fetch(`http://localhost:5000/sites/${siteid}/unarchive`, {
+    method: "PUT"
+  })
+  const result = await response.json()
+
+  if (!response.ok) {
+    alert(result.error || "Unable to restore site")
+    return
+  }
+
+  alert("Site restored")
+  await loadData()
   showSites()
 }
 
@@ -1751,7 +1896,10 @@ window.filterAssetDropdowns = function () {
   }
 
   const filteredSites = sites
-    .filter(site => String(site.clientid) === String(clientid))
+    .filter(site =>
+      String(site.clientid) === String(clientid) &&
+      !(site.archived === true || site.archived === "true")
+    )
     .sort((a, b) =>
       (a.sitename || '').localeCompare(b.sitename || '')
     )
@@ -1785,7 +1933,8 @@ window.filterAssetSections = function () {
 
   const filteredSections = sections
     .filter(section =>
-      String(section.siteid) === String(siteid)
+      String(section.siteid) === String(siteid) &&
+      !(section.archived === true || section.archived === "true")
     )
     .sort((a, b) =>
       (a.sectionname || '').localeCompare(b.sectionname || '')
@@ -2012,6 +2161,10 @@ window.filterAssets = function (resetPage = false) {
               History
             </button>
 
+            <button onclick="showMoveAssetForm(${asset.assetid})">
+              Move
+            </button>
+
           </div>
         </td>
     </tr>
@@ -2124,6 +2277,128 @@ window.setAssetFilterKey = function (key) {
   searchType.value = key
   window.assetCurrentPage = 1
   filterAssets()
+}
+
+window.showMoveAssetForm = function (assetid) {
+  const asset = assets.find(a => String(a.assetid) === String(assetid))
+
+  if (!asset) {
+    alert("Asset not found")
+    return
+  }
+
+  const activeSites = sites
+    .filter(site =>
+      String(site.clientid) === String(asset.clientid) &&
+      !(site.archived === true || site.archived === "true")
+    )
+    .sort((a, b) => (a.sitename || "").localeCompare(b.sitename || ""))
+
+  document.querySelector("#page").innerHTML = `
+    <h2>Move Asset ${asset.assetid}</h2>
+
+    <div class="filter-card">
+      <div class="asset-form-grid">
+        <div class="form-group">
+          <label>Customer</label>
+          <input type="text" value="${asset.clientname || ""}" disabled>
+        </div>
+
+        <div class="form-group">
+          <label>Current Site</label>
+          <input type="text" value="${asset.sitename || "-"}" disabled>
+        </div>
+
+        <div class="form-group">
+          <label>Current Section</label>
+          <input type="text" value="${asset.sectionname || "-"}" disabled>
+        </div>
+
+        <div class="form-group">
+          <label>New Site</label>
+          <select id="moveAssetSite" onchange="filterMoveAssetSections()">
+            <option value="">Select Site</option>
+            ${activeSites.map(site => `
+              <option value="${site.siteid}" ${String(site.siteid) === String(asset.siteid) ? "selected" : ""}>
+                ${site.sitename}
+              </option>
+            `).join("")}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>New Section</label>
+          <select id="moveAssetSection">
+            <option value="">Select Site First</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button onclick="saveAssetMove(${asset.assetid})">Move Asset</button>
+        <button onclick="showAssetSetup()">Cancel</button>
+      </div>
+    </div>
+  `
+
+  filterMoveAssetSections(asset.sectionid)
+}
+
+window.filterMoveAssetSections = function (selectedSectionId = "") {
+  const siteid = document.querySelector("#moveAssetSite")?.value || ""
+  const sectionSelect = document.querySelector("#moveAssetSection")
+
+  if (!sectionSelect) return
+
+  if (!siteid) {
+    sectionSelect.innerHTML = `<option value="">Select Site First</option>`
+    return
+  }
+
+  const filteredSections = sections
+    .filter(section =>
+      String(section.siteid) === String(siteid) &&
+      !(section.archived === true || section.archived === "true")
+    )
+    .sort((a, b) => (a.sectionname || "").localeCompare(b.sectionname || ""))
+
+  sectionSelect.innerHTML = `
+    <option value="">Select Section</option>
+    ${filteredSections.map(section => `
+      <option value="${section.sectionid}" ${String(section.sectionid) === String(selectedSectionId) ? "selected" : ""}>
+        ${section.sectionname}
+      </option>
+    `).join("")}
+  `
+}
+
+window.saveAssetMove = async function (assetid) {
+  const siteid = document.querySelector("#moveAssetSite")?.value || ""
+  const sectionid = document.querySelector("#moveAssetSection")?.value || ""
+
+  if (!siteid || !sectionid) {
+    alert("Please select the new site and section")
+    return
+  }
+
+  const response = await fetch(`http://localhost:5000/assets/${assetid}/move`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ siteid, sectionid })
+  })
+
+  const result = await response.json()
+
+  if (!response.ok) {
+    alert(result.error || "Unable to move asset")
+    return
+  }
+
+  alert("Asset moved successfully")
+  await loadData()
+  showAssetSetup()
 }
 
 window.editAsset = function (assetid) {
@@ -2451,7 +2726,16 @@ function renderCriteriaPopup(row = {}) {
     row.inspectioncategory || "VISUAL"
 
   const selectedFieldType =
-    row.fieldtype || "PASSFAIL"
+    row.fieldtype || "PASS_FAIL"
+
+  const selectedResultType =
+    row.resulttype || (selectedFieldType === "NUMBER" ? "MEASURED" : "PASS_FAIL")
+
+  const selectedInspectionGroup =
+    row.inspection_category || "PERIODIC_THOROUGH_INSPECTION"
+
+  const selectedSeverity =
+    row.severity || "MINOR"
 
   document.querySelector('#criteriaPopup')?.remove()
 
@@ -2491,7 +2775,7 @@ function renderCriteriaPopup(row = {}) {
             </div>
 
             <div class="form-group">
-              <label>Inspection Category</label>
+              <label>Inspection Type</label>
               <select id="criteriaCategory">
                 <option value="VISUAL" ${selectedCategory === "VISUAL" ? "selected" : ""}>
                   Visual Inspection
@@ -2506,18 +2790,63 @@ function renderCriteriaPopup(row = {}) {
           <div class="form-row">
             <div class="form-group form-group-wide">
               <label>Criteria Name</label>
-              <input id="criteriaName" type="text" value="${escapeAttribute(row.criterianame)}">
+              <input id="criteriaName" type="text" value="${escapeAttribute(row.criteriadescription || row.criterianame)}">
             </div>
 
             <div class="form-group">
               <label>Field Type</label>
               <select id="criteriaFieldType">
-                <option value="PASSFAIL" ${selectedFieldType === "PASSFAIL" ? "selected" : ""}>Pass / Fail / N/A</option>
+                <option value="PASS_FAIL" ${selectedFieldType === "PASS_FAIL" || selectedFieldType === "PASSFAIL" ? "selected" : ""}>Pass / Fail / N/A</option>
                 <option value="TEXT" ${selectedFieldType === "TEXT" ? "selected" : ""}>Text Input</option>
                 <option value="NUMBER" ${selectedFieldType === "NUMBER" ? "selected" : ""}>Number Input</option>
-                <option value="DATE" ${selectedFieldType === "DATE" ? "selected" : ""}>Date Input</option>
-                <option value="LOAD" ${selectedFieldType === "LOAD" ? "selected" : ""}>Load Value</option>
-                <option value="MEASUREMENT" ${selectedFieldType === "MEASUREMENT" ? "selected" : ""}>Measurement</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Result Type</label>
+              <select id="criteriaResultType">
+                <option value="PASS_FAIL" ${selectedResultType === "PASS_FAIL" ? "selected" : ""}>PASS / FAIL</option>
+                <option value="MEASURED" ${selectedResultType === "MEASURED" ? "selected" : ""}>Measured</option>
+                <option value="YES_NO" ${selectedResultType === "YES_NO" ? "selected" : ""}>YES / NO</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Inspection Category</label>
+              <select id="criteriaInspectionGroup">
+                <option value="FREQUENT_INSPECTION" ${selectedInspectionGroup === "FREQUENT_INSPECTION" ? "selected" : ""}>
+                  Frequent Inspection
+                </option>
+                <option value="PERIODIC_THOROUGH_INSPECTION" ${selectedInspectionGroup === "PERIODIC_THOROUGH_INSPECTION" ? "selected" : ""}>
+                  Periodic Thorough Inspection
+                </option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Severity</label>
+              <select id="criteriaSeverity">
+                <option value="CRITICAL" ${selectedSeverity === "CRITICAL" ? "selected" : ""}>Critical</option>
+                <option value="MAJOR" ${selectedSeverity === "MAJOR" ? "selected" : ""}>Major</option>
+                <option value="MINOR" ${selectedSeverity === "MINOR" ? "selected" : ""}>Minor</option>
+                <option value="OBSERVATION" ${selectedSeverity === "OBSERVATION" ? "selected" : ""}>Observation</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Display Order</label>
+              <input id="criteriaDisplayOrder" type="number" min="1" value="${escapeAttribute(row.displayorder || row.sortorder || 1)}">
+            </div>
+
+            <div class="form-group">
+              <label>Active</label>
+              <select id="criteriaActive">
+                <option value="true" ${row.active === false ? "" : "selected"}>Active</option>
+                <option value="false" ${row.active === false ? "selected" : ""}>Inactive</option>
               </select>
             </div>
           </div>
@@ -2570,10 +2899,16 @@ window.saveCriteria = async function () {
   const payload = {
     equiptypeid,
     criterianame,
+    criteriadescription: criterianame,
     fieldtype: document.querySelector('#criteriaFieldType').value,
+    resulttype: document.querySelector('#criteriaResultType').value,
     required: true,
-    sortorder: 1,
-    inspectioncategory
+    sortorder: Number(document.querySelector('#criteriaDisplayOrder')?.value || 1),
+    displayorder: Number(document.querySelector('#criteriaDisplayOrder')?.value || 1),
+    inspectioncategory,
+    inspection_category: document.querySelector('#criteriaInspectionGroup').value,
+    severity: document.querySelector('#criteriaSeverity').value,
+    active: document.querySelector('#criteriaActive').value === "true"
   }
 
   const response = await fetch(
@@ -3280,7 +3615,136 @@ window.toggleFailRemark = function (criteriaid) {
 
   if (!remarksBox) return
 
-  remarksBox.style.display = result === "FAIL" ? "block" : "none"
+  remarksBox.style.display = result === "FAIL" || result === "NO" ? "block" : "none"
+}
+
+function isSafeContinuationCriteria(row) {
+  const name = String(row?.criteriadescription || row?.criterianame || "").trim().toUpperCase()
+  return name === "SAFE FOR CONTINUED OPERATION" || name === "SAFE FOR SERVICE"
+}
+
+function isCriticalCriteria(row) {
+  return String(row?.severity || "").toUpperCase() === "CRITICAL"
+}
+
+window.updateInspectionSafetyWarning = function () {
+  const inspectionCriteria = window.currentInspectionCriteria || []
+  const failedCriticalCriteria = inspectionCriteria.filter(row => {
+    const result = document.querySelector(`#result-${row.criteriaid}`)?.value
+    return isCriticalCriteria(row) && !isSafeContinuationCriteria(row) && ["FAIL", "NO"].includes(result)
+  })
+
+  const warning = document.querySelector("#inspectionCriticalWarning")
+  const safeCriteria = inspectionCriteria.find(isSafeContinuationCriteria)
+
+  if (safeCriteria && failedCriticalCriteria.length) {
+    const safeSelect = document.querySelector(`#result-${safeCriteria.criteriaid}`)
+
+    if (safeSelect) {
+      safeSelect.value = safeSelect.querySelector('option[value="NO"]') ? "NO" : "FAIL"
+      safeSelect.disabled = true
+      toggleFailRemark(safeCriteria.criteriaid)
+    }
+  }
+
+  if (safeCriteria && failedCriticalCriteria.length === 0) {
+    const safeSelect = document.querySelector(`#result-${safeCriteria.criteriaid}`)
+    if (safeSelect) safeSelect.disabled = false
+  }
+
+  if (!warning) return
+
+  warning.style.display = failedCriticalCriteria.length ? "block" : "none"
+  warning.innerHTML = failedCriticalCriteria.length
+    ? `<strong>NOT SAFE rule applied:</strong> ${failedCriticalCriteria.length} critical item failed. SAFE FOR CONTINUED OPERATION is forced to NO and the certificate will be NOT SAFE.`
+    : ""
+}
+
+window.pendingInspectionPhotos = []
+
+function inspectionPhotoTypeOptions(selected = "GENERAL") {
+  return [
+    "GENERAL",
+    "DEFECT",
+    "REPAIR",
+    "LOAD_TEST",
+    "NAMEPLATE",
+    "HOOK",
+    "WIRE_ROPE",
+    "STRUCTURE",
+    "ELECTRICAL"
+  ].map(type => `
+    <option value="${type}" ${selected === type ? "selected" : ""}>
+      ${type.replaceAll("_", " ")}
+    </option>
+  `).join("")
+}
+
+window.handleInspectionPhotoSelection = function (event) {
+  const files = Array.from(event.target.files || [])
+
+  files.forEach(file => {
+    window.pendingInspectionPhotos.push({
+      id: `${Date.now()}-${Math.random()}`,
+      file,
+      caption: "",
+      photoType: "GENERAL",
+      previewUrl: URL.createObjectURL(file)
+    })
+  })
+
+  event.target.value = ""
+  renderInspectionPhotoPreview()
+}
+
+window.updateInspectionPhotoMeta = function (photoId, field, value) {
+  const photo = window.pendingInspectionPhotos.find(item => item.id === photoId)
+  if (!photo) return
+  photo[field] = value
+}
+
+window.removeInspectionPhoto = function (photoId) {
+  const photo = window.pendingInspectionPhotos.find(item => item.id === photoId)
+  if (photo?.previewUrl) URL.revokeObjectURL(photo.previewUrl)
+  window.pendingInspectionPhotos =
+    window.pendingInspectionPhotos.filter(item => item.id !== photoId)
+  renderInspectionPhotoPreview()
+}
+
+function renderInspectionPhotoPreview() {
+  const container = document.querySelector("#inspectionPhotoPreview")
+  if (!container) return
+
+  if (!window.pendingInspectionPhotos.length) {
+    container.innerHTML = `<p class="muted-text">No inspection photos selected.</p>`
+    return
+  }
+
+  container.innerHTML = window.pendingInspectionPhotos.map(photo => `
+    <div class="inspection-photo-preview-card">
+      <img src="${photo.previewUrl}" alt="Inspection photo preview">
+      <div class="inspection-photo-preview-fields">
+        <label>
+          Photo Type
+          <select onchange="updateInspectionPhotoMeta('${photo.id}', 'photoType', this.value)">
+            ${inspectionPhotoTypeOptions(photo.photoType)}
+          </select>
+        </label>
+        <label>
+          Caption
+          <input
+            type="text"
+            value="${escapeAttribute(photo.caption)}"
+            placeholder="Optional caption"
+            oninput="updateInspectionPhotoMeta('${photo.id}', 'caption', this.value)"
+          >
+        </label>
+        <button type="button" class="secondary-btn" onclick="removeInspectionPhoto('${photo.id}')">
+          Remove
+        </button>
+      </div>
+    </div>
+  `).join("")
 }
 
 window.startInspection = async function (assetid, inspectiontype = "VISUAL", returnPage = "quick") {
@@ -3310,11 +3774,16 @@ const quickDetails = await quickDetailsResponse.json()
 
   window.scrollTo(0, 0)
 
+window.pendingInspectionPhotos = []
+
 const assetCriteria = getInspectionCriteriaRows(criteria.filter(
   c =>
     String(c.equiptypeid) === String(asset.equiptypeid) &&
-    String(c.inspectioncategory) === String(inspectiontype)
+    String(c.inspectioncategory) === String(inspectiontype) &&
+    c.active !== false
 ), inspectiontype)
+
+window.currentInspectionCriteria = assetCriteria
 
   document.querySelector('#page').innerHTML = `
     <h2>${inspectiontype} - Asset ${asset.assetid}</h2>
@@ -3367,24 +3836,20 @@ const assetCriteria = getInspectionCriteriaRows(criteria.filter(
   <h3>Inspection Photos</h3>
 
   <input
-    id="inspectionPhoto1"
+    id="inspectionPhotoFiles"
     type="file"
     accept="image/*"
+    multiple
+    onchange="handleInspectionPhotoSelection(event)"
   >
 
-  <input
-    id="inspectionPhoto2"
-    type="file"
-    accept="image/*"
-  >
-
-  <label><b>
-    <input type="checkbox"
-      id="updateAssetPhotos">
-    Update Asset Master Photos
-  </b></label>
+  <div id="inspectionPhotoPreview" class="inspection-photo-preview-grid">
+    <p class="muted-text">No inspection photos selected.</p>
+  </div>
 
 </div>
+
+<div id="inspectionCriticalWarning" class="inspection-critical-warning" style="display:none;"></div>
 
 <div class="inspection-tag-card">
 
@@ -3545,7 +4010,8 @@ const assetCriteria = getInspectionCriteriaRows(criteria.filter(
     <div class="inspection-row compact-row">
 
       <div class="inspection-criteria">
-        ${row.criterianame}
+        ${row.criteriadescription || row.criterianame}
+        ${row.severity ? `<span class="inspection-criteria-badge ${String(row.severity).toLowerCase()}">${row.severity}</span>` : ""}
       </div>
 
       <div class="inspection-result inspection-text-result">
@@ -3561,17 +4027,28 @@ const assetCriteria = getInspectionCriteriaRows(criteria.filter(
     <div class="inspection-row compact-row">
 
       <div class="inspection-criteria">
-        ${row.criterianame}
+        ${row.criteriadescription || row.criterianame}
+        ${row.severity ? `<span class="inspection-criteria-badge ${String(row.severity).toLowerCase()}">${row.severity}</span>` : ""}
       </div>
 
       <div class="inspection-result">
         <select
           id="result-${row.criteriaid}"
-          onchange="toggleFailRemark(${row.criteriaid})"
+          onchange="toggleFailRemark(${row.criteriaid}); updateInspectionSafetyWarning()"
         >
-          <option value="PASS">PASS</option>
-          <option value="FAIL">FAIL</option>
-          <option value="N/A">N/A</option>
+          ${
+            row.resulttype === "YES_NO"
+              ? `
+                <option value="YES">YES</option>
+                <option value="NO">NO</option>
+                <option value="N/A">N/A</option>
+              `
+              : `
+                <option value="PASS">PASS</option>
+                <option value="FAIL">FAIL</option>
+                <option value="N/A">N/A</option>
+              `
+          }
         </select>
       </div>
 
@@ -3891,7 +4368,16 @@ async function loadDashboardAttention() {
       return;
     }
 
-    tbody.innerHTML = data.map(item => `
+    const sortedData = sortTableRows(data, 'dashboardAttention', {
+      assettagno: item => item.assettagno,
+      clientname: item => item.clientname,
+      sitename: item => item.sitename,
+      equipmenttype: item => item.equipmenttype,
+      reason: item => item.reason,
+      daysoverdue: item => item.daysoverdue
+    }, 'daysoverdue')
+
+    tbody.innerHTML = sortedData.map(item => `
       <tr>
         <td>
           <strong>${item.assettagno || "No Tag"}</strong><br>
@@ -3938,7 +4424,16 @@ async function loadDashboardFailedEquipment() {
       return
     }
 
-    tbody.innerHTML = data.map(item => `
+    const sortedData = sortTableRows(data, 'dashboardFailed', {
+      assettagno: item => item.assettagno,
+      clientname: item => item.clientname,
+      sitename: item => item.sitename,
+      equipmenttype: item => item.equipmenttype,
+      testdate: item => item.testdate,
+      inspector: item => item.inspector
+    }, 'testdate')
+
+    tbody.innerHTML = sortedData.map(item => `
       <tr>
         <td>
           <strong>${item.assettagno || "No Tag"}</strong><br>
@@ -3989,7 +4484,17 @@ async function loadDashboardUpcomingExpiries() {
       return
     }
 
-    tbody.innerHTML = data.map(item => `
+    const sortedData = sortTableRows(data, 'dashboardExpiries', {
+      assettagno: item => item.assettagno,
+      clientname: item => item.clientname,
+      sitename: item => item.sitename,
+      equipmenttype: item => item.equipmenttype,
+      inspectiontype: item => item.inspectiontype,
+      validdate: item => item.validdate,
+      daysremaining: item => item.daysremaining
+    }, 'daysremaining')
+
+    tbody.innerHTML = sortedData.map(item => `
       <tr>
         <td>
           <strong>${item.assettagno || "No Tag"}</strong><br>
@@ -4035,7 +4540,8 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
   const assetCriteria = getInspectionCriteriaRows(criteria.filter(
     c =>
       String(c.equiptypeid) === String(asset.equiptypeid) &&
-      String(c.inspectioncategory) === String(inspectiontype)
+      String(c.inspectioncategory) === String(inspectiontype) &&
+      c.active !== false
   ), inspectiontype)
 
   let results = []
@@ -4059,10 +4565,11 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
             ? document.querySelector(`#remarks-${row.criteriaid}`)?.value || ""
             : ""
 
-    if (
-      row.criterianame === "Safe For Service" &&
-      result !== "PASS"
-    ) {
+    if (isSafeContinuationCriteria(row) && !["PASS", "YES"].includes(result)) {
+      overallStatus = "NOT SAFE"
+    }
+
+    if (isCriticalCriteria(row) && !isSafeContinuationCriteria(row) && ["FAIL", "NO"].includes(result)) {
       overallStatus = "NOT SAFE"
     }
 
@@ -4103,11 +4610,11 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
     document.querySelector("#updateAssetPhotos")?.checked || false
   )
 
-  const photo1 = document.querySelector("#inspectionPhoto1")?.files[0]
-  const photo2 = document.querySelector("#inspectionPhoto2")?.files[0]
-
-  if (photo1) formData.append("photo1", photo1)
-  if (photo2) formData.append("photo2", photo2)
+  ;(window.pendingInspectionPhotos || []).forEach(photo => {
+    formData.append("inspectionPhotos", photo.file)
+    formData.append("photoCaptions", photo.caption || "")
+    formData.append("photoTypes", photo.photoType || "GENERAL")
+  })
 
   let response
   let savedInspection
@@ -4132,7 +4639,7 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
     return
   }
 
-  alert("Inspection saved. Status: " + overallStatus)
+  alert("Inspection saved. Status: " + (savedInspection.status || overallStatus))
 
   await loadData()
 

@@ -1,4 +1,5 @@
 import { getPaginationState, renderPaginationControls } from '../pagination.js'
+import { sortHeader, sortTableRows } from '../tableSort.js'
 
 export function renderEquipmentTypeCriteria(equipmentTypes, criteria) {
   const sortedEquipmentTypes = [...equipmentTypes].sort((a, b) =>
@@ -11,7 +12,16 @@ export function renderEquipmentTypeCriteria(equipmentTypes, criteria) {
   const visibleCriteria = selectedFilter
     ? criteria.filter(row => String(row.equiptypeid) === String(selectedFilter))
     : criteria
-  const pagination = getPaginationState(visibleCriteria, "criteriaCurrentPage", "criteriaRowsPerPage")
+  const sortedCriteria = sortTableRows(visibleCriteria, 'criteria', {
+    equipmenttype: row => row.equipmenttype,
+    inspectioncategory: row => row.inspectioncategory,
+    inspection_category: row => row.inspection_category,
+    severity: row => row.severity,
+    criterianame: row => row.criterianame,
+    resulttype: row => row.resulttype,
+    active: row => row.active ? 'Active' : 'Inactive'
+  }, 'equipmenttype')
+  const pagination = getPaginationState(sortedCriteria, "criteriaCurrentPage", "criteriaRowsPerPage")
 
   document.querySelector('#page').innerHTML = `
     <h1>Equipment Type Criteria Setup</h1>
@@ -51,10 +61,13 @@ export function renderEquipmentTypeCriteria(equipmentTypes, criteria) {
     <table>
       <thead>
         <tr>
-          <th>Equipment Type</th>
-          <th>Category</th>
-          <th>Criteria</th>
-          <th>Field Type</th>
+          <th>${sortHeader('Equipment Type', 'criteria', 'equipmenttype', 'showEquipmentTypeCriteria')}</th>
+          <th>${sortHeader('Type', 'criteria', 'inspectioncategory', 'showEquipmentTypeCriteria')}</th>
+          <th>${sortHeader('Category', 'criteria', 'inspection_category', 'showEquipmentTypeCriteria')}</th>
+          <th>${sortHeader('Severity', 'criteria', 'severity', 'showEquipmentTypeCriteria')}</th>
+          <th>${sortHeader('Criteria', 'criteria', 'criterianame', 'showEquipmentTypeCriteria')}</th>
+          <th>${sortHeader('Result Type', 'criteria', 'resulttype', 'showEquipmentTypeCriteria')}</th>
+          <th>${sortHeader('Status', 'criteria', 'active', 'showEquipmentTypeCriteria')}</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -64,8 +77,11 @@ export function renderEquipmentTypeCriteria(equipmentTypes, criteria) {
           <tr>
             <td>${row.equipmenttype || ''}</td>
             <td>${row.inspectioncategory || ''}</td>
-            <td>${row.criterianame || ''}</td>
-            <td>${row.fieldtype || ''}</td>
+            <td>${formatCriteriaLabel(row.inspection_category)}</td>
+            <td>${formatCriteriaLabel(row.severity)}</td>
+            <td>${row.criteriadescription || row.criterianame || ''}</td>
+            <td>${formatCriteriaLabel(row.resulttype || row.fieldtype)}</td>
+            <td>${row.active === false ? 'Inactive' : 'Active'}</td>
             <td class="criteria-row-actions">
               <button type="button" onclick="editCriteria(${row.criteriaid})">
                 Edit
@@ -77,10 +93,17 @@ export function renderEquipmentTypeCriteria(equipmentTypes, criteria) {
           </tr>
         `).join('') || `
           <tr>
-            <td colspan="5">No criteria found for the selected equipment type.</td>
+            <td colspan="8">No criteria found for the selected equipment type.</td>
           </tr>
         `}
       </tbody>
     </table>
   `
+}
+
+function formatCriteriaLabel(value) {
+  return String(value || '')
+    .replaceAll('_', ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, letter => letter.toUpperCase())
 }

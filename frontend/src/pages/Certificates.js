@@ -1,4 +1,5 @@
 import { getPaginationState, renderPaginationControls } from '../pagination.js'
+import { sortHeader, sortTableRows } from '../tableSort.js'
 
 export function renderCertificateSearch(customers = [], sites = [], sections = []) {
   document.querySelector('#page').innerHTML = `
@@ -221,7 +222,19 @@ function renderCertificateResults(certificates) {
     return
   }
 
-  const pagination = getPaginationState(certificates, "certCurrentPage", "certRowsPerPage")
+  const sortedCertificates = sortTableRows(certificates, 'certificates', {
+    testid: cert => cert.testid,
+    tagnumber: cert => cert.tagnumber,
+    clientname: cert => cert.clientname,
+    sitename: cert => cert.sitename,
+    description: cert => cert.description,
+    serialno: cert => cert.serialno,
+    inspectiontype: cert => cert.inspectiontype,
+    testdate: cert => cert.testdate,
+    status: cert => cert.status,
+    inspector: cert => cert.inspector
+  }, 'testid')
+  const pagination = getPaginationState(sortedCertificates, "certCurrentPage", "certRowsPerPage")
 
   document.querySelector('#certificateResults').innerHTML = `
     ${renderPaginationControls({
@@ -234,16 +247,16 @@ function renderCertificateResults(certificates) {
     <table>
       <thead>
         <tr>
-          <th>Test ID</th>
-          <th>Tag No</th>
-          <th>Client</th>
-          <th>Site</th>
-          <th>Asset</th>
-          <th>Serial No</th>
-          <th>Type</th>
-          <th>Date</th>
-          <th>Status</th>
-          <th>Inspector</th>
+          <th>${sortHeader('Test ID', 'certificates', 'testid', 'rerenderCertificateResults')}</th>
+          <th>${sortHeader('Tag No', 'certificates', 'tagnumber', 'rerenderCertificateResults')}</th>
+          <th>${sortHeader('Client', 'certificates', 'clientname', 'rerenderCertificateResults')}</th>
+          <th>${sortHeader('Site', 'certificates', 'sitename', 'rerenderCertificateResults')}</th>
+          <th>${sortHeader('Asset', 'certificates', 'description', 'rerenderCertificateResults')}</th>
+          <th>${sortHeader('Serial No', 'certificates', 'serialno', 'rerenderCertificateResults')}</th>
+          <th>${sortHeader('Type', 'certificates', 'inspectiontype', 'rerenderCertificateResults')}</th>
+          <th>${sortHeader('Date', 'certificates', 'testdate', 'rerenderCertificateResults')}</th>
+          <th>${sortHeader('Status', 'certificates', 'status', 'rerenderCertificateResults')}</th>
+          <th>${sortHeader('Inspector', 'certificates', 'inspector', 'rerenderCertificateResults')}</th>
           <th>Action</th>
         </tr>
       </thead>
@@ -298,6 +311,11 @@ function renderCertificateResults(certificates) {
 
 window.setCertificateRowsPerPage = function (value) {
   window.certRowsPerPage = Number(value) || 25
+  window.certCurrentPage = 1
+  renderCertificateResults(window.currentCertificateResults || [])
+}
+
+window.rerenderCertificateResults = function () {
   window.certCurrentPage = 1
   renderCertificateResults(window.currentCertificateResults || [])
 }
@@ -483,7 +501,7 @@ window.openCertificateModal = async function (testid) {
 
   const inspection = data.inspection
   const results = data.results || []
-  const [photo1, photo2] = getCertificatePhotos(inspection)
+  const inspectionPhotos = getCertificatePhotos(inspection, data.photos || [])
   const assetDetails = getCertificateAssetDetails(inspection)
   const certificateTitle = getCertificateTitle(inspection)
   const drivenMachineryNote = getDrivenMachineryCertificateNote(inspection)
@@ -598,22 +616,14 @@ window.openCertificateModal = async function (testid) {
           <div class="fb-cert-section">
             <h3>Inspection Photos</h3>
             <div class="fb-cert-photo-grid">
-              ${photo1 ? `
+              ${inspectionPhotos.length ? inspectionPhotos.slice(0, 4).map((photo, index) => `
                 <div>
-                  <img src="http://localhost:5000${photo1}">
-                  <p>Photo 1</p>
+                  <img src="http://localhost:5000${photo.photo_path}">
+                  <p>${photo.photo_type ? photo.photo_type.replaceAll("_", " ") : `Photo ${index + 1}`}</p>
+                  ${photo.caption ? `<p>${photo.caption}</p>` : ""}
                 </div>
-              ` : `
-                <div class="fb-cert-no-photo">No Photo 1</div>
-              `}
-
-              ${photo2 ? `
-                <div>
-                  <img src="http://localhost:5000${photo2}">
-                  <p>Photo 2</p>
-                </div>
-              ` : `
-                <div class="fb-cert-no-photo">No Photo 2</div>
+              `).join("") : `
+                <div class="fb-cert-no-photo">No inspection photos</div>
               `}
             </div>
           </div>
@@ -773,11 +783,21 @@ window.closeCertificateModal = function () {
   if (modal) modal.remove()
 }
 
-function getCertificatePhotos(inspection) {
+function getCertificatePhotos(inspection, savedPhotos = []) {
+  if (savedPhotos.length) {
+    return savedPhotos
+  }
+
   return [
     inspection.photo1 || inspection.media1,
     inspection.photo2 || inspection.media2
   ]
+    .filter(Boolean)
+    .map((photoPath, index) => ({
+      photo_path: photoPath,
+      photo_type: `Photo ${index + 1}`,
+      caption: ""
+    }))
 }
 
 function getCertificateAssetDetails(inspection) {

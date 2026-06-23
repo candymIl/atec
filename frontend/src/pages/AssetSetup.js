@@ -1,10 +1,22 @@
+import { sortHeader, sortTableRows } from '../tableSort.js'
+
 export function renderAssetSetup(assets) {
+  const sortedAssets = sortTableRows(assets, 'assets', {
+    assetid: asset => asset.assetid,
+    assettagno: asset => asset.assettagno,
+    serialno: asset => asset.serialno,
+    clientname: asset => asset.clientname,
+    sitename: asset => asset.sitename,
+    sectionname: asset => asset.sectionname,
+    equipmenttype: asset => asset.equipmenttype,
+    description: asset => asset.description
+  }, 'assetid')
   const pageSize = window.assetRowsPerPage || 25
-  const totalPages = Math.max(1, Math.ceil(assets.length / pageSize))
+  const totalPages = Math.max(1, Math.ceil(sortedAssets.length / pageSize))
   const currentPage = Math.min(window.assetCurrentPage || 1, totalPages)
   const startIndex = (currentPage - 1) * pageSize
-  const visibleAssets = assets.slice(startIndex, startIndex + pageSize)
-  const endIndex = assets.length === 0 ? 0 : startIndex + visibleAssets.length
+  const visibleAssets = sortedAssets.slice(startIndex, startIndex + pageSize)
+  const endIndex = sortedAssets.length === 0 ? 0 : startIndex + visibleAssets.length
   const pageButtons = renderAssetPageButtons(currentPage, totalPages)
 
   document.querySelector('#page').innerHTML = `
@@ -19,7 +31,7 @@ export function renderAssetSetup(assets) {
     <div class="filter-card">
       <p>
         Total Assets:
-        <strong>${assets.length}</strong>
+        <strong>${sortedAssets.length}</strong>
       </p>
 
       <h2>Search Assets</h2>
@@ -93,21 +105,21 @@ export function renderAssetSetup(assets) {
         <button type="button" onclick="changeAssetPage(1)" ${currentPage >= totalPages ? "disabled" : ""}>
           Next
         </button>
-        <span>Showing ${assets.length === 0 ? 0 : startIndex + 1} to ${endIndex} of ${assets.length} assets - Page ${currentPage} of ${totalPages}</span>
+        <span>Showing ${sortedAssets.length === 0 ? 0 : startIndex + 1} to ${endIndex} of ${sortedAssets.length} assets - Page ${currentPage} of ${totalPages}</span>
       </div>
     </div>
 
     <table>
       <thead>
         <tr>
-          <th>Asset ID</th>
-          <th>Asset Tag</th>
-          <th>Serial No</th>
-          <th>Client</th>
-          <th>Site</th>
-          <th>Section</th>
-          <th>Equipment Type</th>
-          <th>Description</th>
+          <th>${sortHeader('Asset ID', 'assets', 'assetid', 'showAssetSetup')}</th>
+          <th>${sortHeader('Asset Tag', 'assets', 'assettagno', 'showAssetSetup')}</th>
+          <th>${sortHeader('Serial No', 'assets', 'serialno', 'showAssetSetup')}</th>
+          <th>${sortHeader('Client', 'assets', 'clientname', 'showAssetSetup')}</th>
+          <th>${sortHeader('Site', 'assets', 'sitename', 'showAssetSetup')}</th>
+          <th>${sortHeader('Section', 'assets', 'sectionname', 'showAssetSetup')}</th>
+          <th>${sortHeader('Equipment Type', 'assets', 'equipmenttype', 'showAssetSetup')}</th>
+          <th>${sortHeader('Description', 'assets', 'description', 'showAssetSetup')}</th>
           <th>Action</th>
         </tr>
       </thead>
@@ -144,6 +156,10 @@ export function renderAssetSetup(assets) {
 
                 <button onclick="showAssetHistoryFromSetup(${asset.assetid})">
                   History
+                </button>
+
+                <button onclick="showMoveAssetForm(${asset.assetid})">
+                  Move
                 </button>
 
                 <button onclick="archiveAsset(${asset.assetid})">

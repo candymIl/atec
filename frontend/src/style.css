@@ -1176,6 +1176,94 @@ tr:hover {
   object-fit: contain;
 }
 
+.inspection-photo-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.inspection-photo-preview-card {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid #d9e1ec;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.inspection-photo-preview-card img {
+  width: 110px;
+  height: 110px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+}
+
+.inspection-photo-preview-fields {
+  display: grid;
+  gap: 8px;
+}
+
+.inspection-photo-preview-fields label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.inspection-photo-preview-fields input,
+.inspection-photo-preview-fields select {
+  width: 100%;
+  margin: 0;
+}
+
+.inspection-critical-warning {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid #fecaca;
+  border-left: 6px solid #dc2626;
+  border-radius: 8px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-weight: 700;
+}
+
+.inspection-criteria-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.2;
+  color: #ffffff;
+  background: #64748b;
+  vertical-align: middle;
+}
+
+.inspection-criteria-badge.critical {
+  background: #dc2626;
+}
+
+.inspection-criteria-badge.major {
+  background: #ea580c;
+}
+
+.inspection-criteria-badge.minor {
+  background: #2563eb;
+}
+
+.inspection-criteria-badge.observation {
+  background: #64748b;
+}
+
+.muted-text {
+  color: #64748b;
+  font-weight: 600;
+}
+
 /* =======================================================
    11. INSPECTION
 ======================================================= */
