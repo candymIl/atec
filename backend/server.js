@@ -1652,7 +1652,8 @@ async function getCertificateData(testid) {
       c.clientname,
       s.sitename,
       sec.sectionname,
-      et.description AS equipmenttype
+      et.description AS equipmenttype,
+      et.equipgroupid
     FROM atec.tblinspection i
     LEFT JOIN atec.tblasset a
       ON i.assetid = a.assetid
@@ -1733,6 +1734,13 @@ function getCertificateTitle(inspection) {
     ? "CERTIFICATE OF EXAMINATION AND TEST"
     : "CERTIFICATE OF INSPECTION"
 }
+
+function shouldShowDrivenMachineryNote(inspection) {
+  return ["400", "500"].includes(String(inspection.equipgroupid || ""))
+}
+
+const DRIVEN_MACHINERY_CERTIFICATE_NOTE =
+  "Certification that the item has been inspected in accordance with the requirements of Driven Machinery and SANS Regulations and the responsible person has been informed of all defects."
 
 function addPdfKeyValues(doc, items, x, y, width, options = {}) {
   const columnCount = options.columns || 2
@@ -1843,15 +1851,15 @@ function addPdfSectionTitle(doc, title, x, y, width) {
 
 function drawCertificatePdf(doc, inspection, results) {
   const pageWidth = doc.page.width
-  const marginX = 54
+  const marginX = 28.35
   const width = pageWidth - (marginX * 2)
-  let y = 18
+  let y = 14
 
   const headerPath = path.join(__dirname, "..", "frontend", "public", "header.jpg")
   const footerPath = path.join(__dirname, "..", "frontend", "public", "footer.jpg")
 
   if (fs.existsSync(headerPath)) {
-    doc.image(headerPath, marginX, y, { fit: [width, 82], align: "center" })
+    doc.image(headerPath, marginX, y, { width, height: 82 })
   }
 
   y += 86
@@ -2002,12 +2010,30 @@ function drawCertificatePdf(doc, inspection, results) {
     y += rowHeight
   })
 
+  if (shouldShowDrivenMachineryNote(inspection)) {
+    y += 10
+    doc
+      .font("Helvetica-Oblique")
+      .fontSize(7.5)
+      .fillColor("#d00000")
+      .text(DRIVEN_MACHINERY_CERTIFICATE_NOTE, marginX, y, {
+        width,
+        align: "center"
+      })
+      .fillColor("#111827")
+
+    y += doc.heightOfString(DRIVEN_MACHINERY_CERTIFICATE_NOTE, {
+      width,
+      align: "center"
+    }) + 4
+  }
+
   y += 14
   doc.font("Helvetica-Bold").fontSize(8).text("Inspector Signature", marginX, y)
   doc.moveTo(marginX, y + 30).lineTo(marginX + 180, y + 30).strokeColor("#111827").stroke()
 
   if (fs.existsSync(footerPath)) {
-    doc.image(footerPath, marginX + 255, y - 6, { fit: [260, 50] })
+    doc.image(footerPath, marginX + (width * 0.38), y - 12, { fit: [width * 0.62, 70] })
   }
 }
 

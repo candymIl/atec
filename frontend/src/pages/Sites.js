@@ -1,4 +1,8 @@
+import { getPaginationState, renderPaginationControls } from '../pagination.js'
+
 export function renderSites(sites) {
+  const pagination = getPaginationState(sites, "siteCurrentPage", "siteRowsPerPage")
+
   document.querySelector('#page').innerHTML = `
     <h2>Sites</h2>
 
@@ -18,10 +22,17 @@ export function renderSites(sites) {
       class="search-box"
       type="text"
       placeholder="Search Site ID, Client or Site Name..."
-      onkeyup="filterSites()"
+      onkeyup="filterSites(true)"
     />
 
     <br><br>
+
+    ${renderPaginationControls({
+      ...pagination,
+      label: "sites",
+      onPage: "goToSitePage",
+      onPageSize: "setSiteRowsPerPage"
+    })}
 
     <table>
     <thead>
@@ -34,7 +45,7 @@ export function renderSites(sites) {
     </thead>
 
       <tbody id="siteTableBody">
-        ${sites.map(site => `
+        ${pagination.rows.map(site => `
          <tr>
           <td>${site.siteid}</td>
           <td>${site.clientname || ''}</td>

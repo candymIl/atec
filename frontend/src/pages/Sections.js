@@ -1,4 +1,8 @@
+import { getPaginationState, renderPaginationControls } from '../pagination.js'
+
 export function renderSections(sections) {
+  const pagination = getPaginationState(sections, "sectionCurrentPage", "sectionRowsPerPage")
+
   document.querySelector('#page').innerHTML = `
     <h2>Sections</h2>
 
@@ -20,7 +24,7 @@ export function renderSections(sections) {
         <div class="form-group">
           <label>Search By</label>
 
-          <select id="sectionSearchType" onchange="filterSections()">
+          <select id="sectionSearchType" onchange="filterSections(true)">
             <option value="clientname">Customer</option>
             <option value="sitename">Site</option>
             <option value="responsiblename">Responsible Person</option>
@@ -36,11 +40,18 @@ export function renderSections(sections) {
             class="search-box"
             type="text"
             placeholder="Type search text..."
-            onkeyup="filterSections()"
+            onkeyup="filterSections(true)"
           />
         </div>
       </div>
     </div>
+
+    ${renderPaginationControls({
+      ...pagination,
+      label: "sections",
+      onPage: "goToSectionPage",
+      onPageSize: "setSectionRowsPerPage"
+    })}
 
     <table>
       <thead>
@@ -55,7 +66,7 @@ export function renderSections(sections) {
       </thead>
 
       <tbody id="sectionTableBody">
-        ${sections.map(section => `
+        ${pagination.rows.map(section => `
           <tr>
             <td>${section.sectionid}</td>
             <td>${section.clientname || ''}</td>

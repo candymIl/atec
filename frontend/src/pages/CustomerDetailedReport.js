@@ -231,10 +231,11 @@ function renderCustomerReportPreview(report) {
           <button id="reportPrevPageBtn" type="button" ${currentPage <= 1 ? "disabled" : ""}>
             Previous
           </button>
-          <span>Page ${currentPage} of ${totalPages}</span>
+          ${renderCustomerReportPageButtons(currentPage, totalPages)}
           <button id="reportNextPageBtn" type="button" ${currentPage >= totalPages ? "disabled" : ""}>
             Next
           </button>
+          <span>Page ${currentPage} of ${totalPages}</span>
         </div>
       </div>
 
@@ -334,6 +335,50 @@ function bindReportPagination() {
       currentReportPage = Math.min(totalPages, currentReportPage + 1)
       renderCustomerReportPage()
     })
+}
+
+function getCustomerReportPageNumbers(currentPage, totalPages) {
+  const pages = []
+
+  if (totalPages <= 7) {
+    for (let page = 1; page <= totalPages; page += 1) pages.push(page)
+    return pages
+  }
+
+  pages.push(1)
+  if (currentPage > 4) pages.push("...")
+
+  const startPage = Math.max(2, currentPage - 1)
+  const endPage = Math.min(totalPages - 1, currentPage + 1)
+
+  for (let page = startPage; page <= endPage; page += 1) pages.push(page)
+
+  if (currentPage < totalPages - 3) pages.push("...")
+
+  pages.push(totalPages)
+  return pages
+}
+
+function renderCustomerReportPageButtons(currentPage, totalPages) {
+  return getCustomerReportPageNumbers(currentPage, totalPages).map(page => {
+    if (page === "...") return `<span class="pagination-ellipsis">...</span>`
+
+    return `
+      <button
+        type="button"
+        class="pagination-page-btn ${page === currentPage ? "active" : ""}"
+        onclick="goToCustomerReportPage(${page})"
+        ${page === currentPage ? "disabled" : ""}
+      >
+        ${page}
+      </button>
+    `
+  }).join("")
+}
+
+window.goToCustomerReportPage = function (page) {
+  currentReportPage = Math.max(1, Number(page) || 1)
+  renderCustomerReportPage()
 }
 
 function getReportPageSize() {

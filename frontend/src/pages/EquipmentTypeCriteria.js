@@ -1,3 +1,5 @@
+import { getPaginationState, renderPaginationControls } from '../pagination.js'
+
 export function renderEquipmentTypeCriteria(equipmentTypes, criteria) {
   const sortedEquipmentTypes = [...equipmentTypes].sort((a, b) =>
     (a.description || '').localeCompare(b.description || '')
@@ -9,6 +11,7 @@ export function renderEquipmentTypeCriteria(equipmentTypes, criteria) {
   const visibleCriteria = selectedFilter
     ? criteria.filter(row => String(row.equiptypeid) === String(selectedFilter))
     : criteria
+  const pagination = getPaginationState(visibleCriteria, "criteriaCurrentPage", "criteriaRowsPerPage")
 
   document.querySelector('#page').innerHTML = `
     <h1>Equipment Type Criteria Setup</h1>
@@ -38,6 +41,13 @@ export function renderEquipmentTypeCriteria(equipmentTypes, criteria) {
       </div>
     </div>
 
+    ${renderPaginationControls({
+      ...pagination,
+      label: "criteria",
+      onPage: "goToCriteriaPage",
+      onPageSize: "setCriteriaRowsPerPage"
+    })}
+
     <table>
       <thead>
         <tr>
@@ -50,7 +60,7 @@ export function renderEquipmentTypeCriteria(equipmentTypes, criteria) {
       </thead>
 
       <tbody>
-        ${visibleCriteria.map(row => `
+        ${pagination.rows.map(row => `
           <tr>
             <td>${row.equipmenttype || ''}</td>
             <td>${row.inspectioncategory || ''}</td>

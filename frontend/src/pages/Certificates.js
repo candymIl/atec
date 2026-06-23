@@ -1,3 +1,5 @@
+import { getPaginationState, renderPaginationControls } from '../pagination.js'
+
 export function renderCertificateSearch(customers = [], sites = [], sections = []) {
   document.querySelector('#page').innerHTML = `
     <h1>Certificates</h1>
@@ -161,11 +163,16 @@ window.clearCertificateSearch = function () {
   document.querySelector('#certSection').innerHTML = `<option value="">All Sections</option>`
   document.querySelector('#certDateFrom').value = ""
   document.querySelector('#certDateTo').value = ""
+  window.certCurrentPage = 1
 
   window.searchCertificates()
 }
 
-window.searchCertificates = async function () {
+window.searchCertificates = async function (resetPage = true) {
+  if (resetPage) {
+    window.certCurrentPage = 1
+  }
+
   const params = new URLSearchParams()
 
   params.append("search", document.querySelector('#certSearch')?.value || "")
@@ -189,6 +196,7 @@ window.searchCertificates = async function () {
   }
 
   renderCertificateStats(certificates)
+  window.currentCertificateResults = certificates
   renderCertificateResults(certificates)
 }
 
@@ -213,7 +221,16 @@ function renderCertificateResults(certificates) {
     return
   }
 
+  const pagination = getPaginationState(certificates, "certCurrentPage", "certRowsPerPage")
+
   document.querySelector('#certificateResults').innerHTML = `
+    ${renderPaginationControls({
+      ...pagination,
+      label: "certificates",
+      onPage: "goToCertificatePage",
+      onPageSize: "setCertificateRowsPerPage"
+    })}
+
     <table>
       <thead>
         <tr>
@@ -232,7 +249,7 @@ function renderCertificateResults(certificates) {
       </thead>
 
       <tbody>
-        ${certificates.map(cert => `
+        ${pagination.rows.map(cert => `
           <tr data-testid="${cert.testid}">
             <td>${cert.testid}</td>
             <td>${cert.tagnumber || "-"}</td>
@@ -277,6 +294,17 @@ function renderCertificateResults(certificates) {
   `
 
   bindCertificateResultEvents()
+}
+
+window.setCertificateRowsPerPage = function (value) {
+  window.certRowsPerPage = Number(value) || 25
+  window.certCurrentPage = 1
+  renderCertificateResults(window.currentCertificateResults || [])
+}
+
+window.goToCertificatePage = function (page) {
+  window.certCurrentPage = Math.max(1, Number(page) || 1)
+  renderCertificateResults(window.currentCertificateResults || [])
 }
 
 function bindCertificateResultEvents() {
@@ -458,6 +486,7 @@ window.openCertificateModal = async function (testid) {
   const [photo1, photo2] = getCertificatePhotos(inspection)
   const assetDetails = getCertificateAssetDetails(inspection)
   const certificateTitle = getCertificateTitle(inspection)
+  const drivenMachineryNote = getDrivenMachineryCertificateNote(inspection)
 
   const existingModal = document.querySelector("#certificateModal")
   if (existingModal) existingModal.remove()
@@ -625,6 +654,12 @@ window.openCertificateModal = async function (testid) {
             </table>
           </div>
 
+          ${drivenMachineryNote ? `
+            <p class="fb-cert-driven-note">
+              ${drivenMachineryNote}
+            </p>
+          ` : ""}
+
           <div class="fb-cert-signature-section">
             <div>
               <strong>Inspector Signature</strong>
@@ -753,6 +788,14 @@ function getCertificateTitle(inspection) {
   return inspection.inspectiontype === "LOADTEST"
     ? "CERTIFICATE OF EXAMINATION AND TEST"
     : "CERTIFICATE OF INSPECTION"
+}
+
+function getDrivenMachineryCertificateNote(inspection) {
+  const shouldShowNote = ["400", "500"].includes(String(inspection.equipgroupid || ""))
+
+  return shouldShowNote
+    ? "Certification that the item has been inspected in accordance with the requirements of Driven Machinery and SANS Regulations and the responsible person has been informed of all defects."
+    : ""
 }
 
 function prepareCertificatePrint() {

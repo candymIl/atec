@@ -1,3 +1,5 @@
+import { getPaginationState, renderPaginationControls } from '../pagination.js'
+
 export function renderCustomerSetup(customers, customerArchiveMode = "active") {
   const filteredCustomers = customers.filter(customer => {
   const isArchived = customer.archived === true || customer.archived === "true";
@@ -6,6 +8,7 @@ export function renderCustomerSetup(customers, customerArchiveMode = "active") {
   if (customerArchiveMode === "archived") return isArchived;
   return true;
 });
+  const pagination = getPaginationState(filteredCustomers, "customerCurrentPage", "customerRowsPerPage")
 
   document.querySelector("#page").innerHTML = `
     <h2>Customer Setup</h2>
@@ -61,10 +64,17 @@ export function renderCustomerSetup(customers, customerArchiveMode = "active") {
         id="customerSearch"
         type="text"
         placeholder="Search Client ID, Client Name or Address..."
-        onkeyup="filterCustomers()"
+        onkeyup="filterCustomers(true)"
       />
 
       <br><br>
+
+      ${renderPaginationControls({
+        ...pagination,
+        label: "customers",
+        onPage: "goToCustomerPage",
+        onPageSize: "setCustomerRowsPerPage"
+      })}
 
       <table>
       <thead>
@@ -78,7 +88,7 @@ export function renderCustomerSetup(customers, customerArchiveMode = "active") {
       </thead>
 
       <tbody id="customerTableBody">
-        ${filteredCustomers.map(customer => `
+        ${pagination.rows.map(customer => `
           <tr>
             <td>${customer.clientid}</td>
             <td>${customer.clientname || ""}</td>

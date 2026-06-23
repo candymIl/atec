@@ -1,4 +1,9 @@
+import { getPaginationState, renderPaginationControls } from '../pagination.js'
+
 export function renderInspections(assets) {
+  const sortedAssets = [...assets].reverse()
+  const pagination = getPaginationState(sortedAssets, "inspectionCurrentPage", "inspectionRowsPerPage")
+
   document.querySelector('#page').innerHTML = `
     <h1>Inspections/Load Tests</h1>
 
@@ -9,10 +14,14 @@ export function renderInspections(assets) {
         <div class="form-group">
           <label>Search By</label>
 
-          <select id="inspectionSearchType" onchange="filterInspectionAssets()">
+          <select id="inspectionSearchType" onchange="filterInspectionAssets(true)">
+            <option value="all">All Fields</option>
             <option value="assetid">Asset ID</option>
             <option value="assettagno">Asset Tag</option>
             <option value="serialno">Serial No</option>
+            <option value="clientname">Client</option>
+            <option value="sitename">Site</option>
+            <option value="sectionname">Section</option>
             <option value="description">Description</option>
             <option value="equipmenttype">Equipment Type</option>
           </select>
@@ -26,11 +35,36 @@ export function renderInspections(assets) {
             class="search-box"
             type="text"
             placeholder="Type search text..."
-            onkeyup="filterInspectionAssets()"
+            onkeyup="filterInspectionAssets(true)"
           />
         </div>
       </div>
+
+      <div class="filter-key-row">
+        ${[
+          ["all", "All"],
+          ["assetid", "Asset ID"],
+          ["assettagno", "Asset Tag"],
+          ["serialno", "Serial No"],
+          ["clientname", "Client"],
+          ["sitename", "Site"],
+          ["sectionname", "Section"],
+          ["equipmenttype", "Equipment Type"],
+          ["description", "Description"]
+        ].map(([value, label]) => `
+          <button type="button" class="filter-key-btn" onclick="setInspectionFilterKey('${value}')">
+            ${label}
+          </button>
+        `).join("")}
+      </div>
     </div>
+
+    ${renderPaginationControls({
+      ...pagination,
+      label: "assets",
+      onPage: "goToInspectionPage",
+      onPageSize: "setInspectionRowsPerPage"
+    })}
 
     <table>
       <thead>
@@ -38,6 +72,9 @@ export function renderInspections(assets) {
           <th>Asset ID</th>
           <th>Asset Tag</th>
           <th>Serial No</th>
+          <th>Client</th>
+          <th>Site</th>
+          <th>Section</th>
           <th>Description</th>
           <th>Equipment Type</th>
           <th>Actions</th>
@@ -45,11 +82,14 @@ export function renderInspections(assets) {
       </thead>
 
       <tbody id="inspectionAssetTableBody">
-        ${assets.slice(-100).reverse().map(asset => `
+        ${pagination.rows.map(asset => `
           <tr>
             <td>${asset.assetid}</td>
             <td>${asset.assettagno || ''}</td>
             <td>${asset.serialno || ''}</td>
+            <td>${asset.clientname || ''}</td>
+            <td>${asset.sitename || ''}</td>
+            <td>${asset.sectionname || ''}</td>
             <td>${asset.description || ''}</td>
             <td>${asset.equipmenttype || ''}</td>
             <td>

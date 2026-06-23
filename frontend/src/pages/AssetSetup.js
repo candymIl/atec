@@ -1,4 +1,12 @@
 export function renderAssetSetup(assets) {
+  const pageSize = window.assetRowsPerPage || 25
+  const totalPages = Math.max(1, Math.ceil(assets.length / pageSize))
+  const currentPage = Math.min(window.assetCurrentPage || 1, totalPages)
+  const startIndex = (currentPage - 1) * pageSize
+  const visibleAssets = assets.slice(startIndex, startIndex + pageSize)
+  const endIndex = assets.length === 0 ? 0 : startIndex + visibleAssets.length
+  const pageButtons = renderAssetPageButtons(currentPage, totalPages)
+
   document.querySelector('#page').innerHTML = `
     <h1>Asset Setup</h1>
 
@@ -20,8 +28,10 @@ export function renderAssetSetup(assets) {
         <div class="form-group">
           <label>Search By</label>
 
-          <select id="assetSearchType" onchange="filterAssets()">
+          <select id="assetSearchType" onchange="filterAssets(true)">
+            <option value="all">All Fields</option>
             <option value="assetid">Asset ID</option>
+            <option value="assettagno">Asset Tag</option>
             <option value="serialno">Serial No</option>
             <option value="clientname">Client</option>
             <option value="sitename">Site</option>
@@ -39,9 +49,51 @@ export function renderAssetSetup(assets) {
             class="search-box"
             type="text"
             placeholder="Type search text..."
-            onkeyup="filterAssets()"
+            onkeyup="filterAssets(true)"
           />
         </div>
+      </div>
+
+      <div class="filter-key-row">
+        ${[
+          ["all", "All"],
+          ["assetid", "Asset ID"],
+          ["assettagno", "Asset Tag"],
+          ["serialno", "Serial No"],
+          ["clientname", "Client"],
+          ["sitename", "Site"],
+          ["sectionname", "Section"],
+          ["equipmenttype", "Equipment Type"],
+          ["description", "Description"]
+        ].map(([value, label]) => `
+          <button type="button" class="filter-key-btn" onclick="setAssetFilterKey('${value}')">
+            ${label}
+          </button>
+        `).join("")}
+      </div>
+    </div>
+
+    <div id="assetPaginationControls" class="report-pagination-bar asset-pagination-bar">
+      <div class="report-page-size">
+        <label for="assetRowsPerPage">Rows per page</label>
+        <select id="assetRowsPerPage" onchange="setAssetRowsPerPage(this.value)">
+          ${[25, 50, 100, 250].map(size => `
+            <option value="${size}" ${size === pageSize ? "selected" : ""}>
+              ${size}
+            </option>
+          `).join("")}
+        </select>
+      </div>
+
+      <div class="report-page-controls">
+        <button type="button" onclick="changeAssetPage(-1)" ${currentPage <= 1 ? "disabled" : ""}>
+          Previous
+        </button>
+        ${pageButtons}
+        <button type="button" onclick="changeAssetPage(1)" ${currentPage >= totalPages ? "disabled" : ""}>
+          Next
+        </button>
+        <span>Showing ${assets.length === 0 ? 0 : startIndex + 1} to ${endIndex} of ${assets.length} assets - Page ${currentPage} of ${totalPages}</span>
       </div>
     </div>
 
@@ -49,6 +101,7 @@ export function renderAssetSetup(assets) {
       <thead>
         <tr>
           <th>Asset ID</th>
+          <th>Asset Tag</th>
           <th>Serial No</th>
           <th>Client</th>
           <th>Site</th>
@@ -60,9 +113,10 @@ export function renderAssetSetup(assets) {
       </thead>
 
       <tbody id="assetTableBody">
-        ${assets.slice(0, 100).map(asset => `
+        ${visibleAssets.map(asset => `
           <tr>
             <td>${asset.assetid}</td>
+            <td>${asset.assettagno || ''}</td>
             <td>${asset.serialno || ''}</td>
             <td>${asset.clientname || ''}</td>
             <td>${asset.sitename || ''}</td>
@@ -102,4 +156,56 @@ export function renderAssetSetup(assets) {
       </tbody>
     </table>
   `
+}
+
+function getAssetPageNumbers(currentPage, totalPages) {
+  const pages = []
+
+  if (totalPages <= 7) {
+    for (let page = 1; page <= totalPages; page += 1) {
+      pages.push(page)
+    }
+
+    return pages
+  }
+
+  pages.push(1)
+
+  if (currentPage > 4) {
+    pages.push("...")
+  }
+
+  const startPage = Math.max(2, currentPage - 1)
+  const endPage = Math.min(totalPages - 1, currentPage + 1)
+
+  for (let page = startPage; page <= endPage; page += 1) {
+    pages.push(page)
+  }
+
+  if (currentPage < totalPages - 3) {
+    pages.push("...")
+  }
+
+  pages.push(totalPages)
+
+  return pages
+}
+
+function renderAssetPageButtons(currentPage, totalPages) {
+  return getAssetPageNumbers(currentPage, totalPages).map(page => {
+    if (page === "...") {
+      return `<span class="pagination-ellipsis">...</span>`
+    }
+
+    return `
+      <button
+        type="button"
+        class="pagination-page-btn ${page === currentPage ? "active" : ""}"
+        onclick="goToAssetPage(${page})"
+        ${page === currentPage ? "disabled" : ""}
+      >
+        ${page}
+      </button>
+    `
+  }).join("")
 }

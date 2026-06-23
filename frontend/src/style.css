@@ -358,6 +358,25 @@ input[type="radio"] {
   width: 100%;
 }
 
+.filter-key-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.filter-key-btn {
+  background: #eef4fb;
+  color: #1f3b5c;
+  min-height: 30px;
+  padding: 6px 10px;
+}
+
+.filter-key-btn:hover {
+  background: #dbeafe;
+  color: #1f3b5c;
+}
+
 .photo-card,
 .quick-photo-card {
   padding: 12px;
@@ -1107,11 +1126,23 @@ tr:hover {
 }
 
 .certificate-modal-header button,
-.certificate-modal-footer button {
+.certificate-modal-footer button,
+.certificate-modal-header .cert-action-link,
+.certificate-modal-footer .cert-action-link {
   background: white;
   color: #1f3b5c;
   border: none;
+  font-family: inherit;
+  font-size: 12px;
   font-weight: 700;
+  min-height: 30px;
+  padding: 6px 10px;
+}
+
+.certificate-modal-header .cert-action-link:hover,
+.certificate-modal-footer .cert-action-link:hover {
+  background: #eef4fb;
+  color: #1f3b5c;
 }
 
 .certificate-modal-body {
@@ -1366,6 +1397,25 @@ tr:hover {
 .report-page-controls button:disabled {
   background: #9ca3af;
   cursor: not-allowed;
+}
+
+.pagination-page-btn {
+  min-width: 34px;
+  padding: 7px 10px;
+}
+
+.pagination-page-btn.active,
+.pagination-page-btn.active:disabled {
+  background: #173b63;
+  color: #ffffff;
+  cursor: default;
+}
+
+.pagination-ellipsis {
+  color: #1f3b5c;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 0 2px;
 }
 
 .report-scroll-control {
@@ -1920,6 +1970,16 @@ tr:hover {
   margin: 30px 0 15px;
 }
 
+.fb-cert-driven-note {
+  color: #d00000;
+  font-size: 12px;
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1.35;
+  margin: 10px 0 4px;
+  text-align: center;
+}
+
 .fb-cert-signature-line {
   border-bottom: 1px solid #111827;
   height: 45px;
@@ -2071,6 +2131,11 @@ tr:hover {
   .fb-cert-signature-section {
     gap: 60px;
     margin: 30px 0 15px;
+  }
+
+  .fb-cert-driven-note {
+    font-size: 8px;
+    margin: 4px 0 2px;
   }
 
   .fb-cert-signature-line {
@@ -2298,10 +2363,28 @@ tr:hover {
   justify-content: center;
 }
 
-#certificateResults td:last-child button {
+#certificateResults td:last-child button,
+#certificateResults td:last-child .cert-action-link {
+  align-items: center;
+  display: inline-flex;
+  font-family: inherit;
+  font-weight: 700;
+  justify-content: center;
+  line-height: 1.2;
+  min-height: 30px;
+  min-width: 78px;
   padding: 5px 8px;
   font-size: 11px;
-  min-height: 28px;
+  text-align: center;
+  text-decoration: none;
+}
+
+#certificateResults td:last-child .cert-action-link {
+  color: #ffffff;
+}
+
+#certificateResults td:last-child .cert-action-link:hover {
+  color: #ffffff;
 }
 
 

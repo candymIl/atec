@@ -10,6 +10,7 @@ import { renderEquipmentTypeCriteria } from './pages/EquipmentTypeCriteria.js'
 import { renderQuickInspection } from './pages/QuickInspection.js'
 import { renderCertificateSearch } from './pages/Certificates.js'
 import { renderCustomerDetailedReport } from './pages/CustomerDetailedReport.js'
+import { getPaginationState, renderPaginationControls } from './pagination.js'
 
 
 async function loadData() {
@@ -246,7 +247,9 @@ window.saveClientChanges = async function (clientid) {
 
 }
 
-window.filterCustomers = function () {
+window.filterCustomers = function (resetPage = false) {
+  if (resetPage) window.customerCurrentPage = 1
+
   const search = document
     .querySelector("#customerSearch")
     .value
@@ -269,9 +272,20 @@ window.filterCustomers = function () {
     return matchesArchiveMode && matchesSearch
   })
 
+  const pagination = getPaginationState(filtered, "customerCurrentPage", "customerRowsPerPage")
+  const paginationBar = document.querySelector(".report-pagination-bar")
+  if (paginationBar) {
+    paginationBar.outerHTML = renderPaginationControls({
+      ...pagination,
+      label: "customers",
+      onPage: "goToCustomerPage",
+      onPageSize: "setCustomerRowsPerPage"
+    })
+  }
+
   const tableBody = document.querySelector("#customerTableBody")
 
-  tableBody.innerHTML = filtered.map(customer => {
+  tableBody.innerHTML = pagination.rows.map(customer => {
     const isArchived =
       customer.archived === true || customer.archived === "true"
 
@@ -293,6 +307,17 @@ window.filterCustomers = function () {
       </tr>
     `
   }).join("")
+}
+
+window.setCustomerRowsPerPage = function (value) {
+  window.customerRowsPerPage = Number(value) || 25
+  window.customerCurrentPage = 1
+  filterCustomers()
+}
+
+window.goToCustomerPage = function (page) {
+  window.customerCurrentPage = Math.max(1, Number(page) || 1)
+  filterCustomers()
 }
 
 window.archiveClient = async function (clientid) {
@@ -479,7 +504,8 @@ window.saveResponsiblePersonChanges = async function (personid) {
   showResponsiblePersons()
 }
 
-window.filterResponsiblePersons = function () {
+window.filterResponsiblePersons = function (resetPage = false) {
+  if (resetPage) window.responsibleCurrentPage = 1
 
   const search = document
     .querySelector('#responsibleSearch')
@@ -493,8 +519,19 @@ window.filterResponsiblePersons = function () {
     (person.name || '').toLowerCase().includes(search)
   )
 
+  const pagination = getPaginationState(filtered, "responsibleCurrentPage", "responsibleRowsPerPage")
+  const paginationBar = document.querySelector(".report-pagination-bar")
+  if (paginationBar) {
+    paginationBar.outerHTML = renderPaginationControls({
+      ...pagination,
+      label: "people",
+      onPage: "goToResponsiblePage",
+      onPageSize: "setResponsibleRowsPerPage"
+    })
+  }
+
   document.querySelector('#responsibleTableBody').innerHTML =
-    filtered.map(person => `
+    pagination.rows.map(person => `
       <tr>
         <td>${person.personid}</td>
         <td>${person.clientname || ''}</td>
@@ -506,6 +543,17 @@ window.filterResponsiblePersons = function () {
         </td>
       </tr>
     `).join('')
+}
+
+window.setResponsibleRowsPerPage = function (value) {
+  window.responsibleRowsPerPage = Number(value) || 25
+  window.responsibleCurrentPage = 1
+  filterResponsiblePersons()
+}
+
+window.goToResponsiblePage = function (page) {
+  window.responsibleCurrentPage = Math.max(1, Number(page) || 1)
+  filterResponsiblePersons()
 }
 
 window.showSections = function () {
@@ -600,7 +648,9 @@ window.filterSectionDropdowns = function () {
   `
 }
 
-window.filterSections = function () {
+window.filterSections = function (resetPage = false) {
+  if (resetPage) window.sectionCurrentPage = 1
+
   const searchType = document.querySelector("#sectionSearchType").value
 
   const search = document
@@ -616,8 +666,19 @@ window.filterSections = function () {
     return fieldValue.includes(search)
   })
 
+  const pagination = getPaginationState(filtered, "sectionCurrentPage", "sectionRowsPerPage")
+  const paginationBar = document.querySelector(".report-pagination-bar")
+  if (paginationBar) {
+    paginationBar.outerHTML = renderPaginationControls({
+      ...pagination,
+      label: "sections",
+      onPage: "goToSectionPage",
+      onPageSize: "setSectionRowsPerPage"
+    })
+  }
+
   document.querySelector("#sectionTableBody").innerHTML =
-    filtered.map(section => `
+    pagination.rows.map(section => `
       <tr>
         <td>${section.sectionid}</td>
         <td>${section.clientname || ""}</td>
@@ -631,6 +692,17 @@ window.filterSections = function () {
         </td>
       </tr>
     `).join("")
+}
+
+window.setSectionRowsPerPage = function (value) {
+  window.sectionRowsPerPage = Number(value) || 25
+  window.sectionCurrentPage = 1
+  filterSections()
+}
+
+window.goToSectionPage = function (page) {
+  window.sectionCurrentPage = Math.max(1, Number(page) || 1)
+  filterSections()
 }
 
 window.editSection = function (sectionid) {
@@ -772,7 +844,9 @@ window.showSites = function () {
 
 }
 
-window.filterSites = function () {
+window.filterSites = function (resetPage = false) {
+  if (resetPage) window.siteCurrentPage = 1
+
   const search = document
     .querySelector('#siteSearch')
     .value
@@ -785,8 +859,19 @@ window.filterSites = function () {
     (site.sitename || '').toLowerCase().includes(search)
   )
 
+  const pagination = getPaginationState(filtered, "siteCurrentPage", "siteRowsPerPage")
+  const paginationBar = document.querySelector(".report-pagination-bar")
+  if (paginationBar) {
+    paginationBar.outerHTML = renderPaginationControls({
+      ...pagination,
+      label: "sites",
+      onPage: "goToSitePage",
+      onPageSize: "setSiteRowsPerPage"
+    })
+  }
+
   document.querySelector('#siteTableBody').innerHTML =
-    filtered.map(site => `
+    pagination.rows.map(site => `
       <tr>
         <td>${site.siteid}</td>
         <td>${site.clientname || ''}</td>
@@ -798,6 +883,17 @@ window.filterSites = function () {
         </td>
       </tr>
     `).join('')
+}
+
+window.setSiteRowsPerPage = function (value) {
+  window.siteRowsPerPage = Number(value) || 25
+  window.siteCurrentPage = 1
+  filterSites()
+}
+
+window.goToSitePage = function (page) {
+  window.siteCurrentPage = Math.max(1, Number(page) || 1)
+  filterSites()
 }
 
 window.editSite = function (siteid) {
@@ -942,6 +1038,8 @@ window.saveSiteFromForm = async function () {
 window.showAssetSetup = function () {
 
   localStorage.setItem("currentPage", "assets")
+  window.assetCurrentPage = window.assetCurrentPage || 1
+  window.assetRowsPerPage = window.assetRowsPerPage || 25
 
   renderAssetSetup(assets)
 
@@ -1338,7 +1436,11 @@ window.saveAssetFromForm = async function () {
   showAssetSetup()
 }
 
-window.filterAssets = function () {
+window.filterAssets = function (resetPage = false) {
+  if (resetPage) {
+    window.assetCurrentPage = 1
+  }
+
   const searchType =
     document.querySelector('#assetSearchType').value
 
@@ -1347,18 +1449,46 @@ window.filterAssets = function () {
       .toLowerCase()
       .trim()
 
+  const searchableFields = [
+    "assetid",
+    "assettagno",
+    "serialno",
+    "clientname",
+    "sitename",
+    "sectionname",
+    "equipmenttype",
+    "description"
+  ]
+
   const filtered = assets.filter(asset => {
+    if (searchType === "all") {
+      return searchableFields.some(field =>
+        String(asset[field] || '').toLowerCase().includes(search)
+      )
+    }
+
     const fieldValue = String(asset[searchType] || '')
       .toLowerCase()
-
     return fieldValue.includes(search)
   })
 
+  const pageSize = window.assetRowsPerPage || 25
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
+  window.assetCurrentPage = Math.min(window.assetCurrentPage || 1, totalPages)
+
+  const currentPage = window.assetCurrentPage
+  const startIndex = (currentPage - 1) * pageSize
+  const visibleAssets = filtered.slice(startIndex, startIndex + pageSize)
+  const endIndex = filtered.length === 0 ? 0 : startIndex + visibleAssets.length
+
+  renderAssetPaginationControls(filtered.length, startIndex, endIndex, currentPage, totalPages, pageSize)
+
   const tableBody = document.querySelector('#assetTableBody')
 
-  tableBody.innerHTML = filtered.slice(0, 100).map(asset => `
+  tableBody.innerHTML = visibleAssets.map(asset => `
     <tr>
       <td>${asset.assetid}</td>
+      <td>${asset.assettagno || ''}</td>
       <td>${asset.serialno || ''}</td>
       <td>${asset.clientname || ''}</td>
       <td>${asset.sitename || ''}</td>
@@ -1397,6 +1527,114 @@ window.filterAssets = function () {
         </td>
     </tr>
   `).join('')
+}
+
+function renderAssetPaginationControls(totalRows, startIndex, endIndex, currentPage, totalPages, pageSize) {
+  const pagination = document.querySelector('#assetPaginationControls')
+  if (!pagination) return
+
+  const pageButtons = renderAssetPageButtons(currentPage, totalPages)
+
+  pagination.innerHTML = `
+    <div class="report-page-size">
+      <label for="assetRowsPerPage">Rows per page</label>
+      <select id="assetRowsPerPage" onchange="setAssetRowsPerPage(this.value)">
+        ${[25, 50, 100, 250].map(size => `
+          <option value="${size}" ${size === pageSize ? "selected" : ""}>
+            ${size}
+          </option>
+        `).join("")}
+      </select>
+    </div>
+
+    <div class="report-page-controls">
+      <button type="button" onclick="changeAssetPage(-1)" ${currentPage <= 1 ? "disabled" : ""}>
+        Previous
+      </button>
+      ${pageButtons}
+      <button type="button" onclick="changeAssetPage(1)" ${currentPage >= totalPages ? "disabled" : ""}>
+        Next
+      </button>
+      <span>Showing ${totalRows === 0 ? 0 : startIndex + 1} to ${endIndex} of ${totalRows} assets - Page ${currentPage} of ${totalPages}</span>
+    </div>
+  `
+}
+
+function getAssetPageNumbers(currentPage, totalPages) {
+  const pages = []
+
+  if (totalPages <= 7) {
+    for (let page = 1; page <= totalPages; page += 1) {
+      pages.push(page)
+    }
+
+    return pages
+  }
+
+  pages.push(1)
+
+  if (currentPage > 4) {
+    pages.push("...")
+  }
+
+  const startPage = Math.max(2, currentPage - 1)
+  const endPage = Math.min(totalPages - 1, currentPage + 1)
+
+  for (let page = startPage; page <= endPage; page += 1) {
+    pages.push(page)
+  }
+
+  if (currentPage < totalPages - 3) {
+    pages.push("...")
+  }
+
+  pages.push(totalPages)
+
+  return pages
+}
+
+function renderAssetPageButtons(currentPage, totalPages) {
+  return getAssetPageNumbers(currentPage, totalPages).map(page => {
+    if (page === "...") {
+      return `<span class="pagination-ellipsis">...</span>`
+    }
+
+    return `
+      <button
+        type="button"
+        class="pagination-page-btn ${page === currentPage ? "active" : ""}"
+        onclick="goToAssetPage(${page})"
+        ${page === currentPage ? "disabled" : ""}
+      >
+        ${page}
+      </button>
+    `
+  }).join("")
+}
+
+window.setAssetRowsPerPage = function (value) {
+  window.assetRowsPerPage = Number(value) || 25
+  window.assetCurrentPage = 1
+  filterAssets()
+}
+
+window.changeAssetPage = function (direction) {
+  window.assetCurrentPage = Math.max(1, (window.assetCurrentPage || 1) + direction)
+  filterAssets()
+}
+
+window.goToAssetPage = function (page) {
+  window.assetCurrentPage = Math.max(1, Number(page) || 1)
+  filterAssets()
+}
+
+window.setAssetFilterKey = function (key) {
+  const searchType = document.querySelector('#assetSearchType')
+  if (!searchType) return
+
+  searchType.value = key
+  window.assetCurrentPage = 1
+  filterAssets()
 }
 
 window.editAsset = function (assetid) {
@@ -1684,7 +1922,19 @@ window.showEquipmentTypeCriteria = function () {
 window.filterEquipmentCriteria = function () {
   window.criteriaEquipmentFilter =
     document.querySelector('#criteriaEquipmentFilter')?.value || ""
+  window.criteriaCurrentPage = 1
 
+  showEquipmentTypeCriteria()
+}
+
+window.setCriteriaRowsPerPage = function (value) {
+  window.criteriaRowsPerPage = Number(value) || 25
+  window.criteriaCurrentPage = 1
+  showEquipmentTypeCriteria()
+}
+
+window.goToCriteriaPage = function (page) {
+  window.criteriaCurrentPage = Math.max(1, Number(page) || 1)
   showEquipmentTypeCriteria()
 }
 
@@ -1997,11 +2247,14 @@ window.clearCertificateSearch = function () {
   document.querySelector('#certSection').innerHTML = `<option value="">All Sections</option>`
   document.querySelector('#certDateFrom').value = ""
   document.querySelector('#certDateTo').value = ""
+  window.certCurrentPage = 1
 
   searchCertificates()
 }
 
-window.searchCertificates = async function () {
+window.searchCertificates = async function (resetPage = true) {
+  if (resetPage) window.certCurrentPage = 1
+
   const params = new URLSearchParams()
 
   params.append("search", document.querySelector('#certSearch')?.value || "")
@@ -2044,7 +2297,21 @@ window.searchCertificates = async function () {
     return
   }
 
+  window.currentCertificateResults = certificates
+  renderCertificateResultRows(certificates)
+}
+
+function renderCertificateResultRows(certificates) {
+  const pagination = getPaginationState(certificates, "certCurrentPage", "certRowsPerPage")
+
   document.querySelector('#certificateResults').innerHTML = `
+    ${renderPaginationControls({
+      ...pagination,
+      label: "certificates",
+      onPage: "goToCertificatePage",
+      onPageSize: "setCertificateRowsPerPage"
+    })}
+
     <table>
       <thead>
         <tr>
@@ -2063,7 +2330,7 @@ window.searchCertificates = async function () {
       </thead>
 
       <tbody>
-        ${certificates.map(cert => `
+        ${pagination.rows.map(cert => `
           <tr>
             <td>${cert.testid}</td>
             <td>${cert.tagnumber || "-"}</td>
@@ -2100,6 +2367,17 @@ window.searchCertificates = async function () {
       </tbody>
     </table>
   `
+}
+
+window.setCertificateRowsPerPage = function (value) {
+  window.certRowsPerPage = Number(value) || 25
+  window.certCurrentPage = 1
+  renderCertificateResultRows(window.currentCertificateResults || [])
+}
+
+window.goToCertificatePage = function (page) {
+  window.certCurrentPage = Math.max(1, Number(page) || 1)
+  renderCertificateResultRows(window.currentCertificateResults || [])
 }
 
 window.openCertificateFromSearch = function () {
@@ -2292,26 +2570,63 @@ window.startQuickInspection = function (assetid, inspectiontype) {
   startInspection(assetid, inspectiontype, "quick")
 }
 
-window.filterInspectionAssets = function () {
+window.filterInspectionAssets = function (resetPage = false) {
+  if (resetPage) window.inspectionCurrentPage = 1
+
+  const searchType =
+    document.querySelector('#inspectionSearchType')?.value || "all"
+
   const search = document
     .querySelector('#inspectionAssetSearch')
     .value
     .toLowerCase()
+    .trim()
 
-  const filtered = assets.filter(asset =>
-    String(asset.assetid || '').includes(search) ||
-    (asset.assettagno || '').toLowerCase().includes(search) ||
-    (asset.serialno || '').toLowerCase().includes(search) ||
-    (asset.description || '').toLowerCase().includes(search)
-  )
+  const searchableFields = [
+    "assetid",
+    "assettagno",
+    "serialno",
+    "clientname",
+    "sitename",
+    "sectionname",
+    "equipmenttype",
+    "description"
+  ]
+
+  const filtered = assets.filter(asset => {
+    if (searchType === "all") {
+      return searchableFields.some(field =>
+        String(asset[field] || '').toLowerCase().includes(search)
+      )
+    }
+
+    return String(asset[searchType] || '')
+      .toLowerCase()
+      .includes(search)
+  })
+
+  const sortedFiltered = [...filtered].reverse()
+  const pagination = getPaginationState(sortedFiltered, "inspectionCurrentPage", "inspectionRowsPerPage")
+  const paginationBar = document.querySelector(".report-pagination-bar")
+  if (paginationBar) {
+    paginationBar.outerHTML = renderPaginationControls({
+      ...pagination,
+      label: "assets",
+      onPage: "goToInspectionPage",
+      onPageSize: "setInspectionRowsPerPage"
+    })
+  }
 
   const tableBody = document.querySelector('#inspectionAssetTableBody')
 
-  tableBody.innerHTML = filtered.slice(0, 100).map(asset => `
+  tableBody.innerHTML = pagination.rows.map(asset => `
     <tr>
       <td>${asset.assetid}</td>
       <td>${asset.assettagno || ''}</td>
       <td>${asset.serialno || ''}</td>
+      <td>${asset.clientname || ''}</td>
+      <td>${asset.sitename || ''}</td>
+      <td>${asset.sectionname || ''}</td>
       <td>${asset.description || ''}</td>
       <td>${asset.equipmenttype || ''}</td>
       <td>
@@ -2338,6 +2653,25 @@ window.filterInspectionAssets = function () {
       </td>
     </tr>
   `).join('')
+}
+
+window.setInspectionFilterKey = function (key) {
+  const searchType = document.querySelector('#inspectionSearchType')
+  if (!searchType) return
+
+  searchType.value = key
+  filterInspectionAssets(true)
+}
+
+window.setInspectionRowsPerPage = function (value) {
+  window.inspectionRowsPerPage = Number(value) || 25
+  window.inspectionCurrentPage = 1
+  filterInspectionAssets()
+}
+
+window.goToInspectionPage = function (page) {
+  window.inspectionCurrentPage = Math.max(1, Number(page) || 1)
+  filterInspectionAssets()
 }
 
 const criteriaAssetMap = {

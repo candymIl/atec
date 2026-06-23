@@ -1,4 +1,8 @@
+import { getPaginationState, renderPaginationControls } from '../pagination.js'
+
 export function renderResponsiblePersons(responsiblePersons) {
+  const pagination = getPaginationState(responsiblePersons, "responsibleCurrentPage", "responsibleRowsPerPage")
+
   document.querySelector('#page').innerHTML = `
     <h2>Responsible Persons</h2>
 
@@ -21,10 +25,17 @@ export function renderResponsiblePersons(responsiblePersons) {
       class="search-box"
       type="text"
       placeholder="Search Customer Name or Responsible Person..."
-      onkeyup="filterResponsiblePersons()"
+      onkeyup="filterResponsiblePersons(true)"
     />
 
     <br><br>
+
+    ${renderPaginationControls({
+      ...pagination,
+      label: "people",
+      onPage: "goToResponsiblePage",
+      onPageSize: "setResponsibleRowsPerPage"
+    })}
 
     <table>
       <thead>
@@ -37,7 +48,7 @@ export function renderResponsiblePersons(responsiblePersons) {
       </thead>
 
       <tbody id="responsibleTableBody">
-        ${responsiblePersons.map(person => `
+        ${pagination.rows.map(person => `
           <tr>
             <td>${person.personid}</td>
             <td>${person.clientname || ''}</td>
