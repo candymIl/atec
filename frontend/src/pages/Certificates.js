@@ -1,5 +1,5 @@
 import { getPaginationState, renderPaginationControls } from '../pagination.js'
-import { sortHeader, sortTableRows } from '../tableSort.js'
+import { getTableSortState, sortTableRows } from '../tableSort.js'
 
 export function renderCertificateSearch(customers = [], sites = [], sections = []) {
   document.querySelector('#page').innerHTML = `
@@ -300,6 +300,27 @@ function renderCertificateStats(certificates) {
   `
 }
 
+function certificateSortHeader(label, key) {
+  const sort = getTableSortState('certificates', 'testid')
+  const isActive = sort.key === key
+  const arrow = isActive
+    ? sort.direction === 'desc' ? 'v' : '^'
+    : '^v'
+
+  return `
+    <span class="certificate-sort-heading">
+      <span>${label}</span>
+      <button
+        type="button"
+        class="certificate-sort-btn ${isActive ? 'active' : ''}"
+        onclick="sortTable('certificates', '${key}', 'rerenderCertificateResults')"
+        aria-label="Sort ${label}"
+        title="Sort ${label}"
+      >${arrow}</button>
+    </span>
+  `
+}
+
 function renderCertificateResults(certificates) {
   if (certificates.length === 0) {
     document.querySelector('#certificateResults').innerHTML = `<p>No certificates found.</p>`
@@ -331,16 +352,16 @@ function renderCertificateResults(certificates) {
     <table>
       <thead>
         <tr>
-          <th>${sortHeader('Test ID', 'certificates', 'testid', 'rerenderCertificateResults')}</th>
-          <th>${sortHeader('Tag No', 'certificates', 'tagnumber', 'rerenderCertificateResults')}</th>
-          <th>${sortHeader('Client', 'certificates', 'clientname', 'rerenderCertificateResults')}</th>
-          <th>${sortHeader('Site', 'certificates', 'sitename', 'rerenderCertificateResults')}</th>
-          <th>${sortHeader('Asset', 'certificates', 'description', 'rerenderCertificateResults')}</th>
-          <th>${sortHeader('Serial No', 'certificates', 'serialno', 'rerenderCertificateResults')}</th>
-          <th>${sortHeader('Type', 'certificates', 'inspectiontype', 'rerenderCertificateResults')}</th>
-          <th>${sortHeader('Date', 'certificates', 'testdate', 'rerenderCertificateResults')}</th>
-          <th>${sortHeader('Status', 'certificates', 'status', 'rerenderCertificateResults')}</th>
-          <th>${sortHeader('Inspector', 'certificates', 'inspector', 'rerenderCertificateResults')}</th>
+          <th>${certificateSortHeader('Test ID', 'testid')}</th>
+          <th>${certificateSortHeader('Tag No', 'tagnumber')}</th>
+          <th>${certificateSortHeader('Client', 'clientname')}</th>
+          <th>${certificateSortHeader('Site', 'sitename')}</th>
+          <th>${certificateSortHeader('Asset', 'description')}</th>
+          <th>${certificateSortHeader('Serial No', 'serialno')}</th>
+          <th>${certificateSortHeader('Type', 'inspectiontype')}</th>
+          <th>${certificateSortHeader('Date', 'testdate')}</th>
+          <th>${certificateSortHeader('Status', 'status')}</th>
+          <th>${certificateSortHeader('Inspector', 'inspector')}</th>
           <th>Action</th>
         </tr>
       </thead>
@@ -982,7 +1003,7 @@ window.openCertificateModal = async function (testid) {
 
 function renderCertificateDocument(certificate) {
   const inspection = certificate.inspection || {}
-  const results = certificate.results || []
+  const results = getCertificateResultsForDisplay(certificate.results || [], inspection)
   const inspectionPhotos = getCertificatePhotos(inspection, certificate.photos || [])
   const assetDetails = getCertificateAssetDetails(inspection)
   const certificateTitle = getCertificateTitle(inspection)
@@ -1077,12 +1098,19 @@ function renderCertificateDocument(certificate) {
         <h3>Inspection Results</h3>
 
         <table class="fb-cert-results-table">
+          <colgroup>
+            <col class="fb-cert-results-criteria-col">
+            <col class="fb-cert-results-result-col">
+            <col class="fb-cert-results-standard-col">
+            <col class="fb-cert-results-measured-col">
+            <col class="fb-cert-results-remarks-col">
+          </colgroup>
           <thead>
             <tr>
               <th>Criteria</th>
-              <th>Asset Value</th>
-              <th>Measured Value</th>
               <th>Result</th>
+              <th>Standard Dimension</th>
+              <th>Measured Dimension</th>
               <th>Remarks</th>
             </tr>
           </thead>
@@ -1091,31 +1119,25 @@ function renderCertificateDocument(certificate) {
             ${results.map(row => `
               <tr>
                 <td>${row.criterianame || ""}</td>
-                <td>${row.assetvalue || ""}</td>
-                <td>${row.measuredvalue || ""}</td>
                 <td>
                   <strong class="${
-                    row.result === "PASS"
+                    getCertificateResultDisplay(row) === "YES" || getCertificateResultDisplay(row) === "PASS"
                       ? "status-safe"
-                      : row.result === "FAIL"
+                      : getCertificateResultDisplay(row) === "NO" || getCertificateResultDisplay(row) === "FAIL"
                         ? "status-unsafe"
                         : ""
                   }">
-                    ${row.result || ""}
+                    ${getCertificateResultDisplay(row)}
                   </strong>
                 </td>
+                <td>${row.assetvalue || ""}</td>
+                <td>${row.measuredvalue || ""}</td>
                 <td>${row.remarks || ""}</td>
               </tr>
             `).join("")}
           </tbody>
         </table>
       </div>
-
-      ${certificateRegulationNotes.map(note => `
-        <p class="fb-cert-driven-note">
-          ${note}
-        </p>
-      `).join("")}
 
       <div class="fb-cert-signature-section">
         <div>
@@ -1130,6 +1152,12 @@ function renderCertificateDocument(certificate) {
           <div class="fb-cert-signature-line"></div>
         </div>
       </div>
+
+      ${certificateRegulationNotes.map(note => `
+        <p class="fb-cert-driven-note">
+          ${note}
+        </p>
+      `).join("")}
 
       <img src="/footer.jpg" class="fb-cert-footer" alt="FB Cranes Footer">
     </div>
@@ -1234,6 +1262,11 @@ function getCertificateAssetDetails(inspection) {
     ["Steel Wire Rope", inspection.steelwireropemm ? `${inspection.steelwireropemm} mm` : ""],
     ["Hoist Description", inspection.hoistdescription],
     ["Hoist Serial No", inspection.hoistserialno],
+    ["Auxiliary Hoist Description", inspection.auxhoistdescription],
+    ["Auxiliary Hoist Serial No", inspection.auxhoistserialno],
+    ["Auxiliary Hoist WLL", inspection.auxhoistwll ? `${inspection.auxhoistwll} kg` : ""],
+    ["Auxiliary Hoist Hook Size", inspection.auxhoisthooksize ? `${inspection.auxhoisthooksize} mm` : ""],
+    ["Auxiliary Hoist Steel Wire Rope", inspection.auxhoistropemm ? `${inspection.auxhoistropemm} mm` : ""],
     ["Manufacture Date", formatDate(inspection.manufactdate)]
   ].filter(([, value]) => value && value !== "-")
 }
@@ -1242,6 +1275,81 @@ function getCertificateTitle(inspection) {
   return inspection.inspectiontype === "LOADTEST"
     ? "CERTIFICATE OF EXAMINATION AND TEST"
     : "CERTIFICATE OF INSPECTION"
+}
+
+function isCertificateSafeServiceRow(row) {
+  const name = String(row?.criterianame || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
+
+  return name.includes("safe for service") ||
+    name.includes("safe for continued operation") ||
+    name.includes("safe for review")
+}
+
+function isEmptyLoadTestMeasurementRow(row, inspection) {
+  if (inspection?.inspectiontype !== "LOADTEST") return false
+
+  const result = String(row?.result || "").trim().toUpperCase()
+  const measuredValue = String(row?.measuredvalue || "").trim()
+  const remarks = String(row?.remarks || "").trim()
+
+  return result === "RECORDED" && !measuredValue && !remarks
+}
+
+function isHookWearCertificateRow(row) {
+  const text = [
+    row?.criterianame,
+    row?.criteriadescription
+  ].filter(Boolean).join(" ").toLowerCase()
+
+  return text.includes("hook wear does not exceed allowable limits")
+}
+
+function isHookMeasuredSizeCertificateRow(row) {
+  const text = [
+    row?.criterianame,
+    row?.criteriadescription
+  ].filter(Boolean).join(" ").toLowerCase()
+
+  return text.includes("hook measured size") ||
+    text.includes("measured hook throat opening")
+}
+
+function enrichCertificateResultRow(row, inspection = {}) {
+  if (!isHookMeasuredSizeCertificateRow(row)) return row
+
+  return {
+    ...row,
+    measuredvalue: row.measuredvalue || inspection.hooksize || ""
+  }
+}
+
+function getCertificateResultsForDisplay(results, inspection = {}) {
+  return results
+    .map(row => enrichCertificateResultRow(row, inspection))
+    .filter(row => !isHookWearCertificateRow(row))
+    .filter(row => !isEmptyLoadTestMeasurementRow(row, inspection))
+    .sort((left, right) => {
+      const leftSafe = isCertificateSafeServiceRow(left)
+      const rightSafe = isCertificateSafeServiceRow(right)
+
+      if (leftSafe && !rightSafe) return 1
+      if (!leftSafe && rightSafe) return -1
+      return 0
+    })
+}
+
+function getCertificateResultDisplay(row) {
+  const result = String(row?.result || "").trim().toUpperCase()
+
+  if (result === "RECORDED") return "PASS"
+  if (!isCertificateSafeServiceRow(row)) return result
+  if (["NO", "FAIL", "NOT SAFE", "UNSAFE"].includes(result)) return "NO"
+  if (["YES", "PASS", "SAFE"].includes(result)) return "YES"
+
+  return result || "-"
 }
 
 const DRIVEN_MACHINERY_CERTIFICATE_NOTE =

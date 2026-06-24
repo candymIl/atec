@@ -80,11 +80,13 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: {
-    fileSize: 5 * 1024 * 1024
+    fileSize: 15 * 1024 * 1024
   },
   fileFilter: function (req, file, cb) {
     if (!isSafeUpload(file)) {
-      return cb(new Error("Only JPG, PNG and WebP images are allowed"))
+      const error = new Error("Only JPG, PNG and WebP images are allowed")
+      error.statusCode = 400
+      return cb(error)
     }
 
     return cb(null, true)
@@ -116,8 +118,122 @@ function validRoles() {
   return ["ADMIN", "MANAGER", "INSPECTOR", "VIEWER", "CUSTOMER"]
 }
 
+const INSPECTION_PHOTO_TYPES = new Set([
+  "GENERAL",
+  "DEFECT",
+  "REPAIR",
+  "LOAD_TEST",
+  "NAMEPLATE",
+  "HOOK",
+  "WIRE_ROPE",
+  "STRUCTURE",
+  "ELECTRICAL"
+])
+
 function makeAssetQrCode(assetid) {
   return `ATEC-ASSET-${assetid}`
+}
+
+function resolveUploadFilePath(uploadPath) {
+  if (!uploadPath) return null
+
+  const normalizedPath = path.posix.normalize(
+    String(uploadPath).replace(/\\/g, "/")
+  )
+
+  if (!normalizedPath.startsWith("/uploads/") || normalizedPath.includes("/../")) {
+    return null
+  }
+
+  const fullPath = path.resolve(__dirname, normalizedPath.replace(/^\/+/, ""))
+  const uploadsRoot = path.resolve(__dirname, "uploads")
+
+  return fullPath.startsWith(uploadsRoot + path.sep) ? fullPath : null
+}
+
+async function deleteUploadFileIfUnreferenced(uploadPath) {
+  const fullPath = resolveUploadFilePath(uploadPath)
+
+  if (!fullPath) return
+
+  const referenceResult = await pool.query(
+    `
+    SELECT
+      (
+        SELECT COUNT(*) FROM atec.tblasset
+        WHERE $1 IN (media1, media2)
+      )
+      +
+      (
+        SELECT COUNT(*) FROM atec.tblinspection
+        WHERE $1 IN (photo1, photo2, inspector_signature_image)
+      )
+      +
+      (
+        SELECT COUNT(*) FROM atec.tblinspectionphoto
+        WHERE photo_path = $1
+      ) AS references
+    `,
+    [uploadPath]
+  )
+
+  if (Number(referenceResult.rows[0]?.references || 0) > 0) return
+
+  fs.unlink(fullPath, err => {
+    if (err && err.code !== "ENOENT") {
+      console.error("Failed to remove upload file", err.message)
+    }
+  })
+}
+
+function removeUploadedFiles(files = []) {
+  const uploadedFiles = Array.isArray(files)
+    ? files
+    : Object.values(files || {}).flat()
+
+  uploadedFiles.forEach(file => {
+    if (file?.path) {
+      fs.unlink(file.path, err => {
+        if (err && err.code !== "ENOENT") {
+          console.error("Failed to remove rejected upload file", err.message)
+        }
+      })
+    }
+  })
+}
+
+async function getInspectionPhotoAccess(testid) {
+  const result = await pool.query(
+    `
+    SELECT
+      i.testid,
+      i.assetid,
+      i.inspector_user_id,
+      a.clientid
+    FROM atec.tblinspection i
+    LEFT JOIN atec.tblasset a
+      ON i.assetid = a.assetid
+    WHERE i.testid = $1
+    `,
+    [testid]
+  )
+
+  return result.rows[0] || null
+}
+
+function canManageInspectionPhoto(user, inspection) {
+  if (!user || !inspection) return false
+  if (user.role === "ADMIN") return true
+
+  return user.role === "INSPECTOR" &&
+    String(inspection.inspector_user_id || "") === String(user.user_id || "")
+}
+
+function canReadInspectionPhoto(user, inspection) {
+  if (!user || !inspection) return false
+  if (user.role !== "CUSTOMER") return true
+
+  return String(inspection.clientid || "") === String(user.clientid || "")
 }
 
 async function ensureAssetQrCode(asset) {
@@ -217,6 +333,30 @@ function applyCriticalSafetyRule(results, criteriaRows) {
     status: "NOT SAFE",
     criticalFailures
   }
+}
+
+function getSafeContinuationStatus(results, criteriaRows) {
+  const criteriaById = new Map(
+    criteriaRows.map(row => [String(row.criteriaid), row])
+  )
+
+  const safeRow = results.find(row => {
+    const criteria = criteriaById.get(String(row.criteriaid))
+    return isSafeForContinuedOperation(
+      criteria?.criterianame ||
+      criteria?.criteriadescription ||
+      row?.criterianame
+    )
+  })
+
+  if (!safeRow) return null
+
+  const result = String(safeRow.result || safeRow.measuredvalue || "").trim().toUpperCase()
+
+  if (["NO", "FAIL", "NOT SAFE", "UNSAFE"].includes(result)) return "NOT SAFE"
+  if (["YES", "PASS", "SAFE"].includes(result)) return "SAFE"
+
+  return null
 }
 
 async function ensureTblUsersHaveIds() {
@@ -348,6 +488,7 @@ function authorizeRequest(req, res, next) {
         routePath.startsWith("/reports") ||
         routePath.startsWith("/dashboard") ||
         routePath.startsWith("/equipment-types") ||
+        routePath.startsWith("/inspection-photos") ||
         routePath.startsWith("/she/")
       )
     ) {
@@ -365,6 +506,7 @@ function authorizeRequest(req, res, next) {
         routePath.startsWith("/certificates") ||
         routePath.includes("/certificate") ||
         routePath.startsWith("/dashboard") ||
+        routePath.startsWith("/inspection-photos") ||
         routePath === "/equipment-types" ||
         routePath.startsWith("/she/")
       )
@@ -399,6 +541,7 @@ function authorizeRequest(req, res, next) {
         routePath.startsWith("/equipment-type-criteria") ||
         routePath.startsWith("/inspections") ||
         routePath.startsWith("/inspection-results") ||
+        routePath.startsWith("/inspection-photos") ||
         routePath.startsWith("/certificates") ||
         routePath.includes("/certificate") ||
         routePath.startsWith("/dashboard") ||
@@ -414,6 +557,7 @@ function authorizeRequest(req, res, next) {
       (
         routePath === "/inspections" ||
         /^\/inspections\/[^/]+\/results$/.test(routePath) ||
+        /^\/inspections\/[^/]+\/photos$/.test(routePath) ||
         /^\/certificates\/[^/]+\/email$/.test(routePath) ||
         routePath === "/she/risk-assessments"
       )
@@ -422,6 +566,13 @@ function authorizeRequest(req, res, next) {
     }
 
     if (method === "PUT" && /^\/she\/risk-assessments\/[^/]+/.test(routePath)) {
+      return next()
+    }
+
+    if (
+      ["PUT", "DELETE"].includes(method) &&
+      /^\/inspection-photos\/[^/]+$/.test(routePath)
+    ) {
       return next()
     }
 
@@ -1209,6 +1360,21 @@ SELECT
         a.assettagno,
         a.manufacturer,
         a.description,
+        a.wll,
+        a.span,
+        a.permissibledeflection,
+        a.hooksize,
+        a.steelwireropemm,
+        a.hoistdescription,
+        a.hoistserialno,
+        a.oemtophooksize,
+        a.oembottomhooksize,
+        a.loadchaindiameter,
+        a.auxhoistwll,
+        a.auxhoistdescription,
+        a.auxhoistserialno,
+        a.auxhoistropemm,
+        a.auxhoisthooksize,
         a.media1,
         a.media2,
         a.qrcode,
@@ -1226,6 +1392,11 @@ SELECT
         a.steelwireropemm,
         a.hoistdescription,
         a.hoistserialno,
+        a.auxhoistdescription,
+        a.auxhoistserialno,
+        a.auxhoistwll,
+        a.auxhoisthooksize,
+        a.auxhoistropemm,
         c.clientname,
         s.sitename,
         sec.sectionname,
@@ -1238,7 +1409,6 @@ SELECT
       LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
       WHERE COALESCE(a.archived, false) = false
       ORDER BY a.assetid DESC
-      LIMIT 500
     `)
 
     res.json(result.rows)
@@ -1323,7 +1493,60 @@ app.get("/assets/:id/qr-label.pdf", async (req, res) => {
     }
 
     const asset = await ensureAssetQrCode(result.rows[0])
-    const qrDataUrl = await QRCode.toDataURL(asset.qrcode, {
+    const appUrl = (process.env.PUBLIC_APP_URL || "https://www.fbcranes.co.za/Atec").replace(/\/$/, "")
+    const latestInspectionResult = await pool.query(
+      `
+      SELECT DISTINCT ON (inspectiontype)
+        inspectiontype,
+        testid,
+        testdate,
+        validdate,
+        status
+      FROM atec.tblinspection
+      WHERE assetid = $1
+        AND inspectiontype IN ('VISUAL', 'LOADTEST')
+      ORDER BY inspectiontype, testdate DESC, testid DESC
+      `,
+      [asset.assetid]
+    )
+    const latestByType = Object.fromEntries(
+      latestInspectionResult.rows.map(row => [row.inspectiontype, row])
+    )
+    const latestOverall = latestInspectionResult.rows
+      .slice()
+      .sort((a, b) =>
+        new Date(b.testdate || 0) - new Date(a.testdate || 0) ||
+        Number(b.testid || 0) - Number(a.testid || 0)
+      )[0]
+    const visualInspection = latestByType.VISUAL || null
+    const loadTest = latestByType.LOADTEST || null
+    const assetStatus = latestOverall?.status || "-"
+    const visualPdfUrl = visualInspection
+      ? `${appUrl}/api/inspections/${visualInspection.testid}/certificate.pdf`
+      : ""
+    const loadPdfUrl = loadTest
+      ? `${appUrl}/api/inspections/${loadTest.testid}/certificate.pdf`
+      : ""
+    const lookupUrl = `${appUrl}/?qr=${encodeURIComponent(asset.qrcode)}`
+    const qrPayload = [
+      "ATEC ASSET LABEL",
+      `Website: ${appUrl}`,
+      "Landline: 011 902 3271",
+      `Asset ID: ${asset.assetid}`,
+      `Asset Tag: ${asset.assettagno || "-"}`,
+      `Serial No: ${asset.serialno || "-"}`,
+      `Equipment: ${asset.equipmenttype || "-"}`,
+      `Status: ${assetStatus}`,
+      `Last Inspection Date: ${formatPdfDate(visualInspection?.testdate) || "-"}`,
+      `Next Inspection Date: ${formatPdfDate(visualInspection?.validdate) || "-"}`,
+      `Inspection PDF: ${visualPdfUrl || "-"}`,
+      `Last Load Test Date: ${formatPdfDate(loadTest?.testdate) || "-"}`,
+      `Next Load Test Date: ${formatPdfDate(loadTest?.validdate) || "-"}`,
+      `Load Test PDF: ${loadPdfUrl || "-"}`,
+      `Lookup: ${lookupUrl}`
+    ].join("\n")
+
+    const qrDataUrl = await QRCode.toDataURL(qrPayload, {
       errorCorrectionLevel: "M",
       margin: 1,
       width: 360
@@ -1349,11 +1572,11 @@ app.get("/assets/:id/qr-label.pdf", async (req, res) => {
     const labelX = 42
     const labelY = 44
     const labelWidth = doc.page.width - (labelX * 2)
-    const labelHeight = 430
+    const labelHeight = 620
     const innerPad = 26
-    const qrSize = 190
+    const qrSize = 160
     const qrX = labelX + innerPad
-    const qrY = labelY + 118
+    const qrY = labelY + 108
     const detailX = qrX + qrSize + 42
     const detailWidth = labelX + labelWidth - detailX - innerPad
     const footerY = labelY + labelHeight - 46
@@ -1376,7 +1599,7 @@ app.get("/assets/:id/qr-label.pdf", async (req, res) => {
       .font("Helvetica")
       .fontSize(9)
       .fillColor("#475569")
-      .text("Scan this QR code to find the asset for inspection or certificate lookup.", labelX + innerPad, labelY + 62, {
+      .text("Scan this QR code for asset status, inspection dates and certificate PDF links.", labelX + innerPad, labelY + 62, {
         width: labelWidth - (innerPad * 2)
       })
 
@@ -1400,7 +1623,12 @@ app.get("/assets/:id/qr-label.pdf", async (req, res) => {
       ["Equipment", asset.equipmenttype || "-"],
       ["Client", asset.clientname || "-"],
       ["Site", asset.sitename || "-"],
-      ["Section", asset.sectionname || "-"]
+      ["Section", asset.sectionname || "-"],
+      ["Status", assetStatus],
+      ["Last Inspection", formatPdfDate(visualInspection?.testdate) || "-"],
+      ["Next Inspection", formatPdfDate(visualInspection?.validdate) || "-"],
+      ["Last Load Test", formatPdfDate(loadTest?.testdate) || "-"],
+      ["Next Load Test", formatPdfDate(loadTest?.validdate) || "-"]
     ]
 
     let detailY = qrY
@@ -1414,7 +1642,7 @@ app.get("/assets/:id/qr-label.pdf", async (req, res) => {
         .font("Helvetica-Bold")
         .fontSize(11.5)
         .heightOfString(displayValue, { width: detailWidth })
-      const rowHeight = Math.max(32, labelHeight + valueHeight + 10)
+      const rowHeight = Math.max(26, labelHeight + valueHeight + 8)
 
       doc
         .font("Helvetica-Bold")
@@ -1427,14 +1655,48 @@ app.get("/assets/:id/qr-label.pdf", async (req, res) => {
 
       doc
         .font("Helvetica-Bold")
-        .fontSize(11.5)
-        .fillColor("#0f2742")
+        .fontSize(10)
+        .fillColor(String(label).toLowerCase() === "status" && assetStatus === "NOT SAFE" ? "#b91c1c" : "#0f2742")
         .text(displayValue, detailX, detailY + 11, {
           width: detailWidth,
           lineGap: 0
         })
 
       detailY += rowHeight
+    })
+
+    const linkY = Math.max(qrY + qrSize + 42, detailY + 8)
+    const linkWidth = labelWidth - (innerPad * 2)
+    const linkRows = [
+      ["Website", appUrl],
+      ["Landline", "011 902 3271"],
+      ["Inspection PDF", visualPdfUrl || "No inspection PDF yet"],
+      ["Load Test PDF", loadPdfUrl || "No load test PDF yet"]
+    ]
+
+    let currentLinkY = linkY
+    linkRows.forEach(([label, value]) => {
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(7)
+        .fillColor("#64748b")
+        .text(`${label}:`, labelX + innerPad, currentLinkY, {
+          width: 76,
+          lineBreak: false
+        })
+
+      doc
+        .font("Helvetica")
+        .fontSize(7)
+        .fillColor("#0f2742")
+        .text(String(value), labelX + innerPad + 82, currentLinkY, {
+          width: linkWidth - 82,
+          lineGap: 0
+        })
+
+      currentLinkY += Math.max(12, doc.heightOfString(String(value), {
+        width: linkWidth - 82
+      }) + 4)
     })
 
     doc
@@ -1448,7 +1710,7 @@ app.get("/assets/:id/qr-label.pdf", async (req, res) => {
       .font("Helvetica")
       .fontSize(8)
       .fillColor("#475569")
-      .text("FB Cranes Inspection Platform | Keep this label visible and protected.", labelX + innerPad, footerY + 12, {
+      .text("FB Cranes Inspection Platform | www.fbcranes.co.za/Atec | 011 902 3271", labelX + innerPad, footerY + 12, {
         width: labelWidth - (innerPad * 2),
         align: "center"
       })
@@ -1662,7 +1924,12 @@ app.post("/assets", async (req, res) => {
       hooksize,
       steelwireropemm,
       hoistdescription,
-      hoistserialno
+      hoistserialno,
+      auxhoistdescription,
+      auxhoistserialno,
+      auxhoistwll,
+      auxhoisthooksize,
+      auxhoistropemm
     } = req.body;
 
     const duplicateCheck = await pool.query(
@@ -1672,8 +1939,8 @@ app.post("/assets", async (req, res) => {
         WHERE clientid = $1
           AND COALESCE(archived, false) = false
           AND (
-            LOWER(serialno) = LOWER($2)
-            OR LOWER(assettagno) = LOWER($3)
+            (NULLIF(TRIM($2), '') IS NOT NULL AND LOWER(serialno) = LOWER($2))
+            OR (NULLIF(TRIM($3), '') IS NOT NULL AND LOWER(assettagno) = LOWER($3))
           )
         LIMIT 1
         `,
@@ -1715,9 +1982,14 @@ app.post("/assets", async (req, res) => {
         hooksize,
         steelwireropemm,
         hoistdescription,
-        hoistserialno
+        hoistserialno,
+        auxhoistdescription,
+        auxhoistserialno,
+        auxhoistwll,
+        auxhoisthooksize,
+        auxhoistropemm
        )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
       RETURNING *`,
         [
         serialno,
@@ -1742,7 +2014,12 @@ app.post("/assets", async (req, res) => {
         hooksize,
         steelwireropemm,
         hoistdescription,
-        hoistserialno
+        hoistserialno,
+        auxhoistdescription,
+        auxhoistserialno,
+        auxhoistwll,
+        auxhoisthooksize,
+        auxhoistropemm
       ]
     );
 
@@ -1782,6 +2059,7 @@ app.put("/assets/:id", async (req, res) => {
         )
           AND assetid <> $1
           AND COALESCE(archived, false) = false
+          AND NULLIF(TRIM($2), '') IS NOT NULL
           AND LOWER(assettagno) = LOWER($2)
         LIMIT 1
         `,
@@ -1814,7 +2092,9 @@ app.put("/assets/:id", async (req, res) => {
     const {
       serialno,
       assettagno,
+      equiptypeid,
       manufacturer,
+      manufactdate,
       description,
       wll,
       heightoflift,
@@ -1828,7 +2108,12 @@ app.put("/assets/:id", async (req, res) => {
       hooksize,
       steelwireropemm,
       hoistdescription,
-      hoistserialno
+      hoistserialno,
+      auxhoistdescription,
+      auxhoistserialno,
+      auxhoistwll,
+      auxhoisthooksize,
+      auxhoistropemm
     } = req.body;
 
     const duplicateCheck = await pool.query(
@@ -1843,8 +2128,8 @@ app.put("/assets/:id", async (req, res) => {
         AND assetid <> $1
         AND COALESCE(archived, false) = false
         AND (
-          LOWER(serialno) = LOWER($2)
-          OR LOWER(assettagno) = LOWER($3)
+          (NULLIF(TRIM($2), '') IS NOT NULL AND LOWER(serialno) = LOWER($2))
+          OR (NULLIF(TRIM($3), '') IS NOT NULL AND LOWER(assettagno) = LOWER($3))
         )
       LIMIT 1
       `,
@@ -1880,8 +2165,15 @@ app.put("/assets/:id", async (req, res) => {
         steelwireropemm = $14,
         hoistdescription = $15,
         hoistserialno = $16,
-        assettagno = $17
-       WHERE assetid = $18
+        assettagno = $17,
+        equiptypeid = $18,
+        manufactdate = $19,
+        auxhoistdescription = $20,
+        auxhoistserialno = $21,
+        auxhoistwll = $22,
+        auxhoisthooksize = $23,
+        auxhoistropemm = $24
+       WHERE assetid = $25
        RETURNING *`,
       [
         serialno,
@@ -1901,6 +2193,13 @@ app.put("/assets/:id", async (req, res) => {
         hoistdescription,
         hoistserialno,
         assettagno,
+        equiptypeid,
+        manufactdate || null,
+        auxhoistdescription,
+        auxhoistserialno,
+        auxhoistwll,
+        auxhoisthooksize,
+        auxhoistropemm,
         id
       ]
     );
@@ -2031,7 +2330,6 @@ app.post("/assets/:id/photos",
   upload.fields([
     { name: "photo1", maxCount: 1 },
     { name: "photo2", maxCount: 1 },
-    { name: "inspectionPhotos", maxCount: 20 },
   ]),
   validateUploadedImages,
   async (req, res) => {
@@ -2071,6 +2369,44 @@ app.post("/assets/:id/photos",
     }
   }
 );
+
+app.delete("/assets/:id/photos/:slot", async (req, res) => {
+  try {
+    const { id, slot } = req.params
+    const column = slot === "1" ? "media1" : slot === "2" ? "media2" : null
+
+    if (!column) {
+      return res.status(400).json({ error: "Photo slot must be 1 or 2" })
+    }
+
+    const existingResult = await pool.query(
+      `SELECT ${column} AS photo_path FROM atec.tblasset WHERE assetid = $1`,
+      [id]
+    )
+
+    if (existingResult.rows.length === 0) {
+      return res.status(404).json({ error: "Asset not found" })
+    }
+
+    const oldPhotoPath = existingResult.rows[0].photo_path
+
+    const updateResult = await pool.query(
+      `UPDATE atec.tblasset
+       SET ${column} = NULL
+       WHERE assetid = $1
+       RETURNING *`,
+      [id]
+    )
+
+    await deleteUploadFileIfUnreferenced(oldPhotoPath)
+    await req.logAudit("DELETE", "asset_photos", id, { slot })
+
+    res.json(updateResult.rows[0])
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
 
 app.get("/assets/:id/inspection-history", async (req, res) => {
   try {
@@ -2588,7 +2924,7 @@ app.post("/inspections",
         .map(row => row.criteriaid)
         .filter(Boolean)
 
-      let finalStatus = status || "SAFE"
+      let finalStatus = "SAFE"
       let criticalFailures = []
 
       if (criteriaIds.length) {
@@ -2609,12 +2945,16 @@ app.post("/inspections",
           [criteriaIds]
         )
 
+        finalStatus = getSafeContinuationStatus(parsedResults, criteriaResult.rows) || "SAFE"
+
         const safetyRule = applyCriticalSafetyRule(parsedResults, criteriaResult.rows)
 
         if (safetyRule.status) {
           finalStatus = safetyRule.status
           criticalFailures = safetyRule.criticalFailures
         }
+      } else if (["SAFE", "NOT SAFE"].includes(String(status || "").toUpperCase())) {
+        finalStatus = String(status).toUpperCase()
       }
 
       const inspectionTagNumber =
@@ -2674,17 +3014,6 @@ app.post("/inspections",
       const photoTypes = Array.isArray(req.body.photoTypes)
         ? req.body.photoTypes
         : req.body.photoTypes ? [req.body.photoTypes] : []
-      const allowedPhotoTypes = new Set([
-        "GENERAL",
-        "DEFECT",
-        "REPAIR",
-        "LOAD_TEST",
-        "NAMEPLATE",
-        "HOOK",
-        "WIRE_ROPE",
-        "STRUCTURE",
-        "ELECTRICAL"
-      ])
 
       for (let index = 0; index < photoFiles.length; index += 1) {
         const file = photoFiles[index]
@@ -2712,7 +3041,7 @@ app.post("/inspections",
             `/uploads/inspections/${file.filename}`,
             file.originalname || "",
             captions[index] || "",
-            allowedPhotoTypes.has(photoType) ? photoType : "GENERAL"
+            INSPECTION_PHOTO_TYPES.has(photoType) ? photoType : "GENERAL"
           ]
         )
       }
@@ -2790,6 +3119,232 @@ app.post("/inspections",
     }
   }
 )
+
+app.get("/inspections/:testid/photos", async (req, res) => {
+  try {
+    const { testid } = req.params
+    const inspection = await getInspectionPhotoAccess(testid)
+
+    if (!inspection) {
+      return res.status(404).json({ error: "Inspection not found" })
+    }
+
+    if (!canReadInspectionPhoto(req.user, inspection)) {
+      return res.status(403).json({ error: "Access denied" })
+    }
+
+    const result = await pool.query(
+      `
+      SELECT
+        photoid,
+        testid,
+        assetid,
+        uploaded_by_user_id,
+        photo_path,
+        original_filename,
+        caption,
+        photo_type,
+        uploaded_at
+      FROM atec.tblinspectionphoto
+      WHERE testid = $1
+      ORDER BY photoid
+      `,
+      [testid]
+    )
+
+    res.json(result.rows)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
+
+app.post("/inspections/:testid/photos",
+  upload.array("inspectionPhotos", 20),
+  validateUploadedImages,
+  async (req, res) => {
+    try {
+      const { testid } = req.params
+      const inspection = await getInspectionPhotoAccess(testid)
+
+      if (!inspection) {
+        removeUploadedFiles(req.files)
+        return res.status(404).json({ error: "Inspection not found" })
+      }
+
+      if (!canManageInspectionPhoto(req.user, inspection)) {
+        removeUploadedFiles(req.files)
+        return res.status(403).json({ error: "Access denied" })
+      }
+
+      const photoFiles = req.files || []
+      const captions = Array.isArray(req.body.photoCaptions)
+        ? req.body.photoCaptions
+        : req.body.photoCaptions ? [req.body.photoCaptions] : []
+      const photoTypes = Array.isArray(req.body.photoTypes)
+        ? req.body.photoTypes
+        : req.body.photoTypes ? [req.body.photoTypes] : []
+
+      if (!photoFiles.length) {
+        removeUploadedFiles(req.files)
+        return res.status(400).json({ error: "Please choose at least one photo" })
+      }
+
+      const insertedPhotos = []
+
+      for (let index = 0; index < photoFiles.length; index += 1) {
+        const file = photoFiles[index]
+        const photoType = String(photoTypes[index] || "GENERAL").toUpperCase()
+
+        const result = await pool.query(
+          `
+          INSERT INTO atec.tblinspectionphoto
+          (
+            testid,
+            assetid,
+            uploaded_by_user_id,
+            photo_path,
+            original_filename,
+            caption,
+            photo_type
+          )
+          VALUES
+          ($1,$2,$3,$4,$5,$6,$7)
+          RETURNING *
+          `,
+          [
+            testid,
+            inspection.assetid,
+            req.user.user_id,
+            `/uploads/inspections/${file.filename}`,
+            file.originalname || "",
+            captions[index] || "",
+            INSPECTION_PHOTO_TYPES.has(photoType) ? photoType : "GENERAL"
+          ]
+        )
+
+        insertedPhotos.push(result.rows[0])
+      }
+
+      await req.logAudit("UPLOAD", "inspection_photos", testid, {
+        assetid: inspection.assetid,
+        photo_count: insertedPhotos.length
+      })
+
+      res.status(201).json(insertedPhotos)
+    } catch (err) {
+      console.error(err)
+      res.status(500).json({ error: "An unexpected server error occurred" })
+    }
+  }
+)
+
+app.put("/inspection-photos/:photoid", async (req, res) => {
+  try {
+    const { photoid } = req.params
+    const { caption, photo_type } = req.body || {}
+
+    const existingResult = await pool.query(
+      `
+      SELECT
+        p.*,
+        i.inspector_user_id,
+        a.clientid
+      FROM atec.tblinspectionphoto p
+      JOIN atec.tblinspection i
+        ON p.testid = i.testid
+      LEFT JOIN atec.tblasset a
+        ON p.assetid = a.assetid
+      WHERE p.photoid = $1
+      `,
+      [photoid]
+    )
+
+    const existingPhoto = existingResult.rows[0]
+
+    if (!existingPhoto) {
+      return res.status(404).json({ error: "Inspection photo not found" })
+    }
+
+    if (!canManageInspectionPhoto(req.user, existingPhoto)) {
+      return res.status(403).json({ error: "Access denied" })
+    }
+
+    const normalizedType = String(photo_type || existingPhoto.photo_type || "GENERAL").toUpperCase()
+
+    const result = await pool.query(
+      `
+      UPDATE atec.tblinspectionphoto
+      SET
+        caption = $1,
+        photo_type = $2
+      WHERE photoid = $3
+      RETURNING *
+      `,
+      [
+        caption === undefined ? existingPhoto.caption : String(caption || ""),
+        INSPECTION_PHOTO_TYPES.has(normalizedType) ? normalizedType : "GENERAL",
+        photoid
+      ]
+    )
+
+    await req.logAudit("UPDATE", "inspection_photos", photoid, {
+      testid: existingPhoto.testid
+    })
+
+    res.json(result.rows[0])
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
+
+app.delete("/inspection-photos/:photoid", async (req, res) => {
+  try {
+    const { photoid } = req.params
+
+    const existingResult = await pool.query(
+      `
+      SELECT
+        p.*,
+        i.inspector_user_id,
+        a.clientid
+      FROM atec.tblinspectionphoto p
+      JOIN atec.tblinspection i
+        ON p.testid = i.testid
+      LEFT JOIN atec.tblasset a
+        ON p.assetid = a.assetid
+      WHERE p.photoid = $1
+      `,
+      [photoid]
+    )
+
+    const existingPhoto = existingResult.rows[0]
+
+    if (!existingPhoto) {
+      return res.status(404).json({ error: "Inspection photo not found" })
+    }
+
+    if (!canManageInspectionPhoto(req.user, existingPhoto)) {
+      return res.status(403).json({ error: "Access denied" })
+    }
+
+    await pool.query(
+      "DELETE FROM atec.tblinspectionphoto WHERE photoid = $1",
+      [photoid]
+    )
+
+    await deleteUploadFileIfUnreferenced(existingPhoto.photo_path)
+    await req.logAudit("DELETE", "inspection_photos", photoid, {
+      testid: existingPhoto.testid
+    })
+
+    res.json({ success: true })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
 
 app.get("/inspection-results/:testid", async (req, res) => {
   try {
@@ -3388,6 +3943,11 @@ async function getCertificateData(testid) {
       a.steelwireropemm,
       a.hoistdescription,
       a.hoistserialno,
+      a.auxhoistdescription,
+      a.auxhoistserialno,
+      a.auxhoistwll,
+      a.auxhoisthooksize,
+      a.auxhoistropemm,
       c.clientid,
       c.clientname,
       s.sitename,
@@ -3500,6 +4060,81 @@ function getCertificateTitle(inspection) {
     : "CERTIFICATE OF INSPECTION"
 }
 
+function isCertificateSafeServiceRow(row) {
+  const name = String(row?.criterianame || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
+
+  return name.includes("safe for service") ||
+    name.includes("safe for continued operation") ||
+    name.includes("safe for review")
+}
+
+function isEmptyLoadTestMeasurementRow(row, inspection = {}) {
+  if (inspection.inspectiontype !== "LOADTEST") return false
+
+  const result = String(row?.result || "").trim().toUpperCase()
+  const measuredValue = String(row?.measuredvalue || "").trim()
+  const remarks = String(row?.remarks || "").trim()
+
+  return result === "RECORDED" && !measuredValue && !remarks
+}
+
+function isHookWearCertificateRow(row) {
+  const text = [
+    row?.criterianame,
+    row?.criteriadescription
+  ].filter(Boolean).join(" ").toLowerCase()
+
+  return text.includes("hook wear does not exceed allowable limits")
+}
+
+function isHookMeasuredSizeCertificateRow(row) {
+  const text = [
+    row?.criterianame,
+    row?.criteriadescription
+  ].filter(Boolean).join(" ").toLowerCase()
+
+  return text.includes("hook measured size") ||
+    text.includes("measured hook throat opening")
+}
+
+function enrichCertificateResultRow(row, inspection = {}) {
+  if (!isHookMeasuredSizeCertificateRow(row)) return row
+
+  return {
+    ...row,
+    measuredvalue: row.measuredvalue || inspection.hooksize || ""
+  }
+}
+
+function getCertificateResultsForDisplay(results = [], inspection = {}) {
+  return results
+    .map(row => enrichCertificateResultRow(row, inspection))
+    .filter(row => !isHookWearCertificateRow(row))
+    .filter(row => !isEmptyLoadTestMeasurementRow(row, inspection))
+    .sort((left, right) => {
+      const leftSafe = isCertificateSafeServiceRow(left)
+      const rightSafe = isCertificateSafeServiceRow(right)
+
+      if (leftSafe && !rightSafe) return 1
+      if (!leftSafe && rightSafe) return -1
+      return 0
+    })
+}
+
+function getCertificateResultDisplay(row) {
+  const result = String(row?.result || "").trim().toUpperCase()
+
+  if (result === "RECORDED") return "PASS"
+  if (!isCertificateSafeServiceRow(row)) return result
+  if (["NO", "FAIL", "NOT SAFE", "UNSAFE"].includes(result)) return "NO"
+  if (["YES", "PASS", "SAFE"].includes(result)) return "YES"
+
+  return result || "-"
+}
+
 function shouldShowDrivenMachineryNote(inspection) {
   return ["400", "500"].includes(String(inspection.equipgroupid || ""))
 }
@@ -3577,13 +4212,18 @@ function certificateAssetDetails(inspection) {
     ["Hook Size", inspection.hooksize ? `${inspection.hooksize} mm` : ""],
     ["Steel Wire Rope", inspection.steelwireropemm ? `${inspection.steelwireropemm} mm` : ""],
     ["Hoist Description", inspection.hoistdescription],
-    ["Hoist Serial No", inspection.hoistserialno]
+    ["Hoist Serial No", inspection.hoistserialno],
+    ["Auxiliary Hoist Description", inspection.auxhoistdescription],
+    ["Auxiliary Hoist Serial No", inspection.auxhoistserialno],
+    ["Auxiliary Hoist WLL", inspection.auxhoistwll ? `${inspection.auxhoistwll} kg` : ""],
+    ["Auxiliary Hoist Hook Size", inspection.auxhoisthooksize ? `${inspection.auxhoisthooksize} mm` : ""],
+    ["Auxiliary Hoist Steel Wire Rope", inspection.auxhoistropemm ? `${inspection.auxhoistropemm} mm` : ""]
   ].filter(([, value]) => value !== null && value !== undefined && value !== "")
 }
 
 function renderBulkCertificateHtml(certificate) {
   const inspection = certificate.inspection || {}
-  const results = certificate.results || []
+  const results = getCertificateResultsForDisplay(certificate.results || [], inspection)
   const photos = getCertificatePhotosForHtml(inspection, certificate.photos || []).slice(0, 4)
   const headerUrl = fileUrlIfExists(path.join(__dirname, "..", "frontend", "public", "header.jpg"))
   const footerUrl = fileUrlIfExists(path.join(__dirname, "..", "frontend", "public", "footer.jpg"))
@@ -3687,12 +4327,19 @@ function renderBulkCertificateHtml(certificate) {
         <div class="fb-cert-section">
           <h3>Inspection Results</h3>
           <table class="fb-cert-results-table">
+            <colgroup>
+              <col class="fb-cert-results-criteria-col">
+              <col class="fb-cert-results-result-col">
+              <col class="fb-cert-results-standard-col">
+              <col class="fb-cert-results-measured-col">
+              <col class="fb-cert-results-remarks-col">
+            </colgroup>
             <thead>
               <tr>
                 <th>Criteria</th>
-                <th>Asset Value</th>
-                <th>Measured Value</th>
                 <th>Result</th>
+                <th>Standard Dimension</th>
+                <th>Measured Dimension</th>
                 <th>Remarks</th>
               </tr>
             </thead>
@@ -3700,30 +4347,25 @@ function renderBulkCertificateHtml(certificate) {
               ${results.map(row => `
                 <tr>
                   <td>${htmlEscape(row.criterianame || "")}</td>
-                  <td>${htmlEscape(row.assetvalue || "")}</td>
-                  <td>${htmlEscape(row.measuredvalue || "")}</td>
                   <td>
                     <strong class="${
-                      row.result === "PASS"
+                      getCertificateResultDisplay(row) === "YES" || getCertificateResultDisplay(row) === "PASS"
                         ? "status-safe"
-                        : row.result === "FAIL"
+                        : getCertificateResultDisplay(row) === "NO" || getCertificateResultDisplay(row) === "FAIL"
                           ? "status-unsafe"
                           : ""
                     }">
-                      ${htmlEscape(row.result || "")}
+                      ${htmlEscape(getCertificateResultDisplay(row))}
                     </strong>
                   </td>
+                  <td>${htmlEscape(row.assetvalue || "")}</td>
+                  <td>${htmlEscape(row.measuredvalue || "")}</td>
                   <td>${htmlEscape(row.remarks || "")}</td>
                 </tr>
               `).join("")}
             </tbody>
           </table>
         </div>
-
-        ${drivenMachineryNote ? `<p class="fb-cert-driven-note">${htmlEscape(drivenMachineryNote)}</p>` : ""}
-        ${sans500Note ? `<p class="fb-cert-driven-note">${htmlEscape(sans500Note)}</p>` : ""}
-        ${regulation18Note ? `<p class="fb-cert-driven-note">${htmlEscape(regulation18Note)}</p>` : ""}
-        ${drivenMachineryItemsNote ? `<p class="fb-cert-driven-note">${htmlEscape(drivenMachineryItemsNote)}</p>` : ""}
 
         <div class="fb-cert-signature-section">
           <div>
@@ -3732,6 +4374,11 @@ function renderBulkCertificateHtml(certificate) {
             <div class="fb-cert-signature-line"></div>
           </div>
         </div>
+
+        ${drivenMachineryNote ? `<p class="fb-cert-driven-note">${htmlEscape(drivenMachineryNote)}</p>` : ""}
+        ${sans500Note ? `<p class="fb-cert-driven-note">${htmlEscape(sans500Note)}</p>` : ""}
+        ${regulation18Note ? `<p class="fb-cert-driven-note">${htmlEscape(regulation18Note)}</p>` : ""}
+        ${drivenMachineryItemsNote ? `<p class="fb-cert-driven-note">${htmlEscape(drivenMachineryItemsNote)}</p>` : ""}
 
         ${footerUrl ? `<img src="${footerUrl}" class="fb-cert-footer" alt="FB Cranes Footer">` : ""}
       </div>
@@ -3768,8 +4415,8 @@ function renderBulkCertificatesHtmlDocument(certificates) {
             background: white;
             color: #111827;
             width: 100%;
-            font-size: 13px;
-            line-height: normal;
+            font-size: 10.5px;
+            line-height: 1.15;
             overflow: visible;
           }
           .fb-cert-header,
@@ -3777,60 +4424,60 @@ function renderBulkCertificatesHtmlDocument(certificates) {
             width: 100%;
             display: block;
           }
-          .fb-cert-header { margin-bottom: 14px; }
-          .fb-cert-footer { margin-top: 24px; }
+          .fb-cert-header { margin-bottom: 8px; }
+          .fb-cert-footer { margin-top: 10px; }
           .fb-cert-title h1 {
             text-align: center;
             text-transform: uppercase;
-            font-size: 24px;
+            font-size: 20px;
             letter-spacing: 0.5px;
-            margin: 10px 0 16px;
+            margin: 6px 0 8px;
             color: #1f2937;
           }
           .fb-cert-meta {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 15px;
+            gap: 10px;
             border-top: 1px solid #9ca3af;
             border-bottom: 1px solid #9ca3af;
-            padding: 10px 0;
-            margin-bottom: 16px;
+            padding: 5px 0;
+            margin-bottom: 8px;
           }
           .fb-cert-meta div {
             display: flex;
             gap: 6px;
           }
-          .fb-cert-section { margin: 14px 0; }
+          .fb-cert-section { margin: 7px 0; }
           .fb-cert-section h3 {
             color: #1f3b5c;
             border-bottom: 1px solid #d9e1ec;
-            padding-bottom: 5px;
-            margin: 0 0 8px;
-            font-size: 1.17em;
+            padding-bottom: 3px;
+            margin: 0 0 4px;
+            font-size: 12px;
           }
           .fb-cert-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 4px 24px;
+            gap: 2px 18px;
           }
-          .fb-cert-grid p { margin: 4px 0; }
+          .fb-cert-grid p { margin: 2px 0; }
           .fb-cert-photo-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 14px;
+            gap: 8px;
           }
           .fb-cert-photo-grid div {
             border: 1px solid #d9e1ec;
-            padding: 8px;
+            padding: 4px;
             text-align: center;
-            min-height: 120px;
+            min-height: 90px;
           }
           .fb-cert-photo-grid img {
             max-width: 100%;
-            max-height: 180px;
+            max-height: 120px;
             object-fit: contain;
           }
-          .fb-cert-photo-grid p { margin: 4px 0; }
+          .fb-cert-photo-grid p { margin: 2px 0; }
           .fb-cert-no-photo {
             display: flex;
             align-items: center;
@@ -3841,34 +4488,57 @@ function renderBulkCertificatesHtmlDocument(certificates) {
           .fb-cert-results-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 12px;
-            line-height: normal;
+            font-size: 10.5px;
+            line-height: 1.15;
           }
+          .fb-cert-results-criteria-col { width: 42%; }
+          .fb-cert-results-standard-col { width: 15%; }
+          .fb-cert-results-measured-col { width: 15%; }
+          .fb-cert-results-result-col { width: 10%; }
+          .fb-cert-results-remarks-col { width: 18%; }
           .fb-cert-results-table th {
             background: #1f3b5c;
             color: white;
-            padding: 7px;
+            padding: 4px;
           }
           .fb-cert-results-table td {
             border: 1px solid #d9e1ec;
-            padding: 6px;
+            padding: 3px 4px;
             vertical-align: top;
+          }
+          .fb-cert-results-table th:nth-child(2),
+          .fb-cert-results-table td:nth-child(2) {
+            text-align: center;
+          }
+
+          .fb-cert-results-table th:nth-child(3),
+          .fb-cert-results-table td:nth-child(3),
+          .fb-cert-results-table th:nth-child(4),
+          .fb-cert-results-table td:nth-child(4) {
+            text-align: right;
+          }
+          .fb-cert-results-table th:nth-child(5),
+          .fb-cert-results-table td:nth-child(5) {
+            padding-left: 8px;
+            text-align: left;
           }
           .fb-cert-signature-section {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 60px;
-            margin: 30px 0 15px;
+            margin: 12px 0 4px;
           }
           .fb-cert-signature-line {
             border-bottom: 1px solid #111827;
-            height: 45px;
+            height: 4px;
+            margin-top: 1px;
+            max-width: 300px;
           }
           .fb-cert-signature-image {
             display: block;
-            height: 34px;
+            height: 64px;
             margin-top: 6px;
-            max-width: 180px;
+            max-width: 300px;
             object-fit: contain;
           }
           .fb-cert-driven-note {
@@ -3878,6 +4548,7 @@ function renderBulkCertificatesHtmlDocument(certificates) {
             font-weight: 700;
             line-height: 1.35;
             margin: 4px 0 2px;
+            text-align: center;
           }
           .status-safe { color: #0a8f2a; font-weight: 700; }
           .status-unsafe { color: #d00000; font-weight: 700; }
@@ -3991,8 +4662,8 @@ function addPdfKeyValues(doc, items, x, y, width, options = {}) {
   const columnCount = options.columns || 2
   const columnGap = 18
   const labelWidth = options.labelWidth || 106
-  const fontSize = options.fontSize || 7.5
-  const minRowHeight = options.rowHeight || 12
+  const fontSize = options.fontSize || 6.8
+  const minRowHeight = options.rowHeight || 9
   const columnWidth = (width - (columnGap * (columnCount - 1))) / columnCount
   const rows = []
 
@@ -4056,7 +4727,7 @@ function addPdfMetaValues(doc, items, x, y, width) {
 
     doc
       .font("Helvetica-Bold")
-      .fontSize(9)
+      .fontSize(7.5)
       .fillColor("#111827")
       .text(`${item[0]}:`, itemX, y, {
         width: columnWidth,
@@ -4065,7 +4736,7 @@ function addPdfMetaValues(doc, items, x, y, width) {
 
     doc
       .font("Helvetica")
-      .fontSize(9)
+      .fontSize(7.5)
       .fillColor(isStatus ? statusColor : "#111827")
       .text(value, itemX + 78, y, {
         width: columnWidth - 82
@@ -4074,7 +4745,7 @@ function addPdfMetaValues(doc, items, x, y, width) {
 
   doc.fillColor("#111827")
 
-  return y + 13
+  return y + 10
 }
 
 function addPdfSectionTitle(doc, title, x, y, width) {
@@ -4087,11 +4758,11 @@ function addPdfSectionTitle(doc, title, x, y, width) {
   doc
     .fillColor("#1f3b5c")
     .font("Helvetica-Bold")
-    .fontSize(8.5)
+    .fontSize(7.5)
     .text(title, x, y)
     .fillColor("#111827")
 
-  return y + 18
+  return y + 13
 }
 
 function drawPdfPageFrame(doc, inspection, pageNumber) {
@@ -4202,12 +4873,13 @@ function addCertificatePhotoPages(doc, inspection, photos, startPageNumber) {
 }
 
 function drawCertificatePdf(doc, inspection, results, photos = []) {
+  const displayResults = getCertificateResultsForDisplay(results, inspection)
   const pageWidth = doc.page.width
   const marginX = 28.35
   const width = pageWidth - (marginX * 2)
   const bottomLimit = doc.page.height - 92
   let pageNumber = 1
-  let y = 106
+  let y = 100
 
   drawPdfPageFrame(doc, inspection, pageNumber)
 
@@ -4220,9 +4892,9 @@ function drawCertificatePdf(doc, inspection, results, photos = []) {
       align: "center"
     })
 
-  y += 18
+  y += 14
   doc.moveTo(marginX, y).lineTo(marginX + width, y).strokeColor("#9ca3af").stroke()
-  y += 6
+  y += 4
 
   y = addPdfMetaValues(doc, [
     ["Certificate No", inspection.testid],
@@ -4230,9 +4902,9 @@ function drawCertificatePdf(doc, inspection, results, photos = []) {
     ["Status", inspection.status]
   ], marginX, y, width)
 
-  y += 8
+  y += 5
   doc.moveTo(marginX, y).lineTo(marginX + width, y).strokeColor("#9ca3af").stroke()
-  y += 10
+  y += 6
 
   y = addPdfSectionTitle(doc, "Customer Details", marginX, y, width)
   y = addPdfKeyValues(doc, [
@@ -4241,7 +4913,7 @@ function drawCertificatePdf(doc, inspection, results, photos = []) {
     ["Section", inspection.sectionname]
   ], marginX, y, width)
 
-  y += 8
+  y += 5
   y = addPdfSectionTitle(doc, "Asset Details", marginX, y, width)
   y = addPdfKeyValues(doc, [
     ["Asset ID", inspection.assetid],
@@ -4263,12 +4935,12 @@ function drawCertificatePdf(doc, inspection, results, photos = []) {
   ].filter(([, value]) => value && value !== "-")
 
   if (assetSpecs.length) {
-    y += 8
+    y += 5
     y = addPdfSectionTitle(doc, "Asset Specifications", marginX, y, width)
     y = addPdfKeyValues(doc, assetSpecs, marginX, y, width)
   }
 
-  y += 8
+  y += 5
   y = addPdfSectionTitle(doc, "Inspection Details", marginX, y, width)
   y = addPdfKeyValues(doc, [
     ["Inspection Type", inspection.inspectiontype],
@@ -4278,13 +4950,13 @@ function drawCertificatePdf(doc, inspection, results, photos = []) {
     ["LMI Number", inspection.inspector_lmi_number]
   ], marginX, y, width)
 
-  y += 8
+  y += 5
   y = addPdfSectionTitle(doc, "Inspection Photos", marginX, y, width)
 
   const photo1Path = certificateImagePath(inspection.photo1 || inspection.media1)
   const photo2Path = certificateImagePath(inspection.photo2 || inspection.media2)
   const photoBoxWidth = (width - 12) / 2
-  const photoBoxHeight = 110
+  const photoBoxHeight = 88
 
   ;[photo1Path, photo2Path].forEach((photoPath, index) => {
     const boxX = marginX + (index * (photoBoxWidth + 12))
@@ -4308,22 +4980,22 @@ function drawCertificatePdf(doc, inspection, results, photos = []) {
     }
   })
 
-  y += photoBoxHeight + 10
+  y += photoBoxHeight + 6
   y = addPdfSectionTitle(doc, "Inspection Results", marginX, y, width)
 
   const tableColumns = [
-    { title: "Criteria", width: 160 },
-    { title: "Asset Value", width: 70 },
-    { title: "Measured Value", width: 80 },
-    { title: "Result", width: 65 },
-    { title: "Remarks", width: width - 375 }
+    { title: "Criteria", width: Math.round(width * 0.42) },
+    { title: "Result", width: Math.round(width * 0.10), align: "center" },
+    { title: "Standard", width: Math.round(width * 0.15), align: "right" },
+    { title: "Measured", width: Math.round(width * 0.15), align: "right" },
+    { title: "Remarks", width: width - Math.round(width * 0.42) - Math.round(width * 0.15) - Math.round(width * 0.15) - Math.round(width * 0.10) }
   ]
 
   const addNewPdfPage = () => {
     doc.addPage()
     pageNumber += 1
     drawPdfPageFrame(doc, inspection, pageNumber)
-    y = 106
+    y = 100
   }
 
   const ensurePdfSpace = requiredHeight => {
@@ -4332,41 +5004,44 @@ function drawCertificatePdf(doc, inspection, results, photos = []) {
   }
 
   const drawResultsHeader = () => {
-    ensurePdfSpace(18)
+    ensurePdfSpace(14)
 
     let x = marginX
-    doc.font("Helvetica-Bold").fontSize(7)
+    doc.font("Helvetica-Bold").fontSize(6.5)
     tableColumns.forEach(column => {
-      doc.rect(x, y, column.width, 14).fillAndStroke("#1f3b5c", "#1f3b5c")
+      doc.rect(x, y, column.width, 11).fillAndStroke("#1f3b5c", "#1f3b5c")
       doc.fillColor("#ffffff")
-      doc.text(column.title, x + 3, y + 4, { width: column.width - 6 })
+      doc.text(column.title, x + 3, y + 3, {
+        width: column.width - 6,
+        align: column.align || "left"
+      })
       x += column.width
     })
 
-    y += 14
-    doc.fillColor("#111827").font("Helvetica").fontSize(7)
+    y += 11
+    doc.fillColor("#111827").font("Helvetica").fontSize(6.4)
   }
 
   drawResultsHeader()
 
-  results.forEach(row => {
+  displayResults.forEach(row => {
     const values = [
       valueOrDash(row.criterianame),
+      getCertificateResultDisplay(row),
       row.assetvalue || "",
       row.measuredvalue || "",
-      row.result || "",
       row.remarks || ""
     ]
 
     const rowHeight = Math.max(
-      14,
-      doc.heightOfString(values[0], { width: tableColumns[0].width - 6 }) + 6,
-      doc.heightOfString(values[4], { width: tableColumns[4].width - 6 }) + 6
+      10,
+      doc.heightOfString(values[0], { width: tableColumns[0].width - 6 }) + 4,
+      doc.heightOfString(values[4], { width: tableColumns[4].width - 6 }) + 4
     )
 
     ensurePdfSpace(rowHeight + 4)
 
-    if (y === 106) {
+    if (y === 100) {
       drawResultsHeader()
     }
 
@@ -4375,17 +5050,42 @@ function drawCertificatePdf(doc, inspection, results, photos = []) {
     tableColumns.forEach((column, index) => {
       doc.rect(x, y, column.width, rowHeight).strokeColor("#d9e1ec").stroke()
       doc
-        .font(index === 3 ? "Helvetica-Bold" : "Helvetica")
-        .text(values[index], x + 3, y + 4, { width: column.width - 6 })
+        .font(index === 1 ? "Helvetica-Bold" : "Helvetica")
+        .text(values[index], x + (index === 4 ? 6 : 3), y + 3, {
+          width: column.width - (index === 4 ? 9 : 6),
+          align: column.align || "left"
+        })
       x += column.width
     })
 
     y += rowHeight
   })
 
+  const signaturePath = certificateImagePath(inspection.inspector_signature_image)
+  const hasInspectorDetails =
+    signaturePath ||
+    valueOrDash(inspection.inspector) !== "-" ||
+    valueOrDash(inspection.inspector_lmi_number) !== "-"
+
+  if (hasInspectorDetails) {
+    ensurePdfSpace(80)
+
+    y += 8
+    doc.font("Helvetica-Bold").fontSize(8).text("Inspector Signature", marginX, y)
+    if (signaturePath) {
+      doc.image(signaturePath, marginX, y + 10, {
+        fit: [260, 50],
+        align: "left",
+        valign: "center"
+      })
+    }
+    doc.moveTo(marginX, y + 58).lineTo(marginX + 280, y + 58).strokeColor("#111827").stroke()
+    y += 64
+  }
+
   if (shouldShowDrivenMachineryNote(inspection)) {
     ensurePdfSpace(28)
-    y += 10
+    y += 6
     doc
       .font("Helvetica-Oblique")
       .fontSize(7.5)
@@ -4457,27 +5157,6 @@ function drawCertificatePdf(doc, inspection, results, photos = []) {
       width,
       align: "center"
     }) + 4
-  }
-
-  const signaturePath = certificateImagePath(inspection.inspector_signature_image)
-  const hasInspectorDetails =
-    signaturePath ||
-    valueOrDash(inspection.inspector) !== "-" ||
-    valueOrDash(inspection.inspector_lmi_number) !== "-"
-
-  if (hasInspectorDetails) {
-    ensurePdfSpace(58)
-
-    y += 14
-    doc.font("Helvetica-Bold").fontSize(8).text("Inspector Signature", marginX, y)
-    if (signaturePath) {
-      doc.image(signaturePath, marginX, y + 8, {
-        fit: [180, 28],
-        align: "left",
-        valign: "center"
-      })
-    }
-    doc.moveTo(marginX, y + 36).lineTo(marginX + 180, y + 36).strokeColor("#111827").stroke()
   }
 
   addCertificatePhotoPages(doc, inspection, photos, pageNumber + 1)
@@ -4722,32 +5401,244 @@ function riskPayload(body = {}) {
   }
 }
 
+function riskAssessmentFilters(req) {
+  return {
+    status: String(req.query.status || "").trim().toUpperCase(),
+    search: String(req.query.search || "").trim()
+  }
+}
+
+async function getRiskAssessmentRows(filters = {}) {
+  const values = []
+  const where = ["COALESCE(r.archived, false) = false"]
+
+  if (filters.status) {
+    values.push(filters.status)
+    where.push(`r.status = $${values.length}`)
+  }
+
+  if (filters.search) {
+    values.push(`%${filters.search}%`)
+    where.push(`
+      (
+        CAST(r.riskid AS text) ILIKE $${values.length}
+        OR COALESCE(a.assettagno, '') ILIKE $${values.length}
+        OR COALESCE(a.serialno, '') ILIKE $${values.length}
+        OR COALESCE(a.description, '') ILIKE $${values.length}
+        OR COALESCE(c.clientname, '') ILIKE $${values.length}
+        OR COALESCE(s.sitename, '') ILIKE $${values.length}
+        OR COALESCE(r.activity, '') ILIKE $${values.length}
+        OR COALESCE(r.hazard, '') ILIKE $${values.length}
+        OR COALESCE(r.status, '') ILIKE $${values.length}
+      )
+    `)
+  }
+
+  const result = await pool.query(
+    `
+    SELECT
+      r.*,
+      a.assettagno,
+      a.serialno,
+      a.description AS asset_description,
+      c.clientname,
+      s.sitename,
+      sec.sectionname,
+      COALESCE(NULLIF(u.fullname, ''), u.username) AS created_by_name
+    FROM atec.tblriskassessment r
+    LEFT JOIN atec.tblasset a ON r.assetid = a.assetid
+    LEFT JOIN atec.tblclients c ON COALESCE(r.clientid, a.clientid) = c.clientid
+    LEFT JOIN atec.tblsites s ON COALESCE(r.siteid, a.siteid) = s.siteid
+    LEFT JOIN atec.tblsection sec ON COALESCE(r.sectionid, a.sectionid) = sec.sectionid
+    LEFT JOIN atec.tblusers u ON r.created_by_user_id = u.userid
+    WHERE ${where.join(" AND ")}
+    ORDER BY r.assessment_date DESC, r.riskid DESC
+    LIMIT 500
+    `,
+    values
+  )
+
+  return result.rows
+}
+
 app.get("/she/risk-assessments", async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT
-        r.*,
-        a.assettagno,
-        a.serialno,
-        a.description AS asset_description,
-        c.clientname,
-        s.sitename,
-        sec.sectionname,
-        COALESCE(NULLIF(u.fullname, ''), u.username) AS created_by_name
-      FROM atec.tblriskassessment r
-      LEFT JOIN atec.tblasset a ON r.assetid = a.assetid
-      LEFT JOIN atec.tblclients c ON COALESCE(r.clientid, a.clientid) = c.clientid
-      LEFT JOIN atec.tblsites s ON COALESCE(r.siteid, a.siteid) = s.siteid
-      LEFT JOIN atec.tblsection sec ON COALESCE(r.sectionid, a.sectionid) = sec.sectionid
-      LEFT JOIN atec.tblusers u ON r.created_by_user_id = u.userid
-      WHERE COALESCE(r.archived, false) = false
-      ORDER BY r.assessment_date DESC, r.riskid DESC
-      LIMIT 500
-    `)
-
-    res.json(result.rows)
+    const rows = await getRiskAssessmentRows(riskAssessmentFilters(req))
+    res.json(rows)
   } catch (err) {
     console.error("Risk assessment list error:", err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
+
+app.get("/she/risk-assessments.pdf", async (req, res) => {
+  try {
+    const rows = await getRiskAssessmentRows(riskAssessmentFilters(req))
+    const filename = `ATEC-SHE-Risk-Register-${new Date().toISOString().split("T")[0]}.pdf`
+
+    res.setHeader("Content-Type", "application/pdf")
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`)
+
+    const doc = new PDFDocument({
+      size: "A4",
+      layout: "landscape",
+      margin: 28
+    })
+
+    doc.pipe(res)
+
+    const columns = [
+      ["ID", 34],
+      ["Date", 58],
+      ["Asset", 86],
+      ["Activity", 120],
+      ["Hazard", 145],
+      ["Initial", 48],
+      ["Residual", 54],
+      ["Status", 72],
+      ["Due", 58],
+      ["Responsible", 92]
+    ]
+    const tableWidth = columns.reduce((sum, [, width]) => sum + width, 0)
+    const marginX = doc.page.margins.left
+    let y = 70
+
+    const drawHeader = () => {
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(16)
+        .fillColor("#1f3b5c")
+        .text("ATEC SHE Risk Register", marginX, 28, {
+          width: tableWidth,
+          align: "left"
+        })
+        .font("Helvetica")
+        .fontSize(8)
+        .fillColor("#4b5563")
+        .text(`Generated ${new Date().toISOString().split("T")[0]} | Records: ${rows.length}`, marginX, 48)
+
+      let x = marginX
+      doc.font("Helvetica-Bold").fontSize(7)
+      columns.forEach(([title, width]) => {
+        doc.rect(x, y, width, 16).fillAndStroke("#1f3b5c", "#1f3b5c")
+        doc.fillColor("#ffffff").text(title, x + 3, y + 5, { width: width - 6 })
+        x += width
+      })
+      doc.fillColor("#111827").font("Helvetica").fontSize(7)
+      y += 16
+    }
+
+    drawHeader()
+
+    rows.forEach(row => {
+      const values = [
+        row.riskid,
+        reportDate(row.assessment_date),
+        row.assettagno || row.assetid || "-",
+        row.activity || "",
+        row.hazard || "",
+        row.initial_rating || "-",
+        row.residual_rating || "-",
+        String(row.status || "").replaceAll("_", " "),
+        reportDate(row.due_date),
+        row.responsible_person || ""
+      ].map(reportValue)
+
+      const rowHeight = Math.max(
+        18,
+        doc.heightOfString(values[3], { width: columns[3][1] - 6 }) + 8,
+        doc.heightOfString(values[4], { width: columns[4][1] - 6 }) + 8
+      )
+
+      if (y + rowHeight > doc.page.height - 30) {
+        doc.addPage()
+        y = 70
+        drawHeader()
+      }
+
+      let x = marginX
+      columns.forEach(([, width], index) => {
+        doc.rect(x, y, width, rowHeight).strokeColor("#d9e1ec").stroke()
+        doc
+          .font(index === 5 || index === 6 ? "Helvetica-Bold" : "Helvetica")
+          .fillColor(Number(values[index]) >= 15 ? "#d00000" : "#111827")
+          .text(values[index], x + 3, y + 4, { width: width - 6 })
+        x += width
+      })
+
+      y += rowHeight
+    })
+
+    doc.end()
+  } catch (err) {
+    console.error("Risk assessment PDF error:", err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
+
+app.get("/she/risk-assessments.xlsx", async (req, res) => {
+  try {
+    const rows = await getRiskAssessmentRows(riskAssessmentFilters(req))
+    const workbook = new ExcelJS.Workbook()
+    const sheet = workbook.addWorksheet("SHE Risk Register")
+    const filename = `ATEC-SHE-Risk-Register-${new Date().toISOString().split("T")[0]}.xlsx`
+
+    workbook.creator = "ATEC"
+    workbook.created = new Date()
+
+    sheet.columns = [
+      { header: "Risk ID", key: "riskid", width: 10 },
+      { header: "Assessment Date", key: "assessment_date", width: 18 },
+      { header: "Customer", key: "clientname", width: 24 },
+      { header: "Site", key: "sitename", width: 22 },
+      { header: "Section", key: "sectionname", width: 22 },
+      { header: "Asset", key: "asset", width: 22 },
+      { header: "Activity", key: "activity", width: 34 },
+      { header: "Hazard", key: "hazard", width: 38 },
+      { header: "Consequence", key: "consequence", width: 38 },
+      { header: "Initial Severity", key: "initial_severity", width: 16 },
+      { header: "Initial Likelihood", key: "initial_likelihood", width: 18 },
+      { header: "Initial Rating", key: "initial_rating", width: 16 },
+      { header: "Controls", key: "controls", width: 38 },
+      { header: "Residual Severity", key: "residual_severity", width: 18 },
+      { header: "Residual Likelihood", key: "residual_likelihood", width: 20 },
+      { header: "Residual Rating", key: "residual_rating", width: 18 },
+      { header: "Action Required", key: "action_required", width: 38 },
+      { header: "Responsible Person", key: "responsible_person", width: 24 },
+      { header: "Due Date", key: "due_date", width: 16 },
+      { header: "Status", key: "status", width: 16 },
+      { header: "Created By", key: "created_by_name", width: 22 }
+    ]
+
+    rows.forEach(row => {
+      sheet.addRow({
+        ...row,
+        assessment_date: reportDate(row.assessment_date),
+        asset: row.assettagno || row.assetid || "",
+        due_date: reportDate(row.due_date),
+        status: String(row.status || "").replaceAll("_", " ")
+      })
+    })
+
+    sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } }
+    sheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF1F3B5C" }
+    }
+    sheet.views = [{ state: "frozen", ySplit: 1 }]
+    sheet.autoFilter = { from: "A1", to: "U1" }
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`)
+
+    await workbook.xlsx.write(res)
+    res.end()
+  } catch (err) {
+    console.error("Risk assessment Excel error:", err)
     res.status(500).json({ error: "An unexpected server error occurred" })
   }
 })

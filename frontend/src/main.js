@@ -12,7 +12,7 @@ import { renderCertificateSearch } from './pages/Certificates.js'
 import { renderCustomerDetailedReport } from './pages/CustomerDetailedReport.js'
 import { renderRiskAssessments, renderRiskAssessmentTable } from './pages/RiskAssessments.js'
 import { getPaginationState, renderPaginationControls } from './pagination.js'
-import { sortTableRows } from './tableSort.js'
+import { getTableSortState, sortTableRows } from './tableSort.js'
 
 const API_BASE = 'http://localhost:5000'
 const originalFetch = window.fetch.bind(window)
@@ -122,6 +122,7 @@ window.loginUser = async function () {
   }
 
   currentUser = result.user
+  window.currentUser = currentUser
   localStorage.setItem('currentPage', currentUser.role === 'CUSTOMER' ? 'certificates' : 'dashboard')
   await loadData()
 }
@@ -129,6 +130,7 @@ window.loginUser = async function () {
 window.logoutUser = async function () {
   await fetch(`${API_BASE}/auth/logout`, { method: 'POST' })
   currentUser = null
+  window.currentUser = null
   localStorage.removeItem('currentPage')
   renderLogin()
 }
@@ -513,6 +515,7 @@ window.uploadMySignature = async function () {
   }
 
   currentUser = result.user
+  window.currentUser = currentUser
   alert('Signature saved successfully')
   showUserManagement()
 }
@@ -563,6 +566,7 @@ async function loadData() {
 
   const session = await sessionResponse.json()
   currentUser = session.user
+  window.currentUser = currentUser
 
   let customers
   let assets
@@ -582,6 +586,7 @@ async function loadData() {
     equipmentTypes = await fetchJsonOrDefault(`${API_BASE}/equipment-types`, [])
     dashboardStats = await fetchJsonOrDefault(`${API_BASE}/dashboard/stats`, {})
     criteria = await fetchJsonOrDefault(`${API_BASE}/equipment-type-criteria`, [])
+    window.atecCriteria = criteria
   } catch (err) {
     renderStartupError(err.message || "The database update has not been completed.")
     return
@@ -1675,10 +1680,12 @@ window.showAssetSetup = function () {
   if (!ensurePageAccess('assets')) return
 
   localStorage.setItem("currentPage", "assets")
-  window.assetCurrentPage = window.assetCurrentPage || 1
-  window.assetRowsPerPage = window.assetRowsPerPage || 25
+  const state = window.assetListState || {}
+  window.assetCurrentPage = state.currentPage || window.assetCurrentPage || 1
+  window.assetRowsPerPage = state.rowsPerPage || window.assetRowsPerPage || 25
 
   renderAssetSetup(assets)
+  restoreAssetListState()
 
 }
 
@@ -1705,6 +1712,35 @@ window.loadRiskAssessments = async function () {
 
 window.filterRiskAssessments = function () {
   renderRiskAssessmentTable(window.riskAssessments || [], window.canWriteRiskAssessments)
+}
+
+window.downloadRiskAssessments = async function (format = "pdf") {
+  const params = new URLSearchParams()
+  const search = document.querySelector("#riskSearch")?.value || ""
+  const status = document.querySelector("#riskStatusFilter")?.value || ""
+
+  if (search) params.append("search", search)
+  if (status) params.append("status", status)
+
+  const extension = format === "xlsx" ? "xlsx" : "pdf"
+  const response = await fetch(`${API_BASE}/she/risk-assessments.${extension}?${params.toString()}`)
+
+  if (!response.ok) {
+    const data = await readApiResponse(response)
+    alert(data.error || "Unable to download risk assessment register")
+    return
+  }
+
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+
+  link.href = url
+  link.download = `ATEC-SHE-Risk-Register.${extension}`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }
 
 window.saveRiskAssessment = async function () {
@@ -1870,8 +1906,8 @@ window.showAddAssetForm = function () {
   </div>
 
   <div class="form-group">
-    <label>Asset Tag Number</label>
-    <input id="assetTagNo" type="text">
+    <label>Asset Tag Number <span class="optional-label">(Optional)</span></label>
+    <input id="assetTagNo" type="text" placeholder="Customer tag / plant number if available">
   </div>
 
   <div class="form-group">
@@ -1980,12 +2016,19 @@ window.loadDynamicAssetFields = function () {
 
   if (groupid === '400') {
     html = `
-      <div class="form-group"><label>WLL(kg)</label><input id="assetWLL" type="number"></div>
+      <div class="form-group"><label>Main Hoist WLL(kg)</label><input id="assetWLL" type="number"></div>
+      <div class="form-group"><label>Auxiliary Hoist WLL(kg)</label><input id="assetAuxHoistWLL" type="number"></div>
       <div class="form-group"><label>Span(mm)</label><input id="assetSpan" type="number"></div>
       <div class="form-group"><label>Permissible Deflection(mm)</label><input id="assetPermissibleDeflection" type="number"></div>
-      <div class="form-group"><label>Hook Size(mm)</label><input id="assetHookSize" type="number"></div>
+      <div class="form-group"><label>Main Hoist Description</label><input id="assetHoistDescription" type="text"></div>
+      <div class="form-group"><label>Main Hoist Serial No</label><input id="assetHoistSerialNo" type="text"></div>
+      <div class="form-group"><label>Auxiliary Hoist Description</label><input id="assetAuxHoistDescription" type="text"></div>
+      <div class="form-group"><label>Auxiliary Hoist Serial No</label><input id="assetAuxHoistSerialNo" type="text"></div>
+      <div class="form-group"><label>Main Hoist Hook Size(mm)</label><input id="assetHookSize" type="number"></div>
+      <div class="form-group"><label>Auxiliary Hoist Hook Size(mm)</label><input id="assetAuxHoistHookSize" type="number"></div>
       <div class="form-group"><label>Height of Lift(mm)</label><input id="assetHeightOfLift" type="number"></div>
-      <div class="form-group"><label>Steel Wire Rope(mm)</label><input id="assetSteelWireRopeMM" type="number"></div>
+      <div class="form-group"><label>Main Hoist Steel Wire Rope(mm)</label><input id="assetSteelWireRopeMM" type="number"></div>
+      <div class="form-group"><label>Auxiliary Hoist Steel Wire Rope(mm)</label><input id="assetAuxHoistRopeMM" type="number"></div>
     `
   }
 
@@ -2102,6 +2145,25 @@ window.autoFillResponsibleFromSection = function () {
     section.responsibleid || ''
 }
 
+const ASSET_PHOTO_MAX_BYTES = 15 * 1024 * 1024
+const ASSET_PHOTO_ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"])
+
+function validateAssetPhotoFiles(files) {
+  for (const file of files.filter(Boolean)) {
+    if (!ASSET_PHOTO_ALLOWED_TYPES.has(file.type)) {
+      alert("Asset photos must be JPG, PNG or WebP images.")
+      return false
+    }
+
+    if (file.size > ASSET_PHOTO_MAX_BYTES) {
+      alert("Asset photos must be 15 MB or smaller.")
+      return false
+    }
+  }
+
+  return true
+}
+
 window.saveAssetFromForm = async function () {
   const clientid = document.querySelector('#assetClient').value
   const siteid = document.querySelector('#assetSite').value
@@ -2116,6 +2178,13 @@ window.saveAssetFromForm = async function () {
   
   if (!clientid || !siteid || !sectionid || !responsibleid || !equiptypeid || !description) {
     alert("Please complete Client, Site, Section, Responsible Person, Equipment Type, and Description")
+    return
+  }
+
+  const photo1 = document.querySelector('#newAssetPhoto1')?.files[0]
+  const photo2 = document.querySelector('#newAssetPhoto2')?.files[0]
+
+  if (!validateAssetPhotoFiles([photo1, photo2])) {
     return
   }
 
@@ -2148,7 +2217,12 @@ window.saveAssetFromForm = async function () {
   hooksize: document.querySelector('#assetHookSize')?.value || null,
   steelwireropemm: document.querySelector('#assetSteelWireRopeMM')?.value || null,
   hoistdescription: document.querySelector('#assetHoistDescription')?.value || null,
-  hoistserialno: document.querySelector('#assetHoistSerialNo')?.value || null
+  hoistserialno: document.querySelector('#assetHoistSerialNo')?.value || null,
+  auxhoistdescription: document.querySelector('#assetAuxHoistDescription')?.value || null,
+  auxhoistserialno: document.querySelector('#assetAuxHoistSerialNo')?.value || null,
+  auxhoistwll: document.querySelector('#assetAuxHoistWLL')?.value || null,
+  auxhoisthooksize: document.querySelector('#assetAuxHoistHookSize')?.value || null,
+  auxhoistropemm: document.querySelector('#assetAuxHoistRopeMM')?.value || null
 }),
   })
 
@@ -2158,9 +2232,6 @@ window.saveAssetFromForm = async function () {
     alert("Error saving asset: " + newAsset.error)
     return
   }
-
-  const photo1 = document.querySelector('#newAssetPhoto1')?.files[0]
-  const photo2 = document.querySelector('#newAssetPhoto2')?.files[0]
 
   if (photo1 || photo2) {
     const formData = new FormData()
@@ -2202,11 +2273,16 @@ window.filterAssets = function (resetPage = false) {
     window.assetCurrentPage = 1
   }
 
+  const searchTypeInput = document.querySelector('#assetSearchType')
+  const searchInput = document.querySelector('#assetSearch')
+
+  if (!searchTypeInput || !searchInput) return
+
   const searchType =
-    document.querySelector('#assetSearchType').value
+    searchTypeInput.value
 
   const search =
-    document.querySelector('#assetSearch').value
+    searchInput.value
       .toLowerCase()
       .trim()
 
@@ -2214,6 +2290,7 @@ window.filterAssets = function (resetPage = false) {
     "assetid",
     "assettagno",
     "serialno",
+    "hoistserialno",
     "clientname",
     "sitename",
     "sectionname",
@@ -2248,26 +2325,44 @@ window.filterAssets = function (resetPage = false) {
   const tableBody = document.querySelector('#assetTableBody')
 
   tableBody.innerHTML = visibleAssets.map(renderAssetRow).join('')
+  rememberAssetListState()
+}
+
+function rememberAssetListState() {
+  const searchTypeInput = document.querySelector('#assetSearchType')
+  const searchInput = document.querySelector('#assetSearch')
+  const rowsInput = document.querySelector('#assetRowsPerPage')
+
+  window.assetListState = {
+    searchType: searchTypeInput?.value || window.assetListState?.searchType || "all",
+    search: searchInput?.value || window.assetListState?.search || "",
+    currentPage: window.assetCurrentPage || window.assetListState?.currentPage || 1,
+    rowsPerPage: Number(rowsInput?.value || window.assetRowsPerPage || window.assetListState?.rowsPerPage || 25)
+  }
+}
+
+function restoreAssetListState() {
+  const state = window.assetListState || {}
+  const searchTypeInput = document.querySelector('#assetSearchType')
+  const searchInput = document.querySelector('#assetSearch')
+  const rowsInput = document.querySelector('#assetRowsPerPage')
+
+  window.assetRowsPerPage = Number(state.rowsPerPage || window.assetRowsPerPage || 25)
+  window.assetCurrentPage = Number(state.currentPage || window.assetCurrentPage || 1)
+
+  if (searchTypeInput) searchTypeInput.value = state.searchType || "all"
+  if (searchInput) searchInput.value = state.search || ""
+  if (rowsInput) rowsInput.value = String(window.assetRowsPerPage)
+
+  filterAssets(false)
 }
 
 function renderAssetPaginationControls(totalRows, startIndex, endIndex, currentPage, totalPages, pageSize) {
-  const pagination = document.querySelector('#assetPaginationControls')
-  if (!pagination) return
+  const paginations = document.querySelectorAll('#assetPaginationControls, .asset-pagination-bottom')
+  if (!paginations.length) return
 
   const pageButtons = renderAssetPageButtons(currentPage, totalPages)
-
-  pagination.innerHTML = `
-    <div class="report-page-size">
-      <label for="assetRowsPerPage">Rows per page</label>
-      <select id="assetRowsPerPage" onchange="setAssetRowsPerPage(this.value)">
-        ${[25, 50, 100, 250].map(size => `
-          <option value="${size}" ${size === pageSize ? "selected" : ""}>
-            ${size}
-          </option>
-        `).join("")}
-      </select>
-    </div>
-
+  const controlsHtml = `
     <div class="report-page-controls">
       <button type="button" onclick="changeAssetPage(-1)" ${currentPage <= 1 ? "disabled" : ""}>
         Previous
@@ -2279,6 +2374,28 @@ function renderAssetPaginationControls(totalRows, startIndex, endIndex, currentP
       <span>Showing ${totalRows === 0 ? 0 : startIndex + 1} to ${endIndex} of ${totalRows} assets - Page ${currentPage} of ${totalPages}</span>
     </div>
   `
+
+  paginations.forEach(pagination => {
+    if (pagination.id === "assetPaginationControls") {
+      pagination.innerHTML = `
+        <div class="report-page-size">
+          <label for="assetRowsPerPage">Rows per page</label>
+          <select id="assetRowsPerPage" onchange="setAssetRowsPerPage(this.value)">
+            ${[25, 50, 100, 250].map(size => `
+              <option value="${size}" ${size === pageSize ? "selected" : ""}>
+                ${size}
+              </option>
+            `).join("")}
+          </select>
+        </div>
+
+        ${controlsHtml}
+      `
+      return
+    }
+
+    pagination.innerHTML = `<div></div>${controlsHtml}`
+  })
 }
 
 function getAssetPageNumbers(currentPage, totalPages) {
@@ -2359,6 +2476,8 @@ window.setAssetFilterKey = function (key) {
 }
 
 window.showMoveAssetForm = function (assetid) {
+  rememberAssetListState()
+
   const asset = assets.find(a => String(a.assetid) === String(assetid))
 
   if (!asset) {
@@ -2480,7 +2599,121 @@ window.saveAssetMove = async function (assetid) {
   showAssetSetup()
 }
 
+function buildEditAssetDynamicFields(groupid, values = {}) {
+  let dynamicEditFields = ''
+
+  if (groupid === '100') {
+    dynamicEditFields = `
+      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${values.wll || ''}"></div>
+      <div class="form-group"><label>Height of Lift(mm)</label><input id="editAssetHeightOfLift" type="number" value="${values.heightoflift || ''}"></div>
+      <div class="form-group"><label>Number of Chain Falls</label><input id="editAssetNumberOfChainFalls" type="number" value="${values.numberofchainfalls || ''}"></div>
+      <div class="form-group"><label>OEM Top Hook Size(mm)</label><input id="editAssetOEMTopHookSize" type="number" value="${values.oemtophooksize || ''}"></div>
+      <div class="form-group"><label>OEM Bottom Hook Size(mm)</label><input id="editAssetOEMBottomHookSize" type="number" value="${values.oembottomhooksize || ''}"></div>
+      <div class="form-group"><label>Load Chain Diameter(mm)</label><input id="editAssetLoadChainDiameter" type="number" value="${values.loadchaindiameter || ''}"></div>
+    `
+  }
+
+  if (groupid === '200') {
+    dynamicEditFields = `
+      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${values.wll || ''}"></div>
+      <div class="form-group"><label>Effective Length(mm)</label><input id="editAssetEffectiveLength" type="number" value="${values.effectivelength || ''}"></div>
+    `
+  }
+
+  if (groupid === '300' || groupid === '600') {
+    dynamicEditFields = `
+      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${values.wll || ''}"></div>
+    `
+  }
+
+  if (groupid === '400') {
+    dynamicEditFields = `
+      <div class="form-group"><label>Main Hoist WLL(kg)</label><input id="editAssetWLL" type="number" value="${values.wll || ''}"></div>
+      <div class="form-group"><label>Auxiliary Hoist WLL(kg)</label><input id="editAssetAuxHoistWLL" type="number" value="${values.auxhoistwll || ''}"></div>
+      <div class="form-group"><label>Span(mm)</label><input id="editAssetSpan" type="number" value="${values.span || ''}"></div>
+      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="editAssetPermissibleDeflection" type="number" value="${values.permissibledeflection || ''}"></div>
+      <div class="form-group"><label>Main Hoist Description</label><input id="editAssetHoistDescription" type="text" value="${values.hoistdescription || ''}"></div>
+      <div class="form-group"><label>Main Hoist Serial No</label><input id="editAssetHoistSerialNo" type="text" value="${values.hoistserialno || ''}"></div>
+      <div class="form-group"><label>Auxiliary Hoist Description</label><input id="editAssetAuxHoistDescription" type="text" value="${values.auxhoistdescription || ''}"></div>
+      <div class="form-group"><label>Auxiliary Hoist Serial No</label><input id="editAssetAuxHoistSerialNo" type="text" value="${values.auxhoistserialno || ''}"></div>
+      <div class="form-group"><label>Main Hoist Hook Size(mm)</label><input id="editAssetHookSize" type="number" value="${values.hooksize || ''}"></div>
+      <div class="form-group"><label>Auxiliary Hoist Hook Size(mm)</label><input id="editAssetAuxHoistHookSize" type="number" value="${values.auxhoisthooksize || ''}"></div>
+      <div class="form-group"><label>Height of Lift(mm)</label><input id="editAssetHeightOfLift" type="number" value="${values.heightoflift || ''}"></div>
+      <div class="form-group"><label>Main Hoist Steel Wire Rope(mm)</label><input id="editAssetSteelWireRopeMM" type="number" value="${values.steelwireropemm || ''}"></div>
+      <div class="form-group"><label>Auxiliary Hoist Steel Wire Rope(mm)</label><input id="editAssetAuxHoistRopeMM" type="number" value="${values.auxhoistropemm || ''}"></div>
+    `
+  }
+
+  if (groupid === '500') {
+    dynamicEditFields = `
+      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${values.wll || ''}"></div>
+      <div class="form-group"><label>Span(mm)</label><input id="editAssetSpan" type="number" value="${values.span || ''}"></div>
+      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="editAssetPermissibleDeflection" type="number" value="${values.permissibledeflection || ''}"></div>
+      <div class="form-group"><label>Hook Size(mm)</label><input id="editAssetHookSize" type="number" value="${values.hooksize || ''}"></div>
+      <div class="form-group"><label>Hoist Description</label><input id="editAssetHoistDescription" type="text" value="${values.hoistdescription || ''}"></div>
+      <div class="form-group"><label>Hoist Serial No</label><input id="editAssetHoistSerialNo" type="text" value="${values.hoistserialno || ''}"></div>
+    `
+  }
+
+  return dynamicEditFields
+}
+
+function collectCurrentEditAssetValues(fallback = {}) {
+  const fieldValue = (selector, key) => document.querySelector(selector)?.value ?? fallback[key] ?? ''
+  const dateValue = (selector, key) => {
+    const value = document.querySelector(selector)?.value ?? fallback[key] ?? ''
+    return String(value || '').slice(0, 10)
+  }
+
+  return {
+    manufactdate: dateValue('#editAssetManufactDate', 'manufactdate'),
+    wll: fieldValue('#editAssetWLL', 'wll'),
+    heightoflift: fieldValue('#editAssetHeightOfLift', 'heightoflift'),
+    numberofchainfalls: fieldValue('#editAssetNumberOfChainFalls', 'numberofchainfalls'),
+    oemtophooksize: fieldValue('#editAssetOEMTopHookSize', 'oemtophooksize'),
+    oembottomhooksize: fieldValue('#editAssetOEMBottomHookSize', 'oembottomhooksize'),
+    loadchaindiameter: fieldValue('#editAssetLoadChainDiameter', 'loadchaindiameter'),
+    effectivelength: fieldValue('#editAssetEffectiveLength', 'effectivelength'),
+    span: fieldValue('#editAssetSpan', 'span'),
+    permissibledeflection: fieldValue('#editAssetPermissibleDeflection', 'permissibledeflection'),
+    hooksize: fieldValue('#editAssetHookSize', 'hooksize'),
+    steelwireropemm: fieldValue('#editAssetSteelWireRopeMM', 'steelwireropemm'),
+    hoistdescription: fieldValue('#editAssetHoistDescription', 'hoistdescription'),
+    hoistserialno: fieldValue('#editAssetHoistSerialNo', 'hoistserialno'),
+    auxhoistdescription: fieldValue('#editAssetAuxHoistDescription', 'auxhoistdescription'),
+    auxhoistserialno: fieldValue('#editAssetAuxHoistSerialNo', 'auxhoistserialno'),
+    auxhoistwll: fieldValue('#editAssetAuxHoistWLL', 'auxhoistwll'),
+    auxhoisthooksize: fieldValue('#editAssetAuxHoistHookSize', 'auxhoisthooksize'),
+    auxhoistropemm: fieldValue('#editAssetAuxHoistRopeMM', 'auxhoistropemm')
+  }
+}
+
+window.refreshEditAssetDynamicFields = function () {
+  const equiptypeid = document.querySelector('#editAssetEquipType')?.value
+  const selectedType = equipmentTypes.find(
+    type => String(type.equiptypeid) === String(equiptypeid)
+  )
+  const groupid = String(selectedType?.equipgroupid || '')
+  const container = document.querySelector('#editDynamicAssetFields')
+  const manufactureDateRow = document.querySelector('#editManufactureDateRow')
+  const manufactureDateInput = document.querySelector('#editAssetManufactDate')
+
+  if (!container) return
+
+  container.innerHTML = buildEditAssetDynamicFields(groupid, collectCurrentEditAssetValues())
+
+  if (manufactureDateRow) {
+    manufactureDateRow.style.display = groupid === '400' ? 'flex' : 'none'
+  }
+
+  if (manufactureDateInput && groupid !== '400') {
+    manufactureDateInput.value = ''
+  }
+}
+
 window.editAsset = function (assetid) {
+  rememberAssetListState()
+
   const asset = assets.find(a => String(a.assetid) === String(assetid))
 
   if (!asset) {
@@ -2493,54 +2726,15 @@ window.editAsset = function (assetid) {
   )
 
   const groupid = String(selectedType?.equipgroupid || '')
-
-  let dynamicEditFields = ''
-
-  if (groupid === '100') {
-    dynamicEditFields = `
-      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${asset.wll || ''}"></div>
-      <div class="form-group"><label>Height of Lift(mm)</label><input id="editAssetHeightOfLift" type="number" value="${asset.heightoflift || ''}"></div>
-      <div class="form-group"><label>Number of Chain Falls</label><input id="editAssetNumberOfChainFalls" type="number" value="${asset.numberofchainfalls || ''}"></div>
-      <div class="form-group"><label>OEM Top Hook Size(mm)</label><input id="editAssetOEMTopHookSize" type="number" value="${asset.oemtophooksize || ''}"></div>
-      <div class="form-group"><label>OEM Bottom Hook Size(mm)</label><input id="editAssetOEMBottomHookSize" type="number" value="${asset.oembottomhooksize || ''}"></div>
-      <div class="form-group"><label>Load Chain Diameter(mm)</label><input id="editAssetLoadChainDiameter" type="number" value="${asset.loadchaindiameter || ''}"></div>
-    `
-  }
-
-  if (groupid === '200') {
-    dynamicEditFields = `
-      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${asset.wll || ''}"></div>
-      <div class="form-group"><label>Effective Length(mm)</label><input id="editAssetEffectiveLength" type="number" value="${asset.effectivelength || ''}"></div>
-    `
-  }
-
-  if (groupid === '300' || groupid === '600') {
-    dynamicEditFields = `
-      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${asset.wll || ''}"></div>
-    `
-  }
-
-  if (groupid === '400') {
-    dynamicEditFields = `
-      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${asset.wll || ''}"></div>
-      <div class="form-group"><label>Span(mm)</label><input id="editAssetSpan" type="number" value="${asset.span || ''}"></div>
-      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="editAssetPermissibleDeflection" type="number" value="${asset.permissibledeflection || ''}"></div>
-      <div class="form-group"><label>Hook Size(mm)</label><input id="editAssetHookSize" type="number" value="${asset.hooksize || ''}"></div>
-      <div class="form-group"><label>Height of Lift(mm)</label><input id="editAssetHeightOfLift" type="number" value="${asset.heightoflift || ''}"></div>
-      <div class="form-group"><label>Steel Wire Rope(mm)</label><input id="editAssetSteelWireRopeMM" type="number" value="${asset.steelwireropemm || ''}"></div>
-    `
-  }
-
-  if (groupid === '500') {
-    dynamicEditFields = `
-      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${asset.wll || ''}"></div>
-      <div class="form-group"><label>Span(mm)</label><input id="editAssetSpan" type="number" value="${asset.span || ''}"></div>
-      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="editAssetPermissibleDeflection" type="number" value="${asset.permissibledeflection || ''}"></div>
-      <div class="form-group"><label>Hook Size(mm)</label><input id="editAssetHookSize" type="number" value="${asset.hooksize || ''}"></div>
-      <div class="form-group"><label>Hoist Description</label><input id="editAssetHoistDescription" type="text" value="${asset.hoistdescription || ''}"></div>
-      <div class="form-group"><label>Hoist Serial No</label><input id="editAssetHoistSerialNo" type="text" value="${asset.hoistserialno || ''}"></div>
-    `
-  }
+  const dynamicEditFields = buildEditAssetDynamicFields(groupid, asset)
+  const showManufactureDate = groupid === '400'
+  const equipmentTypeOptions = [...equipmentTypes]
+    .sort((a, b) => (a.description || '').localeCompare(b.description || ''))
+    .map(type => `
+      <option value="${type.equiptypeid}" ${String(type.equiptypeid) === String(asset.equiptypeid) ? 'selected' : ''}>
+        ${type.description}
+      </option>
+    `).join('')
 
   document.querySelector('#page').innerHTML = `
     <h2>Edit Asset ${asset.assetid}</h2>
@@ -2549,13 +2743,21 @@ window.editAsset = function (assetid) {
       <div class="asset-form-grid">
 
         <div class="form-group">
+          <label>Equipment Type</label>
+          <select id="editAssetEquipType" onchange="refreshEditAssetDynamicFields()">
+            <option value="">Select Equipment Type</option>
+            ${equipmentTypeOptions}
+          </select>
+        </div>
+
+        <div class="form-group">
           <label>Serial No</label>
           <input id="editAssetSerialNo" type="text" value="${asset.serialno || ''}">
         </div>
 
         <div class="form-group">
-          <label>Asset Tag Number</label>
-          <input id="editAssetTagNo" type="text" value="${asset.assettagno || ''}">
+          <label>Asset Tag Number <span class="optional-label">(Optional)</span></label>
+          <input id="editAssetTagNo" type="text" value="${asset.assettagno || ''}" placeholder="Customer tag / plant number if available">
         </div>
 
         <div class="form-group">
@@ -2563,7 +2765,14 @@ window.editAsset = function (assetid) {
           <input id="editAssetManufacturer" type="text" value="${asset.manufacturer || ''}">
         </div>
 
-        ${dynamicEditFields}
+        <div class="form-group" id="editManufactureDateRow" style="${showManufactureDate ? '' : 'display:none;'}">
+          <label>Manufacture Date</label>
+          <input id="editAssetManufactDate" type="date" value="${String(asset.manufactdate || '').slice(0, 10)}">
+        </div>
+
+        <div id="editDynamicAssetFields" class="dynamic-asset-fields">
+          ${dynamicEditFields}
+        </div>
 
         <div class="form-group asset-description">
           <label>Description</label>
@@ -2594,6 +2803,10 @@ window.editAsset = function (assetid) {
           <button onclick="showAssetSetup()">
             Cancel
           </button>
+
+          <button class="danger-btn" onclick="archiveAsset(${asset.assetid})">
+            Archive
+          </button>
         </div>
 
       </div>
@@ -2604,6 +2817,13 @@ window.editAsset = function (assetid) {
         <div class="photo-card">
           <h3>Photo 1</h3>
           <img src="http://localhost:5000${asset.media1}">
+          <button
+            type="button"
+            class="danger-btn photo-delete-btn"
+            onclick="deleteAssetPhoto(${asset.assetid}, 1)"
+          >
+            Delete Photo 1
+          </button>
         </div>
       ` : ''}
 
@@ -2611,6 +2831,13 @@ window.editAsset = function (assetid) {
         <div class="photo-card">
           <h3>Photo 2</h3>
           <img src="http://localhost:5000${asset.media2}">
+          <button
+            type="button"
+            class="danger-btn photo-delete-btn"
+            onclick="deleteAssetPhoto(${asset.assetid}, 2)"
+          >
+            Delete Photo 2
+          </button>
         </div>
       ` : ''}
     </div>
@@ -2618,9 +2845,11 @@ window.editAsset = function (assetid) {
 }
 
 window.saveAssetChanges = async function (assetid) {
+  const equiptypeid = document.querySelector('#editAssetEquipType')?.value || null
   const serialno = document.querySelector('#editAssetSerialNo').value
   const assettagno = document.querySelector('#editAssetTagNo')?.value || ""
   const manufacturer = document.querySelector('#editAssetManufacturer').value
+  const manufactdate = document.querySelector('#editAssetManufactDate')?.value || ""
   const description = document.querySelector('#editAssetDescription').value
 
   const response = await fetch(`http://localhost:5000/assets/${assetid}`, {
@@ -2629,9 +2858,11 @@ window.saveAssetChanges = async function (assetid) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
+      equiptypeid,
       serialno,
       assettagno,
       manufacturer,
+      manufactdate,
       description,
 
       wll: document.querySelector('#editAssetWLL')?.value || null,
@@ -2646,7 +2877,12 @@ window.saveAssetChanges = async function (assetid) {
       hooksize: document.querySelector('#editAssetHookSize')?.value || null,
       steelwireropemm: document.querySelector('#editAssetSteelWireRopeMM')?.value || null,
       hoistdescription: document.querySelector('#editAssetHoistDescription')?.value || null,
-      hoistserialno: document.querySelector('#editAssetHoistSerialNo')?.value || null
+      hoistserialno: document.querySelector('#editAssetHoistSerialNo')?.value || null,
+      auxhoistdescription: document.querySelector('#editAssetAuxHoistDescription')?.value || null,
+      auxhoistserialno: document.querySelector('#editAssetAuxHoistSerialNo')?.value || null,
+      auxhoistwll: document.querySelector('#editAssetAuxHoistWLL')?.value || null,
+      auxhoisthooksize: document.querySelector('#editAssetAuxHoistHookSize')?.value || null,
+      auxhoistropemm: document.querySelector('#editAssetAuxHoistRopeMM')?.value || null
     }),
   })
 
@@ -2720,6 +2956,10 @@ window.uploadAssetPhotos = async function (assetid) {
     return
   }
 
+  if (!validateAssetPhotoFiles([photo1, photo2])) {
+    return
+  }
+
   const formData = new FormData()
 
   if (photo1) {
@@ -2743,6 +2983,28 @@ window.uploadAssetPhotos = async function (assetid) {
   }
 
   alert("Photos uploaded for asset " + updatedAsset.assetid)
+
+  await loadData()
+  editAsset(assetid)
+}
+
+window.deleteAssetPhoto = async function (assetid, slot) {
+  const confirmed = confirm(`Delete asset photo ${slot}?`)
+
+  if (!confirmed) return
+
+  const response = await fetch(`http://localhost:5000/assets/${assetid}/photos/${slot}`, {
+    method: "DELETE"
+  })
+
+  const updatedAsset = await readApiResponse(response)
+
+  if (!response.ok) {
+    alert("Error deleting photo: " + updatedAsset.error)
+    return
+  }
+
+  alert(`Asset photo ${slot} deleted successfully`)
 
   await loadData()
   editAsset(assetid)
@@ -3210,8 +3472,46 @@ window.searchCertificates = async function (resetPage = true) {
   renderCertificateResultRows(certificates)
 }
 
+function activeCertificateSortHeader(label, key) {
+  const sort = getTableSortState('certificates', 'testid')
+  const isActive = sort.key === key
+  const arrow = isActive
+    ? sort.direction === 'desc' ? 'v' : '^'
+    : '^v'
+
+  return `
+    <span class="certificate-sort-heading">
+      <span>${label}</span>
+      <button
+        type="button"
+        class="certificate-sort-btn ${isActive ? 'active' : ''}"
+        onclick="sortTable('certificates', '${key}', 'rerenderCertificateResults')"
+        aria-label="Sort ${label}"
+        title="Sort ${label}"
+      >${arrow}</button>
+    </span>
+  `
+}
+
+window.rerenderCertificateResults = function () {
+  renderCertificateResultRows(window.currentCertificateResults || [])
+}
+
 function renderCertificateResultRows(certificates) {
-  const pagination = getPaginationState(certificates, "certCurrentPage", "certRowsPerPage")
+  const sortedCertificates = sortTableRows(certificates, 'certificates', {
+    testid: cert => cert.testid,
+    tagnumber: cert => cert.tagnumber,
+    clientname: cert => cert.clientname,
+    sitename: cert => cert.sitename,
+    description: cert => cert.description,
+    serialno: cert => cert.serialno,
+    inspectiontype: cert => cert.inspectiontype,
+    testdate: cert => cert.testdate,
+    status: cert => cert.status,
+    inspector: cert => cert.inspector
+  }, 'testid')
+
+  const pagination = getPaginationState(sortedCertificates, "certCurrentPage", "certRowsPerPage")
 
   document.querySelector('#certificateResults').innerHTML = `
     ${renderPaginationControls({
@@ -3224,16 +3524,16 @@ function renderCertificateResultRows(certificates) {
     <table>
       <thead>
         <tr>
-          <th>Test ID</th>
-          <th>Tag No</th>
-          <th>Client</th>
-          <th>Site</th>
-          <th>Asset</th>
-          <th>Serial No</th>
-          <th>Type</th>
-          <th>Date</th>
-          <th>Status</th>
-          <th>Inspector</th>
+          <th>${activeCertificateSortHeader('Test ID', 'testid')}</th>
+          <th>${activeCertificateSortHeader('Tag No', 'tagnumber')}</th>
+          <th>${activeCertificateSortHeader('Client', 'clientname')}</th>
+          <th>${activeCertificateSortHeader('Site', 'sitename')}</th>
+          <th>${activeCertificateSortHeader('Asset', 'description')}</th>
+          <th>${activeCertificateSortHeader('Serial No', 'serialno')}</th>
+          <th>${activeCertificateSortHeader('Type', 'inspectiontype')}</th>
+          <th>${activeCertificateSortHeader('Date', 'testdate')}</th>
+          <th>${activeCertificateSortHeader('Status', 'status')}</th>
+          <th>${activeCertificateSortHeader('Inspector', 'inspector')}</th>
           <th>Action</th>
         </tr>
       </thead>
@@ -3334,6 +3634,7 @@ window.quickFindAsset = async function () {
     String(asset.assetid || '').toLowerCase().includes(search) ||
     (asset.assettagno || '').toLowerCase().includes(search) ||
     (asset.serialno || '').toLowerCase().includes(search) ||
+    (asset.hoistserialno || '').toLowerCase().includes(search) ||
     (asset.qrcode || '').toLowerCase().includes(search)
   )
 
@@ -3564,7 +3865,7 @@ window.filterInspectionAssets = function (resetPage = false) {
           </button>
 
           ${
-            ['100','400','500'].includes(String(asset.equipgroupid))
+            assetSupportsLoadTest(asset)
             ? `
               <button
                 class="load-test-btn"
@@ -3601,6 +3902,20 @@ window.goToInspectionPage = function (page) {
   filterInspectionAssets()
 }
 
+function hasInspectionSummaryValue(value) {
+  return value !== null &&
+    value !== undefined &&
+    String(value).trim() !== "" &&
+    String(value).trim() !== "-"
+}
+
+function inspectionSummaryCard(label, value, unit = "") {
+  if (!hasInspectionSummaryValue(value)) return ""
+
+  const suffix = unit ? ` ${unit}` : ""
+  return `<div><span>${label}</span><strong>${value}${suffix}</strong></div>`
+}
+
 const criteriaAssetMap = {
   "Top Hook Dimensions": "oemtophooksize",
   "Bottom Hook Dimensions": "oembottomhooksize",
@@ -3608,9 +3923,163 @@ const criteriaAssetMap = {
   "Hook Size mm": "hooksize",
   "Hoist Serial Number": "hoistserialno",
   "WLL Main Hoist - Load Mass kg": "wll",
+  "WLL Auxiliary Hoist - Load Mass kg": "auxhoistwll",
+  "SWL of Beam - Load Mass kg": "wll",
+  "SWL Installed Hoist - Load Mass kg": "wll",
   "SWL of Beam - Length Span mm": "span",
+  "WLL Main Hoist - Length Span/Jib mm": "span",
+  "WLL Auxiliary Hoist - Length Span/Jib mm": "span",
   "Permissible Deflection mm": "permissibledeflection",
+  "WLL Main Hoist - Deflection mm": "permissibledeflection",
+  "WLL Auxiliary Hoist - Deflection mm": "permissibledeflection",
   "Steel Wire Rope mm": "steelwireropemm"
+}
+
+function normalizeCriteriaName(criteriaName = "") {
+  return String(criteriaName)
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+function formatStandardNumber(value) {
+  const numericValue = Number(value)
+
+  if (!Number.isFinite(numericValue)) return ""
+  return Number.isInteger(numericValue)
+    ? String(numericValue)
+    : String(Number(numericValue.toFixed(2)))
+}
+
+function dateInputValue(date = new Date()) {
+  const localDate = new Date(date)
+  localDate.setMinutes(localDate.getMinutes() - localDate.getTimezoneOffset())
+  return localDate.toISOString().split("T")[0]
+}
+
+function calculateValidDateFromTestDate(testDateValue, inspectiontype = "VISUAL") {
+  const testDate = testDateValue ? new Date(`${testDateValue}T00:00:00`) : new Date()
+  const validDate = new Date(testDate)
+
+  if (inspectiontype === "LOADTEST") {
+    validDate.setFullYear(validDate.getFullYear() + 1)
+  } else {
+    validDate.setMonth(validDate.getMonth() + 3)
+  }
+
+  return dateInputValue(validDate)
+}
+
+window.updateInspectionValidDateFromTestDate = function (inspectiontype = "VISUAL") {
+  const testDate = document.querySelector("#inspectionTestDate")?.value || ""
+  const validDateInput = document.querySelector("#inspectionValidDate")
+
+  if (!validDateInput || !testDate) return
+  validDateInput.value = calculateValidDateFromTestDate(testDate, inspectiontype)
+}
+
+function isProofLoadCriteria(row) {
+  return normalizeCriteriaName([
+    row?.criterianame,
+    row?.criteriadescription
+  ].filter(Boolean).join(" ")).includes("proof load")
+}
+
+function isHookMeasuredSizeCriteria(row) {
+  const criteriaText = normalizeCriteriaName([
+    row?.criterianame,
+    row?.criteriadescription
+  ].filter(Boolean).join(" "))
+
+  return criteriaText.includes("hook measured size") ||
+    criteriaText.includes("measured hook throat opening")
+}
+
+function getCalculatedProofLoadValue(asset) {
+  const wll = Number(asset?.wll)
+
+  return Number.isFinite(wll) && wll > 0
+    ? formatStandardNumber(wll * 1.10)
+    : ""
+}
+
+function getCriteriaStandardValue(asset, row) {
+  const criteriaName = row?.criterianame || row?.criteriadescription || ""
+  const normalizedName = normalizeCriteriaName(criteriaName)
+  const assetField = criteriaAssetMap[criteriaName]
+  const isAuxiliaryHoist = normalizedName.includes("auxiliary hoist")
+
+  if (assetField) return asset?.[assetField] || ""
+
+  if (isProofLoadCriteria(row)) return ""
+  if (isHookMeasuredSizeCriteria(row)) return ""
+
+  if (normalizedName.includes("top hook")) {
+    return asset?.oemtophooksize || asset?.hooksize || ""
+  }
+
+  if (normalizedName.includes("bottom hook")) {
+    return asset?.oembottomhooksize || asset?.hooksize || ""
+  }
+
+  if (normalizedName.includes("load chain") || normalizedName.includes("chain diameter")) {
+    return asset?.loadchaindiameter || ""
+  }
+
+  if (
+    normalizedName.includes("load mass") ||
+    normalizedName.includes("swl installed hoist") ||
+    normalizedName.includes("swl of beam")
+  ) {
+    if (isAuxiliaryHoist) return asset?.auxhoistwll || ""
+    return asset?.wll || ""
+  }
+
+  if (
+    normalizedName.includes("span") ||
+    normalizedName.includes("length span") ||
+    normalizedName.includes("span/jib")
+  ) {
+    return asset?.span || ""
+  }
+
+  if (normalizedName.includes("deflection")) {
+    return asset?.permissibledeflection || ""
+  }
+
+  if (normalizedName.includes("wire rope")) {
+    if (isAuxiliaryHoist) return asset?.auxhoistropemm || ""
+    return asset?.steelwireropemm || ""
+  }
+
+  if (normalizedName.includes("hook opening")) {
+    if (isAuxiliaryHoist) return asset?.auxhoisthooksize || ""
+    return asset?.hooksize || ""
+  }
+
+  if (normalizedName.includes("hook size")) {
+    if (isAuxiliaryHoist) return asset?.auxhoisthooksize || ""
+    return asset?.hooksize || ""
+  }
+
+  if (normalizedName.includes("hoist serial")) {
+    if (isAuxiliaryHoist) return asset?.auxhoistserialno || ""
+    return asset?.hoistserialno || ""
+  }
+
+  return ""
+}
+
+function getCriteriaMeasuredDefaultValue(asset, row, standardValue) {
+  if (isProofLoadCriteria(row)) {
+    return getCalculatedProofLoadValue(asset)
+  }
+
+  if (isHookMeasuredSizeCriteria(row)) {
+    return asset?.hooksize || ""
+  }
+
+  return standardValue || ""
 }
 
 const loadTestAssetOnlyCriteria = new Set([
@@ -3623,8 +4092,45 @@ const loadTestAssetOnlyCriteria = new Set([
 function isLoadMassCriteria(criteriaName) {
   return [
     "WLL Main Hoist - Load Mass kg",
-    "WLL Auxiliary Hoist - Load Mass kg"
+    "WLL Auxiliary Hoist - Load Mass kg",
+    "SWL of Beam - Load Mass kg",
+    "SWL Installed Hoist - Load Mass kg",
+    "Hoist Proof Load Test kg"
   ].includes(criteriaName)
+}
+
+function assetSupportsLoadTest(asset) {
+  if (["100", "400", "500"].includes(String(asset?.equipgroupid || ""))) {
+    return true
+  }
+
+  return (window.atecCriteria || []).some(row =>
+    String(row.equiptypeid) === String(asset?.equiptypeid) &&
+    String(row.inspectioncategory || row.inspection_category || "").toUpperCase() === "LOADTEST" &&
+    row.active !== false &&
+    row.active !== "false"
+  )
+}
+
+function isCrawlBeamHoistSerialLoadTestCriteria(asset, row, inspectiontype) {
+  if (inspectiontype !== "LOADTEST") return false
+
+  const equipmentType = normalizeCriteriaName(asset?.equipmenttype || "")
+  if (!equipmentType.includes("crawl beam")) return false
+
+  const criteriaText = normalizeCriteriaName([
+    row?.criterianame,
+    row?.criteriadescription
+  ].filter(Boolean).join(" "))
+
+  return (
+    criteriaText.includes("serial number") &&
+    criteriaText.includes("hoist") &&
+    (
+      criteriaText.includes("trolley") ||
+      criteriaText.includes("beam")
+    )
+  )
 }
 
 function isTextCriteria(row) {
@@ -3639,7 +4145,12 @@ function isTextCriteria(row) {
 function isDefaultNoneTextCriteria(row) {
   if (String(row.fieldtype || "").toUpperCase() !== "TEXT") return false
 
-  const name = String(row.criteriadescription || row.criterianame || "")
+  const name = [
+    row.criterianame,
+    row.criteriadescription
+  ]
+    .filter(Boolean)
+    .join(" ")
     .toLowerCase()
     .trim()
 
@@ -3661,18 +4172,42 @@ function isSafeForServiceCriteria(row) {
   return (row.criterianame || "").toLowerCase() === "safe for service"
 }
 
+function isHookWearCriteria(row) {
+  return normalizeCriteriaName([
+    row?.criterianame,
+    row?.criteriadescription
+  ].filter(Boolean).join(" ")).includes("hook wear does not exceed allowable limits")
+}
+
 function getInspectionCriteriaRows(allCriteria, inspectiontype) {
   return allCriteria
     .filter(row =>
       inspectiontype !== "LOADTEST" ||
       !loadTestAssetOnlyCriteria.has(row.criterianame)
     )
+    .filter(row => !isHookWearCriteria(row))
     .sort((a, b) => {
       if (isSafeForServiceCriteria(a)) return 1
       if (isSafeForServiceCriteria(b)) return -1
       return 0
     })
 }
+
+function returnToInspectionOrigin(returnPage = "quick") {
+  if (returnPage === "quick") {
+    showQuickInspection()
+    return
+  }
+
+  if (returnPage === "assets") {
+    showAssetSetup()
+    return
+  }
+
+  showInspections()
+}
+
+window.returnToInspectionOrigin = returnToInspectionOrigin
 
 function getMeasurementLabels(criteriaName) {
   const name = (criteriaName || "").toLowerCase()
@@ -3864,22 +4399,18 @@ function renderInspectionPhotoPreview() {
 }
 
 window.startInspection = async function (assetid, inspectiontype = "VISUAL", returnPage = "quick") {
+  if (returnPage === "assets") {
+    rememberAssetListState()
+  }
+
   const asset = assets.find(
     a => String(a.assetid) === String(assetid)
   )
-  const quickDetailsResponse = await fetch(
+const quickDetailsResponse = await fetch(
   `http://localhost:5000/assets/${assetid}/quick-details`
 )
-const today = new Date()
-const validDate = new Date(today)
-
-if (inspectiontype === "LOADTEST") {
-  validDate.setFullYear(validDate.getFullYear() + 1)
-} else {
-  validDate.setMonth(validDate.getMonth() + 3)
-}
-
-const defaultValidDate = validDate.toISOString().split("T")[0]
+const defaultTestDate = dateInputValue()
+const defaultValidDate = calculateValidDateFromTestDate(defaultTestDate, inspectiontype)
 
 const quickDetails = await quickDetailsResponse.json()
 
@@ -3892,12 +4423,19 @@ const quickDetails = await quickDetailsResponse.json()
 
 window.pendingInspectionPhotos = []
 
-const assetCriteria = getInspectionCriteriaRows(criteria.filter(
-  c =>
+let assetCriteria = getInspectionCriteriaRows(criteria.filter(
+    c =>
     String(c.equiptypeid) === String(asset.equiptypeid) &&
     String(c.inspectioncategory) === String(inspectiontype) &&
     c.active !== false
 ), inspectiontype)
+
+assetCriteria = assetCriteria.filter(row =>
+  !isCrawlBeamHoistSerialLoadTestCriteria(asset, row, inspectiontype)
+)
+
+const measurementCriteria = assetCriteria.filter(row => row.fieldtype === "NUMBER")
+const visualCriteria = assetCriteria.filter(row => row.fieldtype !== "NUMBER")
 
 window.currentInspectionCriteria = assetCriteria
 
@@ -3915,8 +4453,8 @@ window.currentInspectionCriteria = assetCriteria
           <div><span>Serial No</span><strong>${asset.serialno || '-'}</strong></div>
           <div><span>Equipment Type</span><strong>${asset.equipmenttype || '-'}</strong></div>
           <div><span>WLL</span><strong>${asset.wll || '-'} kg</strong></div>
-          <div><span>Span/Jib</span><strong>${asset.span || '-'} mm</strong></div>
-          <div><span>Permissible Deflection</span><strong>${asset.permissibledeflection || '-'} mm</strong></div>
+          ${inspectionSummaryCard("Span/Jib", asset.span, "mm")}
+          ${inspectionSummaryCard("Permissible Deflection", asset.permissibledeflection, "mm")}
         </div>
 
         <div class="inspection-asset-actions">
@@ -3924,7 +4462,7 @@ window.currentInspectionCriteria = assetCriteria
             Pass All & Save
           </button>
 
-          <button onclick="${returnPage === 'quick' ? 'showQuickInspection()' : 'showInspections()'}">
+          <button onclick="returnToInspectionOrigin('${returnPage}')">
             Cancel
           </button>
         </div>
@@ -3985,6 +4523,16 @@ window.currentInspectionCriteria = assetCriteria
   </div>
 
   <div class="form-row">
+
+    <div class="form-group">
+      <label>${inspectiontype === "LOADTEST" ? "Load Test Date" : "Inspection Date"}</label>
+      <input
+        id="inspectionTestDate"
+        type="date"
+        value="${defaultTestDate}"
+        onchange="updateInspectionValidDateFromTestDate('${inspectiontype}')"
+      >
+    </div>
 
     <div class="form-group">
       <label>Inspection Tag No</label>
@@ -4054,6 +4602,7 @@ window.currentInspectionCriteria = assetCriteria
 <div class="inspection-list">
 <div class="inspection-list">
 
+${measurementCriteria.length ? `
     <div class="inspection-section-title">
         Measurements
     </div>
@@ -4069,9 +4618,9 @@ window.currentInspectionCriteria = assetCriteria
 
     
 
-  ${assetCriteria.filter(row => row.fieldtype === "NUMBER").map(row => {
-    const assetField = criteriaAssetMap[row.criterianame]
-    const assetValue = assetField ? (asset[assetField] || '') : ''
+  ${measurementCriteria.map(row => {
+    const assetValue = getCriteriaStandardValue(asset, row)
+    const measuredDefaultValue = getCriteriaMeasuredDefaultValue(asset, row, assetValue)
     const labels = getMeasurementLabels(row.criterianame)
 
     return `
@@ -4083,17 +4632,21 @@ window.currentInspectionCriteria = assetCriteria
 
 <div class="comparison-grid">
 
-    <input
-        type="text"
-        value="${assetValue}"
-        readonly
-        class="readonly-value"
-    >
+    ${assetValue ? `
+      <input
+          type="text"
+          value="${assetValue}"
+          readonly
+          class="readonly-value"
+      >
+    ` : `
+      <div class="readonly-value readonly-value-empty"></div>
+    `}
 
     <input
         id="measured-${row.criteriaid}"
         type="text"
-        value="${assetValue}"
+        value="${measuredDefaultValue}"
     >
 
 </div>
@@ -4109,6 +4662,7 @@ window.currentInspectionCriteria = assetCriteria
       </div>
     `
   }).join('')}
+` : ""}
 
 <div class="inspection-section-title">
     Visual Inspection
@@ -4122,7 +4676,7 @@ window.currentInspectionCriteria = assetCriteria
 
 </div>
 
-  ${assetCriteria.filter(row => row.fieldtype !== "NUMBER").map(row => isTextCriteria(row) ? `
+  ${visualCriteria.map(row => isTextCriteria(row) ? `
     <div class="inspection-row compact-row">
 
       <div class="inspection-criteria">
@@ -4153,7 +4707,7 @@ window.currentInspectionCriteria = assetCriteria
           onchange="toggleFailRemark(${row.criteriaid}); updateInspectionSafetyWarning()"
         >
           ${
-            row.resulttype === "YES_NO"
+            row.resulttype === "YES_NO" || isSafeContinuationCriteria(row)
               ? `
                 <option value="YES">YES</option>
                 <option value="NO">NO</option>
@@ -4190,7 +4744,7 @@ window.currentInspectionCriteria = assetCriteria
         Save ${inspectiontype}
       </button>
 
-      <button onclick="${returnPage === 'quick' ? 'showQuickInspection()' : 'showInspections()'}">
+      <button onclick="returnToInspectionOrigin('${returnPage}')">
         Cancel
       </button>
     </div>
@@ -4261,6 +4815,8 @@ window.showInspectionHistory = async function (assetid) {
 }
 
 window.showAssetHistoryFromSetup = async function (assetid) {
+  rememberAssetListState()
+
   const response = await fetch(
     `http://localhost:5000/assets/${assetid}/inspection-history`
   )
@@ -4327,8 +4883,11 @@ window.passAllCriteria = function (assetid, inspectiontype, returnPage = "quick"
   document
     .querySelectorAll('select[id^="result-"]')
     .forEach(select => {
-      select.value = "PASS"
+      const hasYesOption = Array.from(select.options).some(option => option.value === "YES")
+      select.value = hasYesOption ? "YES" : "PASS"
     })
+
+  updateInspectionSafetyWarning()
 
   document
     .querySelectorAll('input[id^="measured-"]')
@@ -4365,6 +4924,7 @@ window.dashboardFindAsset = function () {
     String(asset.assetid || "").toLowerCase().includes(search) ||
     String(asset.assettagno || "").toLowerCase().includes(search) ||
     String(asset.serialno || "").toLowerCase().includes(search) ||
+    String(asset.hoistserialno || "").toLowerCase().includes(search) ||
     String(asset.qrcode || "").toLowerCase().includes(search) ||
     String(asset.description || "").toLowerCase().includes(search)
   )
@@ -4394,7 +4954,7 @@ window.dashboardFindAsset = function () {
           <tr>
             <td>${asset.assetid}</td>
             <td>${asset.assettagno || "-"}</td>
-            <td>${asset.serialno || "-"}</td>
+            <td>${asset.serialno || asset.hoistserialno || "-"}</td>
             <td>${asset.description || ""}</td>
             <td>${asset.equipmenttype || ""}</td>
             <td>
@@ -4403,7 +4963,7 @@ window.dashboardFindAsset = function () {
               </button>
 
               ${
-                ["100", "400", "500"].includes(String(asset.equipgroupid))
+                assetSupportsLoadTest(asset)
                   ? `<button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'LOADTEST', 'quick')">Load Test</button>`
                   : ""
               }
@@ -4644,6 +5204,9 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
   const tagnumber =
     document.querySelector('#inspectionTagNo')?.value.trim() || ""
 
+  const testdate =
+    document.querySelector("#inspectionTestDate")?.value || dateInputValue()
+
   const asset = assets.find(
     a => String(a.assetid) === String(assetid)
   )
@@ -4653,12 +5216,16 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
     return
   }
 
-  const assetCriteria = getInspectionCriteriaRows(criteria.filter(
+  let assetCriteria = getInspectionCriteriaRows(criteria.filter(
     c =>
       String(c.equiptypeid) === String(asset.equiptypeid) &&
       String(c.inspectioncategory) === String(inspectiontype) &&
       c.active !== false
   ), inspectiontype)
+
+  assetCriteria = assetCriteria.filter(row =>
+    !isCrawlBeamHoistSerialLoadTestCriteria(asset, row, inspectiontype)
+  )
 
   let results = []
   let overallStatus = "SAFE"
@@ -4694,11 +5261,8 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
       overallStatus = "NOT SAFE"
     }
 
-    const assetField =
-      criteriaAssetMap[row.criterianame]
-
     const assetValue =
-      assetField ? asset[assetField] : null
+      getCriteriaStandardValue(asset, row) || null
 
     const measuredValue =
       measuredInput ? measuredInput.value : null
@@ -4716,7 +5280,7 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
   const formData = new FormData()
 
   formData.append("assetid", assetid)
-  formData.append("testdate", new Date().toISOString().split("T")[0])
+  formData.append("testdate", testdate)
   formData.append(
     "validdate",
     document.querySelector("#inspectionValidDate")?.value || ""
@@ -4763,16 +5327,7 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
   alert("Inspection saved. Status: " + (savedInspection.status || overallStatus))
 
   await loadData()
-
-  if (returnPage === "quick") {
-    showQuickInspection()
-  }
-  else if (returnPage === "assets") {
-    showAssetSetup()
-  }
-  else {
-    showInspections()
-  }
+  returnToInspectionOrigin(returnPage)
 }
 
 

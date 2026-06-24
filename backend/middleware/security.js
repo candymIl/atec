@@ -130,6 +130,18 @@ function errorHandler(err, req, res, next) {
     return next(err)
   }
 
+  if (err?.name === "MulterError") {
+    const uploadMessages = {
+      LIMIT_FILE_SIZE: "The selected photo is too large. Please upload a JPG, PNG or WebP photo up to 15 MB.",
+      LIMIT_FILE_COUNT: "Too many photos selected.",
+      LIMIT_UNEXPECTED_FILE: "Unexpected upload field. Please choose the asset photo fields shown on the form."
+    }
+
+    return res.status(400).json({
+      error: uploadMessages[err.code] || "Photo upload failed. Please check the selected image files."
+    })
+  }
+
   const status = err.statusCode || err.status || 500
   const message = status >= 500
     ? "An unexpected server error occurred"

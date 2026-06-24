@@ -146,6 +146,15 @@ export async function renderRiskAssessments(assets = [], canWrite = true) {
           </select>
         </div>
       </div>
+
+      <div class="form-actions">
+        <button type="button" onclick="downloadRiskAssessments('pdf')">
+          Download PDF
+        </button>
+        <button type="button" onclick="downloadRiskAssessments('xlsx')">
+          Export Excel
+        </button>
+      </div>
     </div>
 
     <div id="riskAssessmentTable"></div>

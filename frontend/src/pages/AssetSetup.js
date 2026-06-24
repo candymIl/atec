@@ -1,11 +1,33 @@
 import { sortHeader, sortTableRows } from '../tableSort.js'
 
+function assetSupportsLoadTest(asset) {
+  if (['100', '400', '500'].includes(String(asset.equipgroupid || ''))) {
+    return true
+  }
+
+  const criteria = window.atecCriteria || []
+
+  return criteria.some(row =>
+    String(row.equiptypeid) === String(asset.equiptypeid) &&
+    String(row.inspectioncategory || row.inspection_category || '').toUpperCase() === 'LOADTEST' &&
+    row.active !== false &&
+    row.active !== 'false'
+  )
+}
+
 export function renderAssetRow(asset) {
+  const serialDisplay = asset.serialno || asset.hoistserialno || ''
+
   return `
     <tr>
       <td>${asset.assetid}</td>
       <td>${asset.assettagno || ''}</td>
-      <td>${asset.serialno || ''}</td>
+      <td>
+        ${serialDisplay}
+        ${asset.serialno && asset.hoistserialno && asset.serialno !== asset.hoistserialno ? `
+          <br><small>Hoist: ${asset.hoistserialno}</small>
+        ` : ''}
+      </td>
       <td>${asset.clientname || ''}</td>
       <td>${asset.sitename || ''}</td>
       <td>${asset.sectionname || ''}</td>
@@ -21,7 +43,7 @@ export function renderAssetRow(asset) {
             Inspect
           </button>
 
-          ${['100', '400', '500'].includes(String(asset.equipgroupid || '')) ? `
+          ${assetSupportsLoadTest(asset) ? `
             <button
               class="load-test-btn"
               onclick="startInspection(${asset.assetid}, 'LOADTEST', 'assets')"
@@ -55,7 +77,7 @@ export function renderAssetSetup(assets) {
   const sortedAssets = sortTableRows(assets, 'assets', {
     assetid: asset => asset.assetid,
     assettagno: asset => asset.assettagno,
-    serialno: asset => asset.serialno,
+    serialno: asset => asset.serialno || asset.hoistserialno,
     clientname: asset => asset.clientname,
     sitename: asset => asset.sitename,
     sectionname: asset => asset.sectionname,
@@ -69,7 +91,24 @@ export function renderAssetSetup(assets) {
   const startIndex = (currentPage - 1) * pageSize
   const visibleAssets = sortedAssets.slice(startIndex, startIndex + pageSize)
   const endIndex = sortedAssets.length === 0 ? 0 : startIndex + visibleAssets.length
-  const pageButtons = renderAssetPageButtons(currentPage, totalPages)
+  const paginationBar = renderAssetPaginationBar(
+    sortedAssets.length,
+    startIndex,
+    endIndex,
+    currentPage,
+    totalPages,
+    pageSize,
+    true
+  )
+  const bottomPaginationBar = renderAssetPaginationBar(
+    sortedAssets.length,
+    startIndex,
+    endIndex,
+    currentPage,
+    totalPages,
+    pageSize,
+    false
+  )
 
   document.querySelector('#page').innerHTML = `
     <h1>Asset Setup</h1>
@@ -97,6 +136,7 @@ export function renderAssetSetup(assets) {
             <option value="assetid">Asset ID</option>
             <option value="assettagno">Asset Tag</option>
             <option value="serialno">Serial No</option>
+            <option value="hoistserialno">Hoist Serial No</option>
             <option value="clientname">Client</option>
             <option value="sitename">Site</option>
             <option value="sectionname">Section</option>
@@ -125,6 +165,7 @@ export function renderAssetSetup(assets) {
           ["assetid", "Asset ID"],
           ["assettagno", "Asset Tag"],
           ["serialno", "Serial No"],
+          ["hoistserialno", "Hoist Serial No"],
           ["clientname", "Client"],
           ["sitename", "Site"],
           ["sectionname", "Section"],
@@ -139,29 +180,7 @@ export function renderAssetSetup(assets) {
       </div>
     </div>
 
-    <div id="assetPaginationControls" class="report-pagination-bar asset-pagination-bar">
-      <div class="report-page-size">
-        <label for="assetRowsPerPage">Rows per page</label>
-        <select id="assetRowsPerPage" onchange="setAssetRowsPerPage(this.value)">
-          ${[25, 50, 100, 250].map(size => `
-            <option value="${size}" ${size === pageSize ? "selected" : ""}>
-              ${size}
-            </option>
-          `).join("")}
-        </select>
-      </div>
-
-      <div class="report-page-controls">
-        <button type="button" onclick="changeAssetPage(-1)" ${currentPage <= 1 ? "disabled" : ""}>
-          Previous
-        </button>
-        ${pageButtons}
-        <button type="button" onclick="changeAssetPage(1)" ${currentPage >= totalPages ? "disabled" : ""}>
-          Next
-        </button>
-        <span>Showing ${sortedAssets.length === 0 ? 0 : startIndex + 1} to ${endIndex} of ${sortedAssets.length} assets - Page ${currentPage} of ${totalPages}</span>
-      </div>
-    </div>
+    ${paginationBar}
 
     <table>
       <thead>
@@ -182,6 +201,40 @@ export function renderAssetSetup(assets) {
         ${visibleAssets.map(renderAssetRow).join('')}
       </tbody>
     </table>
+
+    ${bottomPaginationBar}
+  `
+}
+
+function renderAssetPaginationBar(totalRows, startIndex, endIndex, currentPage, totalPages, pageSize, showPageSize) {
+  const pageButtons = renderAssetPageButtons(currentPage, totalPages)
+
+  return `
+    <div ${showPageSize ? 'id="assetPaginationControls"' : ''} class="report-pagination-bar asset-pagination-bar ${showPageSize ? '' : 'asset-pagination-bottom'}">
+      ${showPageSize ? `
+        <div class="report-page-size">
+          <label for="assetRowsPerPage">Rows per page</label>
+          <select id="assetRowsPerPage" onchange="setAssetRowsPerPage(this.value)">
+            ${[25, 50, 100, 250].map(size => `
+              <option value="${size}" ${size === pageSize ? "selected" : ""}>
+                ${size}
+              </option>
+            `).join("")}
+          </select>
+        </div>
+      ` : '<div></div>'}
+
+      <div class="report-page-controls">
+        <button type="button" onclick="changeAssetPage(-1)" ${currentPage <= 1 ? "disabled" : ""}>
+          Previous
+        </button>
+        ${pageButtons}
+        <button type="button" onclick="changeAssetPage(1)" ${currentPage >= totalPages ? "disabled" : ""}>
+          Next
+        </button>
+        <span>Showing ${totalRows === 0 ? 0 : startIndex + 1} to ${endIndex} of ${totalRows} assets - Page ${currentPage} of ${totalPages}</span>
+      </div>
+    </div>
   `
 }
 

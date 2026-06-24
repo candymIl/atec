@@ -353,6 +353,12 @@ input[type="radio"] {
   margin-bottom: 6px;
 }
 
+.optional-label {
+  color: #64748b;
+  font-size: 0.85em;
+  font-weight: 600;
+}
+
 .form-group input,
 .form-group select,
 .form-group textarea {
@@ -1085,6 +1091,11 @@ tr:hover {
   border: 1px solid #e1e7ef;
 }
 
+.photo-delete-btn {
+  margin-top: 10px;
+  width: 100%;
+}
+
 /* =======================================================
    10. QUICK INSPECTION
 ======================================================= */
@@ -1277,7 +1288,7 @@ tr:hover {
 
 .inspection-row {
     display: grid;
-    grid-template-columns: minmax(260px, 1.15fr) minmax(240px, 0.9fr) minmax(180px, 0.75fr);
+    grid-template-columns: minmax(260px, 1.25fr) minmax(150px, 0.55fr) minmax(340px, 1.45fr);
     align-items: center;
     gap: 14px;
 
@@ -1405,7 +1416,7 @@ tr:hover {
 }
 
 .inspection-header.visual{
-    grid-template-columns:minmax(260px, 1.15fr) minmax(190px, 0.65fr) minmax(240px, 1fr);
+    grid-template-columns:minmax(260px, 1.25fr) minmax(150px, 0.55fr) minmax(340px, 1.45fr);
 }
 
 /* =======================================================
@@ -2399,7 +2410,7 @@ tr:hover {
   color: #111827;
   max-width: 1000px;
   margin: 0 auto;
-  font-size: 13px;
+  font-size: 11px;
 }
 
 .fb-cert-header,
@@ -2409,30 +2420,30 @@ tr:hover {
 }
 
 .fb-cert-header {
-  margin-bottom: 14px;
+  margin-bottom: 8px;
 }
 
 .fb-cert-footer {
-  margin-top: 24px;
+  margin-top: 10px;
 }
 
 .fb-cert-title h1 {
   text-align: center;
   text-transform: uppercase;
-  font-size: 24px;
+  font-size: 20px;
   letter-spacing: 0.5px;
-  margin: 10px 0 16px;
+  margin: 6px 0 8px;
   color: #1f2937;
 }
 
 .fb-cert-meta {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 15px;
+  gap: 10px;
   border-top: 1px solid #9ca3af;
   border-bottom: 1px solid #9ca3af;
-  padding: 10px 0;
-  margin-bottom: 16px;
+  padding: 5px 0;
+  margin-bottom: 8px;
 }
 
 .fb-cert-meta div {
@@ -2441,42 +2452,43 @@ tr:hover {
 }
 
 .fb-cert-section {
-  margin: 14px 0;
+  margin: 7px 0;
 }
 
 .fb-cert-section h3 {
   color: #1f3b5c;
   border-bottom: 1px solid #d9e1ec;
-  padding-bottom: 5px;
-  margin-bottom: 8px;
+  padding-bottom: 3px;
+  margin: 0 0 4px;
+  font-size: 12px;
 }
 
 .fb-cert-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 4px 24px;
+  gap: 2px 18px;
 }
 
 .fb-cert-grid p {
-  margin: 4px 0;
+  margin: 2px 0;
 }
 
 .fb-cert-photo-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 14px;
+  gap: 8px;
 }
 
 .fb-cert-photo-grid div {
   border: 1px solid #d9e1ec;
-  padding: 8px;
+  padding: 4px;
   text-align: center;
-  min-height: 120px;
+  min-height: 90px;
 }
 
 .fb-cert-photo-grid img {
   max-width: 100%;
-  max-height: 180px;
+  max-height: 120px;
   object-fit: contain;
 }
 
@@ -2491,25 +2503,64 @@ tr:hover {
 .fb-cert-results-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: 10.5px;
+  line-height: 1.15;
+}
+
+.fb-cert-results-criteria-col {
+  width: 42%;
+}
+
+.fb-cert-results-standard-col {
+  width: 15%;
+}
+
+.fb-cert-results-measured-col {
+  width: 15%;
+}
+
+.fb-cert-results-result-col {
+  width: 10%;
+}
+
+.fb-cert-results-remarks-col {
+  width: 18%;
 }
 
 .fb-cert-results-table th {
   background: #1f3b5c;
   color: white;
-  padding: 7px;
+  padding: 4px;
 }
 
 .fb-cert-results-table td {
   border: 1px solid #d9e1ec;
-  padding: 6px;
+  padding: 3px 4px;
+}
+
+.fb-cert-results-table th:nth-child(2),
+.fb-cert-results-table td:nth-child(2) {
+  text-align: center;
+}
+
+.fb-cert-results-table th:nth-child(3),
+.fb-cert-results-table td:nth-child(3),
+.fb-cert-results-table th:nth-child(4),
+.fb-cert-results-table td:nth-child(4) {
+  text-align: right;
+}
+
+.fb-cert-results-table th:nth-child(5),
+.fb-cert-results-table td:nth-child(5) {
+  padding-left: 8px;
+  text-align: left;
 }
 
 .fb-cert-signature-section {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 60px;
-  margin: 30px 0 15px;
+  margin: 12px 0 4px;
 }
 
 .fb-cert-driven-note {
@@ -2518,20 +2569,22 @@ tr:hover {
   font-style: italic;
   font-weight: 700;
   line-height: 1.35;
-  margin: 10px 0 4px;
+  margin: 4px 0 2px;
   text-align: center;
 }
 
 .fb-cert-signature-line {
   border-bottom: 1px solid #111827;
-  height: 45px;
+  height: 4px;
+  margin-top: 1px;
+  max-width: 300px;
 }
 
 .fb-cert-signature-image {
   display: block;
-  height: 34px;
+  height: 64px;
   margin-top: 6px;
-  max-width: 180px;
+  max-width: 300px;
   object-fit: contain;
 }
 
@@ -2615,26 +2668,43 @@ tr:hover {
   }
 
   .fb-cert-page {
-    width: 100%;
-    max-width: 1000px;
-    margin: 0 auto;
-    font-size: 13px;
-    line-height: normal;
-    overflow: visible;
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 auto !important;
+    font-size: 10.5px;
+    line-height: 1.15;
+    overflow: hidden;
     transform: none !important;
     page-break-after: auto;
     page-break-before: auto;
-    page-break-inside: auto;
+    page-break-inside: avoid;
+    break-inside: avoid;
   }
 
   .bulk-certificate-page {
+    box-sizing: border-box !important;
+    display: block !important;
     width: 100% !important;
     max-width: none !important;
-    margin: 0 !important;
+    min-height: calc(297mm - 16mm) !important;
+    height: calc(297mm - 16mm) !important;
+    margin: 0 auto !important;
     padding: 0 !important;
     box-shadow: none !important;
+    overflow: hidden !important;
     break-after: page;
     page-break-after: always;
+    break-before: auto;
+    page-break-before: auto;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .bulk-certificate-page .fb-cert-page {
+    height: 100% !important;
+    min-height: 100% !important;
+    max-height: 100% !important;
   }
 
   .bulk-certificate-page:last-child {
@@ -2643,86 +2713,91 @@ tr:hover {
   }
 
   .fb-cert-header {
-    margin-bottom: 14px;
+    margin-bottom: 8px;
     max-height: none;
     object-fit: initial;
   }
 
   .fb-cert-title h1 {
-    font-size: 24px;
-    margin: 10px 0 16px;
+    font-size: 20px;
+    margin: 6px 0 8px;
   }
 
   .fb-cert-meta {
-    gap: 15px;
-    padding: 10px 0;
-    margin-bottom: 16px;
+    gap: 10px;
+    padding: 5px 0;
+    margin-bottom: 8px;
   }
 
   .fb-cert-section {
-    margin: 14px 0;
+    margin: 7px 0;
   }
 
   .fb-cert-section h3 {
-    padding-bottom: 5px;
-    margin-bottom: 8px;
-    font-size: 1.17em;
+    padding-bottom: 3px;
+    margin: 0 0 4px;
+    font-size: 12px;
   }
 
   .fb-cert-grid {
-    gap: 4px 24px;
+    gap: 2px 18px;
   }
 
   .fb-cert-grid p {
-    margin: 4px 0;
+    margin: 2px 0;
   }
 
   .fb-cert-photo-grid {
-    gap: 14px;
+    gap: 8px;
   }
 
   .fb-cert-photo-grid div {
-    min-height: 120px;
-    padding: 8px;
+    min-height: 90px;
+    padding: 4px;
   }
 
   .fb-cert-photo-grid img {
-    max-height: 180px;
+    max-height: 120px;
   }
 
   .fb-cert-photo-grid p {
-    margin: revert;
+    margin: 2px 0;
   }
 
   .fb-cert-results-table {
-    font-size: 12px;
-    line-height: normal;
+    font-size: 10.5px;
+    line-height: 1.15;
   }
 
   .fb-cert-results-table th {
-    padding: 7px;
+    padding: 4px;
   }
 
   .fb-cert-results-table td {
-    padding: 6px;
+    padding: 3px 4px;
   }
 
   .fb-cert-signature-section {
     gap: 60px;
-    margin: 30px 0 15px;
+    margin: 12px 0 4px;
   }
 
   .fb-cert-driven-note {
-    font-size: 8px;
+    font-size: 10px;
     margin: 4px 0 2px;
   }
 
   .fb-cert-signature-line {
-    height: 45px;
+    height: 4px;
+  }
+
+  .fb-cert-signature-image {
+    height: 64px;
+    max-width: 300px;
   }
 
   .fb-cert-footer {
-    margin-top: 24px;
+    margin-top: 10px;
     max-height: none;
     object-fit: initial;
   }
@@ -2764,6 +2839,10 @@ tr:hover {
   background: #f2f2f2;
   pointer-events: none;
   font-weight: 700;
+}
+
+.readonly-value-empty {
+  min-height: 34px;
 }
 
 .comparison-grid{
@@ -2913,6 +2992,94 @@ tr:hover {
   padding: 6px !important;
 }
 
+#certificateResults th .user-table-heading {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+  justify-content: space-between;
+  min-width: 0;
+  width: 100%;
+}
+
+#certificateResults th .user-table-heading span {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#certificateResults th .user-sort-btn {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  border-radius: 3px;
+  flex: 0 0 16px;
+  height: 18px;
+  min-height: 18px;
+  min-width: 16px;
+  padding: 0 !important;
+  width: 16px;
+}
+
+#certificateResults th .user-sort-btn:hover,
+#certificateResults th .user-sort-btn.active {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+#certificateResults th .user-sort-btn::before {
+  border-bottom-color: #ffffff;
+}
+
+#certificateResults th .user-sort-btn::after {
+  border-top-color: #ffffff;
+}
+
+.certificate-sort-heading {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+  justify-content: space-between;
+  min-width: 0;
+  width: 100%;
+}
+
+.certificate-sort-heading > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.certificate-sort-btn {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  border-radius: 4px;
+  color: #ffffff;
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 9px;
+  font-weight: 800;
+  height: 18px;
+  justify-content: center;
+  line-height: 1;
+  min-height: 18px;
+  min-width: 20px;
+  padding: 0 3px !important;
+  position: relative;
+  white-space: nowrap;
+  z-index: 10;
+}
+
+.certificate-sort-btn:hover,
+.certificate-sort-btn.active {
+  background: rgba(255, 255, 255, 0.30);
+  border-color: rgba(255, 255, 255, 0.70);
+}
+
 #certificateResults td {
   word-break: break-word !important;
 }
@@ -2930,16 +3097,18 @@ tr:hover {
 
 #certificateResults th:last-child,
 #certificateResults td:last-child {
-  width: 220px !important;
-  min-width: 220px !important;
+  width: 190px !important;
+  min-width: 190px !important;
   white-space: normal !important;
 }
 
 #certificateResults td:last-child {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: repeat(2, 76px);
+  gap: 5px;
   justify-content: center;
+  align-content: center;
+  align-items: center;
 }
 
 #certificateResults td:last-child button,
@@ -2950,12 +3119,14 @@ tr:hover {
   font-weight: 700;
   justify-content: center;
   line-height: 1.2;
-  min-height: 30px;
-  min-width: 78px;
-  padding: 5px 8px;
-  font-size: 11px;
+  height: 28px;
+  min-height: 28px;
+  min-width: 76px;
+  padding: 4px 6px;
+  font-size: 10px;
   text-align: center;
   text-decoration: none;
+  width: 76px;
 }
 
 #certificateResults td:last-child .cert-action-link {
