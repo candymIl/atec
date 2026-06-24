@@ -10,8 +10,12 @@ require("dotenv").config();
 const app = express();
 const multer = require("multer");
 const path = require("path");
+const { pathToFileURL } = require("url");
 const PDFDocument = require("pdfkit");
 const ExcelJS = require("exceljs");
+const QRCode = require("qrcode");
+const nodemailer = require("nodemailer");
+const puppeteer = require("puppeteer-core");
 const {
   asyncRoute,
   auditLogger,
@@ -21,10 +25,11 @@ const {
   publicUser,
   requireAuth,
   sanitizeFilename,
-  signAuthToken
+  signAuthToken,
+  validateUploadedImages
 } = require("./middleware/security")
 
-const allowedOrigins = (process.env.FRONTEND_ORIGIN || "http://localhost:5174,http://localhost:5173")
+const allowedOrigins = (process.env.FRONTEND_ORIGIN || "http://localhost:5174,http://localhost:5173,http://127.0.0.1:5174,http://127.0.0.1:5173")
   .split(",")
   .map(origin => origin.trim())
   .filter(Boolean)
@@ -109,6 +114,26 @@ function roleToUserLevel(role) {
 
 function validRoles() {
   return ["ADMIN", "MANAGER", "INSPECTOR", "VIEWER", "CUSTOMER"]
+}
+
+function makeAssetQrCode(assetid) {
+  return `ATEC-ASSET-${assetid}`
+}
+
+async function ensureAssetQrCode(asset) {
+  const existingCode = String(asset?.qrcode || "").trim()
+
+  if (existingCode) {
+    return { ...asset, qrcode: existingCode }
+  }
+
+  const qrcode = makeAssetQrCode(asset.assetid)
+  await pool.query(
+    "UPDATE atec.tblasset SET qrcode = $1 WHERE assetid = $2",
+    [qrcode, asset.assetid]
+  )
+
+  return { ...asset, qrcode }
 }
 
 function normalizeCriteriaResultType(value, fieldtype = "") {
@@ -300,6 +325,14 @@ function authorizeRequest(req, res, next) {
   const isWrite = ["POST", "PUT", "PATCH", "DELETE"].includes(method)
 
   if (role === "MANAGER") {
+    if (method === "POST" && /^\/certificates\/[^/]+\/email$/.test(routePath)) {
+      return next()
+    }
+
+    if (["POST", "PUT"].includes(method) && routePath.startsWith("/she/")) {
+      return next()
+    }
+
     if (
       isRead &&
       (
@@ -314,7 +347,8 @@ function authorizeRequest(req, res, next) {
         routePath.includes("/certificate") ||
         routePath.startsWith("/reports") ||
         routePath.startsWith("/dashboard") ||
-        routePath.startsWith("/equipment-types")
+        routePath.startsWith("/equipment-types") ||
+        routePath.startsWith("/she/")
       )
     ) {
       return next()
@@ -331,7 +365,8 @@ function authorizeRequest(req, res, next) {
         routePath.startsWith("/certificates") ||
         routePath.includes("/certificate") ||
         routePath.startsWith("/dashboard") ||
-        routePath === "/equipment-types"
+        routePath === "/equipment-types" ||
+        routePath.startsWith("/she/")
       )
     ) {
       return next()
@@ -367,7 +402,8 @@ function authorizeRequest(req, res, next) {
         routePath.startsWith("/certificates") ||
         routePath.includes("/certificate") ||
         routePath.startsWith("/dashboard") ||
-        routePath === "/auth/me"
+        routePath === "/auth/me" ||
+        routePath.startsWith("/she/")
       )
     ) {
       return next()
@@ -377,20 +413,38 @@ function authorizeRequest(req, res, next) {
       method === "POST" &&
       (
         routePath === "/inspections" ||
-        /^\/inspections\/[^/]+\/results$/.test(routePath)
+        /^\/inspections\/[^/]+\/results$/.test(routePath) ||
+        /^\/certificates\/[^/]+\/email$/.test(routePath) ||
+        routePath === "/she/risk-assessments"
       )
     ) {
       return next()
     }
 
+    if (method === "PUT" && /^\/she\/risk-assessments\/[^/]+/.test(routePath)) {
+      return next()
+    }
+
     if (
-      method === "PUT" &&
-      (
-        /^\/assets\/[^/]+$/.test(routePath) ||
-        /^\/assets\/[^/]+\/photos$/.test(routePath)
-      )
+      method === "POST" &&
+      /^\/assets\/[^/]+\/photos$/.test(routePath)
     ) {
       return next()
+    }
+
+    if (method === "PUT" && /^\/assets\/[^/]+$/.test(routePath)) {
+      const allowedAssetUpdateFields = new Set(["assettagno"])
+      const bodyKeys = Object.keys(req.body || {})
+      const updatesOnlyAssetTag = bodyKeys.length > 0 &&
+        bodyKeys.every(key => allowedAssetUpdateFields.has(key))
+
+      if (updatesOnlyAssetTag) {
+        return next()
+      }
+
+      return res.status(403).json({
+        error: "Inspectors may only update asset tag numbers and photos"
+      })
     }
 
     if (routePath.startsWith("/users/me/signature")) return next()
@@ -401,9 +455,102 @@ function authorizeRequest(req, res, next) {
   return res.status(403).json({ error: "Access denied" })
 }
 
-app.use("/uploads", requireAuth, express.static("uploads"));
+async function enforceInspectorInspectionOwnership(req, res, next) {
+  if (req.user?.role !== "INSPECTOR") {
+    return next()
+  }
+
+  if (req.method !== "POST" || !/^\/inspections\/[^/]+\/results$/.test(req.path)) {
+    return next()
+  }
+
+  const testid = req.params.testid || req.path.split("/")[2]
+  const inspectionResult = await pool.query(
+    `
+    SELECT inspector_user_id
+    FROM atec.tblinspection
+    WHERE testid = $1
+    `,
+    [testid]
+  )
+
+  if (inspectionResult.rows.length === 0) {
+    return res.status(404).json({ error: "Inspection not found" })
+  }
+
+  if (String(inspectionResult.rows[0].inspector_user_id || "") !== String(req.user.user_id)) {
+    return res.status(403).json({
+      error: "Inspectors may only update inspections created under their own login"
+    })
+  }
+
+  return next()
+}
+
+async function authorizeUploadRequest(req, res, next) {
+  if (req.user?.role !== "CUSTOMER") {
+    return next()
+  }
+
+  if (!req.user.clientid) {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  let uploadPath
+
+  try {
+    uploadPath = `/uploads${decodeURIComponent(req.path || "")}`.replace(/\\/g, "/")
+  } catch (err) {
+    return res.status(400).json({ error: "Invalid file path" })
+  }
+
+  const normalizedPath = path.posix.normalize(uploadPath)
+
+  if (!normalizedPath.startsWith("/uploads/") || normalizedPath.includes("/../")) {
+    return res.status(400).json({ error: "Invalid file path" })
+  }
+
+  const accessResult = await pool.query(
+    `
+    SELECT EXISTS (
+      SELECT 1
+      FROM atec.tblasset a
+      WHERE a.clientid = $1
+        AND $2 IN (a.media1, a.media2)
+
+      UNION ALL
+
+      SELECT 1
+      FROM atec.tblinspection i
+      JOIN atec.tblasset a
+        ON i.assetid = a.assetid
+      WHERE a.clientid = $1
+        AND $2 IN (i.photo1, i.photo2, i.inspector_signature_image)
+
+      UNION ALL
+
+      SELECT 1
+      FROM atec.tblinspectionphoto p
+      JOIN atec.tblasset a
+        ON p.assetid = a.assetid
+      WHERE a.clientid = $1
+        AND p.photo_path = $2
+    ) AS allowed
+    `,
+    [req.user.clientid, normalizedPath]
+  )
+
+  if (!accessResult.rows[0]?.allowed) {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  return next()
+}
+
+app.use("/uploads", requireAuth, asyncRoute(authorizeUploadRequest), express.static("uploads"));
 app.use(requireAuth)
 app.use(authorizeRequest)
+app.use(asyncRoute(enforceInspectorInspectionOwnership))
 app.use((req, res, next) => {
   const methodAction = {
     POST: "CREATE",
@@ -650,6 +797,7 @@ app.delete("/users/:id", asyncRoute(async (req, res) => {
 
 app.post("/users/me/signature",
   upload.single("signature"),
+  validateUploadedImages,
   asyncRoute(async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: "Signature image is required" })
@@ -684,6 +832,7 @@ app.post("/users/me/signature",
 
 app.post("/users/:id/signature",
   upload.single("signature"),
+  validateUploadedImages,
   asyncRoute(async (req, res) => {
     if (req.user.role !== "ADMIN") {
       return res.status(403).json({ error: "Only admins can change user signatures" })
@@ -1102,6 +1251,219 @@ SELECT
   }
 })
 
+app.get("/assets/qr/:code", async (req, res) => {
+  try {
+    const code = String(req.params.code || "").trim()
+
+    if (!code) {
+      return res.status(400).json({ error: "QR code is required" })
+    }
+
+    const result = await pool.query(
+      `
+      SELECT
+        a.*,
+        c.clientname,
+        s.sitename,
+        sec.sectionname,
+        et.description AS equipmenttype,
+        et.equipgroupid
+      FROM atec.tblasset a
+      LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
+      LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
+      LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
+      LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
+      WHERE COALESCE(a.archived, false) = false
+        AND (
+          a.qrcode = $1
+          OR CAST(a.assetid AS text) = $1
+          OR ('ATEC-ASSET-' || a.assetid) = $1
+        )
+      LIMIT 1
+      `,
+      [code]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Asset not found" })
+    }
+
+    const asset = await ensureAssetQrCode(result.rows[0])
+    res.json(asset)
+  } catch (err) {
+    console.error("QR asset lookup error:", err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
+
+app.get("/assets/:id/qr-label.pdf", async (req, res) => {
+  try {
+    const { id } = req.params
+    const result = await pool.query(
+      `
+      SELECT
+        a.*,
+        c.clientname,
+        s.sitename,
+        sec.sectionname,
+        et.description AS equipmenttype
+      FROM atec.tblasset a
+      LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
+      LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
+      LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
+      LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
+      WHERE a.assetid = $1
+      LIMIT 1
+      `,
+      [id]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Asset not found" })
+    }
+
+    const asset = await ensureAssetQrCode(result.rows[0])
+    const qrDataUrl = await QRCode.toDataURL(asset.qrcode, {
+      errorCorrectionLevel: "M",
+      margin: 1,
+      width: 360
+    })
+    const qrBuffer = Buffer.from(qrDataUrl.split(",")[1], "base64")
+
+    const doc = new PDFDocument({
+      size: "A4",
+      margin: 28,
+      info: {
+        Title: `ATEC QR Label ${asset.assetid}`
+      }
+    })
+
+    res.setHeader("Content-Type", "application/pdf")
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="asset-${asset.assetid}-qr-label.pdf"`
+    )
+
+    doc.pipe(res)
+
+    const labelX = 42
+    const labelY = 44
+    const labelWidth = doc.page.width - (labelX * 2)
+    const labelHeight = 430
+    const innerPad = 26
+    const qrSize = 190
+    const qrX = labelX + innerPad
+    const qrY = labelY + 118
+    const detailX = qrX + qrSize + 42
+    const detailWidth = labelX + labelWidth - detailX - innerPad
+    const footerY = labelY + labelHeight - 46
+
+    doc
+      .roundedRect(labelX, labelY, labelWidth, labelHeight, 8)
+      .lineWidth(1.2)
+      .strokeColor("#1f3f66")
+      .stroke()
+
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(24)
+      .fillColor("#123a63")
+      .text("ATEC ASSET LABEL", labelX + innerPad, labelY + 24, {
+        width: labelWidth - (innerPad * 2)
+      })
+
+    doc
+      .font("Helvetica")
+      .fontSize(9)
+      .fillColor("#475569")
+      .text("Scan this QR code to find the asset for inspection or certificate lookup.", labelX + innerPad, labelY + 62, {
+        width: labelWidth - (innerPad * 2)
+      })
+
+    doc.image(qrBuffer, qrX, qrY, {
+      fit: [qrSize, qrSize]
+    })
+
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(10)
+      .fillColor("#111827")
+      .text(asset.qrcode, qrX, qrY + qrSize + 14, {
+        width: qrSize,
+        align: "center"
+      })
+
+    const rows = [
+      ["Asset ID", asset.assetid],
+      ["Asset Tag", asset.assettagno || "-"],
+      ["Serial No", asset.serialno || "-"],
+      ["Equipment", asset.equipmenttype || "-"],
+      ["Client", asset.clientname || "-"],
+      ["Site", asset.sitename || "-"],
+      ["Section", asset.sectionname || "-"]
+    ]
+
+    let detailY = qrY
+    rows.forEach(([label, value]) => {
+      const displayValue = String(value || "-")
+      const labelHeight = doc
+        .font("Helvetica-Bold")
+        .fontSize(7.5)
+        .heightOfString(String(label).toUpperCase(), { width: detailWidth })
+      const valueHeight = doc
+        .font("Helvetica-Bold")
+        .fontSize(11.5)
+        .heightOfString(displayValue, { width: detailWidth })
+      const rowHeight = Math.max(32, labelHeight + valueHeight + 10)
+
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(7.5)
+        .fillColor("#64748b")
+        .text(String(label).toUpperCase(), detailX, detailY, {
+          width: detailWidth,
+          lineBreak: false
+        })
+
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(11.5)
+        .fillColor("#0f2742")
+        .text(displayValue, detailX, detailY + 11, {
+          width: detailWidth,
+          lineGap: 0
+        })
+
+      detailY += rowHeight
+    })
+
+    doc
+      .moveTo(labelX + innerPad, footerY)
+      .lineTo(labelX + labelWidth - innerPad, footerY)
+      .lineWidth(0.8)
+      .strokeColor("#cbd5e1")
+      .stroke()
+
+    doc
+      .font("Helvetica")
+      .fontSize(8)
+      .fillColor("#475569")
+      .text("FB Cranes Inspection Platform | Keep this label visible and protected.", labelX + innerPad, footerY + 12, {
+        width: labelWidth - (innerPad * 2),
+        align: "center"
+      })
+
+    await req.logAudit("GENERATE_QR_LABEL", "assets", asset.assetid, {
+      qrcode: asset.qrcode
+    })
+
+    doc.end()
+  } catch (err) {
+    console.error("QR label PDF error:", err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
+
 app.get("/assets/:id/quick-details", async (req, res) => {
   try {
     const { id } = req.params
@@ -1384,7 +1746,18 @@ app.post("/assets", async (req, res) => {
       ]
     );
 
-    res.json(result.rows[0]);
+    const createdAsset = result.rows[0]
+    const qrResult = await pool.query(
+      `
+      UPDATE atec.tblasset
+      SET qrcode = $1
+      WHERE assetid = $2
+      RETURNING *
+      `,
+      [makeAssetQrCode(createdAsset.assetid), createdAsset.assetid]
+    )
+
+    res.json(qrResult.rows[0]);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "An unexpected server error occurred" });
@@ -1394,6 +1767,49 @@ app.post("/assets", async (req, res) => {
 app.put("/assets/:id", async (req, res) => {
   try {
     const { id } = req.params;
+
+    if (req.user.role === "INSPECTOR") {
+      const assettagno = String(req.body.assettagno || "").trim()
+
+      const duplicateCheck = await pool.query(
+        `
+        SELECT assetid
+        FROM atec.tblasset
+        WHERE clientid = (
+          SELECT clientid
+          FROM atec.tblasset
+          WHERE assetid = $1
+        )
+          AND assetid <> $1
+          AND COALESCE(archived, false) = false
+          AND LOWER(assettagno) = LOWER($2)
+        LIMIT 1
+        `,
+        [id, assettagno]
+      )
+
+      if (duplicateCheck.rows.length > 0) {
+        return res.status(400).json({
+          error: "Duplicate asset found for this client. Asset Tag No already exists."
+        })
+      }
+
+      const result = await pool.query(
+        `
+        UPDATE atec.tblasset
+        SET assettagno = $1
+        WHERE assetid = $2
+        RETURNING *
+        `,
+        [assettagno || null, id]
+      )
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Asset not found" })
+      }
+
+      return res.json(result.rows[0])
+    }
 
     const {
       serialno,
@@ -1617,17 +2033,22 @@ app.post("/assets/:id/photos",
     { name: "photo2", maxCount: 1 },
     { name: "inspectionPhotos", maxCount: 20 },
   ]),
+  validateUploadedImages,
   async (req, res) => {
     try {
       const { id } = req.params;
 
-      const photo1 = req.files.photo1
+      const photo1 = req.files?.photo1?.[0]
         ? `/uploads/assets/${req.files.photo1[0].filename}`
         : null;
 
-      const photo2 = req.files.photo2
+      const photo2 = req.files?.photo2?.[0]
         ? `/uploads/assets/${req.files.photo2[0].filename}`
         : null;
+
+      if (!photo1 && !photo2) {
+        return res.status(400).json({ error: "Please choose at least one photo" })
+      }
 
       const result = await pool.query(
         `UPDATE atec.tblasset
@@ -1638,6 +2059,10 @@ app.post("/assets/:id/photos",
          RETURNING *`,
         [photo1, photo2, id]
       );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Asset not found" })
+      }
 
       res.json(result.rows[0]);
     } catch (err) {
@@ -2104,7 +2529,9 @@ app.post("/inspections",
   upload.fields([
     { name: "photo1", maxCount: 1 },
     { name: "photo2", maxCount: 1 },
+    { name: "inspectionPhotos", maxCount: 20 },
   ]),
+  validateUploadedImages,
   async (req, res) => {
     const client = await pool.connect()
 
@@ -2689,12 +3116,181 @@ app.get("/certificates/search", async (req, res) => {
   }
 })
 
+async function getBulkCertificateMatches(req, includeTestIds = false) {
+  const {
+    clientid = "",
+    datefrom = "",
+    dateto = "",
+    siteid = "",
+    inspectiontype = "",
+    status = "",
+    testids = ""
+  } = req.query
+
+  if (!clientid || !datefrom || !dateto) {
+    const error = new Error("Customer, Date From and Date To are required")
+    error.statusCode = 400
+    throw error
+  }
+
+  if (Number.isNaN(Date.parse(datefrom)) || Number.isNaN(Date.parse(dateto))) {
+    const error = new Error("Enter a valid date range")
+    error.statusCode = 400
+    throw error
+  }
+
+  if (req.user.role === "CUSTOMER" && String(req.user.clientid || "") !== String(clientid)) {
+    const error = new Error("Access denied")
+    error.statusCode = 403
+    throw error
+  }
+
+  const selectedTestIds = includeTestIds
+    ? String(testids || "")
+      .split(",")
+      .map(value => Number(value.trim()))
+      .filter(value => Number.isInteger(value) && value > 0)
+    : []
+
+  const values = [clientid, datefrom, dateto]
+  let where = `
+    WHERE a.clientid = $1
+      AND i.testdate::date >= $2::date
+      AND i.testdate::date <= $3::date
+  `
+
+  if (siteid) {
+    values.push(siteid)
+    where += ` AND a.siteid = $${values.length}`
+  }
+
+  if (inspectiontype && inspectiontype !== "ALL") {
+    values.push(inspectiontype)
+    where += ` AND i.inspectiontype = $${values.length}`
+  }
+
+  if (status && status !== "ALL") {
+    values.push(status)
+    where += ` AND i.status = $${values.length}`
+  }
+
+  if (selectedTestIds.length) {
+    values.push(selectedTestIds)
+    where += ` AND i.testid = ANY($${values.length}::int[])`
+  }
+
+  const result = await pool.query(
+    `
+    SELECT i.testid
+    FROM atec.tblinspection i
+    INNER JOIN atec.tblasset a
+      ON i.assetid = a.assetid
+    INNER JOIN atec.tblclients c
+      ON a.clientid = c.clientid
+    LEFT JOIN atec.tblsites s
+      ON a.siteid = s.siteid
+    ${where}
+    ORDER BY i.testdate ASC, i.testid ASC
+    LIMIT 500
+    `,
+    values
+  )
+
+  const certificates = []
+
+  for (const row of result.rows) {
+    const certificate = await getCertificateData(row.testid)
+
+    if (certificate && canViewCertificate(req.user, certificate)) {
+      certificates.push(certificate)
+    }
+  }
+
+  return {
+    filters: {
+      clientid,
+      datefrom,
+      dateto,
+      siteid,
+      inspectiontype,
+      status,
+      testids: selectedTestIds
+    },
+    certificates
+  }
+}
+
+app.get("/certificates/bulk-print", async (req, res) => {
+  try {
+    const { filters, certificates } = await getBulkCertificateMatches(req, false)
+
+    await req.logAudit("BULK_PRINT_SEARCH", "certificates", null, {
+      ...filters,
+      count: certificates.length
+    })
+
+    res.json({ certificates })
+  } catch (err) {
+    console.error(err)
+    res.status(err.statusCode || 500).json({
+      error: err.statusCode ? err.message : "An unexpected server error occurred"
+    })
+  }
+})
+
+app.get("/certificates/bulk-pdf", async (req, res) => {
+  try {
+    const { filters, certificates } = await getBulkCertificateMatches(req, true)
+
+    if (!certificates.length) {
+      return res.status(404).json({ error: "No certificates found for the selected filters" })
+    }
+
+    const pdfBuffer = await createBulkCertificatesPdfBuffer(certificates)
+    const customerName = certificates[0]?.inspection?.clientname || "Customer"
+    const filename = bulkCertificateFilename(customerName, filters.datefrom, filters.dateto)
+
+    await req.logAudit("BULK_PDF_DOWNLOAD", "certificates", null, {
+      ...filters,
+      count: certificates.length
+    })
+
+    res.setHeader("Content-Type", "application/pdf")
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`)
+    res.send(pdfBuffer)
+  } catch (err) {
+    console.error("Bulk certificate PDF error:", err)
+    res.status(err.statusCode || 500).json({
+      error: err.statusCode ? err.message : "An unexpected server error occurred"
+    })
+  }
+})
+
 app.get("/certificates/count", async (req, res) => {
   try {
-    const result = await pool.query(`
+    const values = []
+    let joinSql = ""
+    let whereSql = ""
+
+    if (req.user.role === "CUSTOMER") {
+      if (!req.user.clientid) {
+        return res.json({ total: "0" })
+      }
+
+      values.push(req.user.clientid)
+      joinSql = "JOIN atec.tblasset a ON i.assetid = a.assetid"
+      whereSql = `WHERE a.clientid = $${values.length}`
+    }
+
+    const result = await pool.query(
+      `
       SELECT COUNT(*) AS total
-      FROM atec.tblinspection
-    `)
+      FROM atec.tblinspection i
+      ${joinSql}
+      ${whereSql}
+      `,
+      values
+    )
 
     res.json(result.rows[0])
 
@@ -2908,6 +3504,18 @@ function shouldShowDrivenMachineryNote(inspection) {
   return ["400", "500"].includes(String(inspection.equipgroupid || ""))
 }
 
+function shouldShowSans500Note(inspection) {
+  return String(inspection.equiptypeid || "") === "102"
+}
+
+function shouldShowRegulation18Note(inspection) {
+  return ["103", "105"].includes(String(inspection.equiptypeid || ""))
+}
+
+function shouldShowDrivenMachineryItemsNote(inspection) {
+  return DRIVEN_MACHINERY_ITEMS_EQUIPTYPE_IDS.has(String(inspection.equiptypeid || ""))
+}
+
 function canViewCertificate(user, certificate) {
   if (!user || !certificate) return false
   if (user.role !== "CUSTOMER") return true
@@ -2915,14 +3523,468 @@ function canViewCertificate(user, certificate) {
   return String(certificate.inspection?.clientid || "") === String(user.clientid || "")
 }
 
+function htmlEscape(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;")
+}
+
+function fileUrlIfExists(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return ""
+  return pathToFileURL(filePath).href
+}
+
+function uploadPathToFileUrl(uploadPath) {
+  if (!uploadPath) return ""
+
+  const normalizedPath = String(uploadPath).replace(/^\/+/, "").replace(/\\/g, "/")
+  const fullPath = path.join(__dirname, normalizedPath)
+
+  return fileUrlIfExists(fullPath)
+}
+
+function getCertificatePhotosForHtml(inspection, savedPhotos = []) {
+  if (savedPhotos.length) {
+    return savedPhotos
+  }
+
+  return [
+    inspection.photo1 || inspection.media1,
+    inspection.photo2 || inspection.media2
+  ]
+    .filter(Boolean)
+    .map((photoPath, index) => ({
+      photo_path: photoPath,
+      photo_type: `Photo ${index + 1}`,
+      caption: ""
+    }))
+}
+
+function certificateAssetDetails(inspection) {
+  return [
+    ["WLL", inspection.wll ? `${inspection.wll} kg` : ""],
+    ["Height of Lift", inspection.heightoflift ? `${inspection.heightoflift} mm` : ""],
+    ["Number of Chain Falls", inspection.numberofchainfalls],
+    ["OEM Top Hook Size", inspection.oemtophooksize ? `${inspection.oemtophooksize} mm` : ""],
+    ["OEM Bottom Hook Size", inspection.oembottomhooksize ? `${inspection.oembottomhooksize} mm` : ""],
+    ["Load Chain Diameter", inspection.loadchaindiameter ? `${inspection.loadchaindiameter} mm` : ""],
+    ["Effective Length", inspection.effectivelength ? `${inspection.effectivelength} mm` : ""],
+    ["Span", inspection.span ? `${inspection.span} mm` : ""],
+    ["Permissible Deflection", inspection.permissibledeflection ? `${inspection.permissibledeflection} mm` : ""],
+    ["Hook Size", inspection.hooksize ? `${inspection.hooksize} mm` : ""],
+    ["Steel Wire Rope", inspection.steelwireropemm ? `${inspection.steelwireropemm} mm` : ""],
+    ["Hoist Description", inspection.hoistdescription],
+    ["Hoist Serial No", inspection.hoistserialno]
+  ].filter(([, value]) => value !== null && value !== undefined && value !== "")
+}
+
+function renderBulkCertificateHtml(certificate) {
+  const inspection = certificate.inspection || {}
+  const results = certificate.results || []
+  const photos = getCertificatePhotosForHtml(inspection, certificate.photos || []).slice(0, 4)
+  const headerUrl = fileUrlIfExists(path.join(__dirname, "..", "frontend", "public", "header.jpg"))
+  const footerUrl = fileUrlIfExists(path.join(__dirname, "..", "frontend", "public", "footer.jpg"))
+  const signatureUrl = uploadPathToFileUrl(inspection.inspector_signature_image)
+  const assetDetails = certificateAssetDetails(inspection)
+  const drivenMachineryNote = shouldShowDrivenMachineryNote(inspection)
+    ? DRIVEN_MACHINERY_CERTIFICATE_NOTE
+    : ""
+  const sans500Note = shouldShowSans500Note(inspection)
+    ? SANS_500_CERTIFICATE_NOTE
+    : ""
+  const regulation18Note = shouldShowRegulation18Note(inspection)
+    ? REGULATION_18_CERTIFICATE_NOTE
+    : ""
+  const drivenMachineryItemsNote = shouldShowDrivenMachineryItemsNote(inspection)
+    ? DRIVEN_MACHINERY_ITEMS_CERTIFICATE_NOTE
+    : ""
+
+  return `
+    <section class="bulk-certificate-page">
+      <div class="fb-cert-page">
+        ${headerUrl ? `<img src="${headerUrl}" class="fb-cert-header" alt="FB Cranes Header">` : ""}
+
+        <div class="fb-cert-title">
+          <h1>${htmlEscape(getCertificateTitle(inspection))}</h1>
+        </div>
+
+        <div class="fb-cert-meta">
+          <div><strong>Certificate No:</strong><span>${htmlEscape(inspection.testid || "-")}</span></div>
+          <div><strong>Tag Number:</strong><span>${htmlEscape(inspection.tagnumber || "-")}</span></div>
+          <div>
+            <strong>Status:</strong>
+            <span class="${inspection.status === "SAFE" ? "status-safe" : "status-unsafe"}">
+              ${htmlEscape(inspection.status || "-")}
+            </span>
+          </div>
+        </div>
+
+        <div class="fb-cert-section">
+          <h3>Customer Details</h3>
+          <div class="fb-cert-grid">
+            <p><strong>Client:</strong> ${htmlEscape(inspection.clientname || "-")}</p>
+            <p><strong>Site:</strong> ${htmlEscape(inspection.sitename || "-")}</p>
+            <p><strong>Section:</strong> ${htmlEscape(inspection.sectionname || "-")}</p>
+          </div>
+        </div>
+
+        <div class="fb-cert-section">
+          <h3>Asset Details</h3>
+          <div class="fb-cert-grid">
+            <p><strong>Asset ID:</strong> ${htmlEscape(inspection.assetid || "-")}</p>
+            <p><strong>Asset Tag No:</strong> ${htmlEscape(inspection.assettagno || "-")}</p>
+            <p><strong>Equipment Type:</strong> ${htmlEscape(inspection.equipmenttype || "-")}</p>
+            <p><strong>Description:</strong> ${htmlEscape(inspection.description || "-")}</p>
+            <p><strong>Serial No:</strong> ${htmlEscape(inspection.serialno || "-")}</p>
+            <p><strong>Manufacturer:</strong> ${htmlEscape(inspection.manufacturer || "-")}</p>
+          </div>
+        </div>
+
+        ${assetDetails.length ? `
+          <div class="fb-cert-section">
+            <h3>Asset Specifications</h3>
+            <div class="fb-cert-grid">
+              ${assetDetails.map(([label, value]) => `
+                <p><strong>${htmlEscape(label)}:</strong> ${htmlEscape(value)}</p>
+              `).join("")}
+            </div>
+          </div>
+        ` : ""}
+
+        <div class="fb-cert-section">
+          <h3>Inspection Details</h3>
+          <div class="fb-cert-grid">
+            <p><strong>Inspection Type:</strong> ${htmlEscape(inspection.inspectiontype || "-")}</p>
+            <p><strong>Inspection Date:</strong> ${htmlEscape(formatPdfDate(inspection.testdate))}</p>
+            <p><strong>Certificate Expiry Date:</strong> ${htmlEscape(formatPdfDate(inspection.validdate))}</p>
+            <p><strong>Inspector:</strong> ${htmlEscape(inspection.inspector || "-")}</p>
+            <p><strong>LMI Number:</strong> ${htmlEscape(inspection.inspector_lmi_number || "-")}</p>
+          </div>
+        </div>
+
+        <div class="fb-cert-section">
+          <h3>Inspection Photos</h3>
+          <div class="fb-cert-photo-grid">
+            ${photos.length ? photos.map((photo, index) => {
+              const photoUrl = uploadPathToFileUrl(photo.photo_path)
+
+              return `
+                <div>
+                  ${photoUrl ? `<img src="${photoUrl}" alt="Inspection Photo">` : ""}
+                  <p>${htmlEscape(photo.photo_type ? String(photo.photo_type).replaceAll("_", " ") : `Photo ${index + 1}`)}</p>
+                  ${photo.caption ? `<p>${htmlEscape(photo.caption)}</p>` : ""}
+                </div>
+              `
+            }).join("") : `
+              <div class="fb-cert-no-photo">No inspection photos</div>
+            `}
+          </div>
+        </div>
+
+        <div class="fb-cert-section">
+          <h3>Inspection Results</h3>
+          <table class="fb-cert-results-table">
+            <thead>
+              <tr>
+                <th>Criteria</th>
+                <th>Asset Value</th>
+                <th>Measured Value</th>
+                <th>Result</th>
+                <th>Remarks</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${results.map(row => `
+                <tr>
+                  <td>${htmlEscape(row.criterianame || "")}</td>
+                  <td>${htmlEscape(row.assetvalue || "")}</td>
+                  <td>${htmlEscape(row.measuredvalue || "")}</td>
+                  <td>
+                    <strong class="${
+                      row.result === "PASS"
+                        ? "status-safe"
+                        : row.result === "FAIL"
+                          ? "status-unsafe"
+                          : ""
+                    }">
+                      ${htmlEscape(row.result || "")}
+                    </strong>
+                  </td>
+                  <td>${htmlEscape(row.remarks || "")}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+
+        ${drivenMachineryNote ? `<p class="fb-cert-driven-note">${htmlEscape(drivenMachineryNote)}</p>` : ""}
+        ${sans500Note ? `<p class="fb-cert-driven-note">${htmlEscape(sans500Note)}</p>` : ""}
+        ${regulation18Note ? `<p class="fb-cert-driven-note">${htmlEscape(regulation18Note)}</p>` : ""}
+        ${drivenMachineryItemsNote ? `<p class="fb-cert-driven-note">${htmlEscape(drivenMachineryItemsNote)}</p>` : ""}
+
+        <div class="fb-cert-signature-section">
+          <div>
+            <strong>Inspector Signature</strong>
+            ${signatureUrl ? `<img class="fb-cert-signature-image" src="${signatureUrl}" alt="Inspector Signature">` : ""}
+            <div class="fb-cert-signature-line"></div>
+          </div>
+        </div>
+
+        ${footerUrl ? `<img src="${footerUrl}" class="fb-cert-footer" alt="FB Cranes Footer">` : ""}
+      </div>
+    </section>
+  `
+}
+
+function renderBulkCertificatesHtmlDocument(certificates) {
+  return `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <title>FB Certificates</title>
+        <style>
+          * { box-sizing: border-box; }
+          @page { size: A4; margin: 8mm; }
+          html, body {
+            margin: 0;
+            padding: 0;
+            background: white;
+            color: #111827;
+            font-family: Arial, Helvetica, sans-serif;
+          }
+          .bulk-certificate-page {
+            page-break-after: always;
+            break-after: page;
+          }
+          .bulk-certificate-page:last-child {
+            page-break-after: auto;
+            break-after: auto;
+          }
+          .fb-cert-page {
+            background: white;
+            color: #111827;
+            width: 100%;
+            font-size: 13px;
+            line-height: normal;
+            overflow: visible;
+          }
+          .fb-cert-header,
+          .fb-cert-footer {
+            width: 100%;
+            display: block;
+          }
+          .fb-cert-header { margin-bottom: 14px; }
+          .fb-cert-footer { margin-top: 24px; }
+          .fb-cert-title h1 {
+            text-align: center;
+            text-transform: uppercase;
+            font-size: 24px;
+            letter-spacing: 0.5px;
+            margin: 10px 0 16px;
+            color: #1f2937;
+          }
+          .fb-cert-meta {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            border-top: 1px solid #9ca3af;
+            border-bottom: 1px solid #9ca3af;
+            padding: 10px 0;
+            margin-bottom: 16px;
+          }
+          .fb-cert-meta div {
+            display: flex;
+            gap: 6px;
+          }
+          .fb-cert-section { margin: 14px 0; }
+          .fb-cert-section h3 {
+            color: #1f3b5c;
+            border-bottom: 1px solid #d9e1ec;
+            padding-bottom: 5px;
+            margin: 0 0 8px;
+            font-size: 1.17em;
+          }
+          .fb-cert-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4px 24px;
+          }
+          .fb-cert-grid p { margin: 4px 0; }
+          .fb-cert-photo-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+          }
+          .fb-cert-photo-grid div {
+            border: 1px solid #d9e1ec;
+            padding: 8px;
+            text-align: center;
+            min-height: 120px;
+          }
+          .fb-cert-photo-grid img {
+            max-width: 100%;
+            max-height: 180px;
+            object-fit: contain;
+          }
+          .fb-cert-photo-grid p { margin: 4px 0; }
+          .fb-cert-no-photo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #6b7280;
+            background: #f8fafc;
+          }
+          .fb-cert-results-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            line-height: normal;
+          }
+          .fb-cert-results-table th {
+            background: #1f3b5c;
+            color: white;
+            padding: 7px;
+          }
+          .fb-cert-results-table td {
+            border: 1px solid #d9e1ec;
+            padding: 6px;
+            vertical-align: top;
+          }
+          .fb-cert-signature-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 60px;
+            margin: 30px 0 15px;
+          }
+          .fb-cert-signature-line {
+            border-bottom: 1px solid #111827;
+            height: 45px;
+          }
+          .fb-cert-signature-image {
+            display: block;
+            height: 34px;
+            margin-top: 6px;
+            max-width: 180px;
+            object-fit: contain;
+          }
+          .fb-cert-driven-note {
+            color: #d00000;
+            font-size: 8px;
+            font-style: italic;
+            font-weight: 700;
+            line-height: 1.35;
+            margin: 4px 0 2px;
+          }
+          .status-safe { color: #0a8f2a; font-weight: 700; }
+          .status-unsafe { color: #d00000; font-weight: 700; }
+        </style>
+      </head>
+      <body>
+        ${certificates.map(renderBulkCertificateHtml).join("")}
+      </body>
+    </html>
+  `
+}
+
+function findChromiumExecutable() {
+  const configuredPath = process.env.PUPPETEER_EXECUTABLE_PATH
+
+  const candidates = [
+    configuredPath,
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+    "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+  ].filter(Boolean)
+
+  return candidates.find(candidate => fs.existsSync(candidate))
+}
+
+async function createBulkCertificatesPdfBuffer(certificates) {
+  const executablePath = findChromiumExecutable()
+
+  if (!executablePath) {
+    const error = new Error("PDF browser engine not found. Set PUPPETEER_EXECUTABLE_PATH in backend/.env to Chrome or Edge.")
+    error.statusCode = 500
+    throw error
+  }
+
+  const browser = await puppeteer.launch({
+    executablePath,
+    headless: "new",
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--allow-file-access-from-files"]
+  })
+
+  try {
+    const page = await browser.newPage()
+    await page.setContent(renderBulkCertificatesHtmlDocument(certificates), {
+      waitUntil: "networkidle0"
+    })
+
+    return await page.pdf({
+      format: "A4",
+      printBackground: true,
+      margin: {
+        top: "8mm",
+        right: "8mm",
+        bottom: "8mm",
+        left: "8mm"
+      }
+    })
+  } finally {
+    await browser.close()
+  }
+}
+
+function bulkCertificateFilename(customerName, datefrom, dateto) {
+  const safeCustomerName = String(customerName || "Customer")
+    .replace(/[^a-z0-9]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "Customer"
+
+  return `FB-Certificates-${safeCustomerName}-${formatPdfDate(datefrom)}-to-${formatPdfDate(dateto)}.pdf`
+}
+
 const DRIVEN_MACHINERY_CERTIFICATE_NOTE =
   "Certification that the item has been inspected in accordance with the requirements of Driven Machinery and SANS Regulations and the responsible person has been informed of all defects."
 
+const DRIVEN_MACHINERY_ITEMS_CERTIFICATE_NOTE =
+  "Certification that the items have been inspected in accordance with the requirements of Driven Machinery and SANS Regulations and the responsible person has been informed of all defects."
+
 const SANS_500_CERTIFICATE_NOTE =
-  "EXAMINED IN ACCORDANCE WITH SANS 500"
+  "EXAMINED AND TESTED IN ACCORDANCE WITH SANS 500"
+
+const REGULATION_18_CERTIFICATE_NOTE =
+  "EXAMINED AND TESTED IN ACCORDANCE WITH REGULATION 18 OF OHS ACT 85 OF 1993"
+
+const DRIVEN_MACHINERY_ITEMS_EQUIPTYPE_IDS = new Set([
+  "201",
+  "202",
+  "203",
+  "301",
+  "302",
+  "303",
+  "304",
+  "305",
+  "309",
+  "312",
+  "314",
+  "315",
+  "317",
+  "319",
+  "320",
+  "323",
+  "324",
+  "338",
+  "339"
+])
 
 function shouldShowSans500Note(inspection) {
-  return ["101", "102"].includes(String(inspection.equiptypeid || ""))
+  return String(inspection.equiptypeid || "") === "102"
 }
 
 function addPdfKeyValues(doc, items, x, y, width, options = {}) {
@@ -3052,18 +4114,11 @@ function drawPdfPageFrame(doc, inspection, pageNumber) {
     .font("Helvetica")
     .fontSize(6.5)
     .fillColor("#1f2937")
-    .text(
-      `FB Crane Builders & Repairs | Certificate ${inspection.testid} | Page ${pageNumber}`,
-      marginX,
-      pageHeight - 28,
-      { width: width * 0.62 }
-    )
-    .text(
-      `Tel: 011 824 2896 | Email: info@fbcranes.co.za`,
-      marginX + (width * 0.62),
-      pageHeight - 28,
-      { width: width * 0.38, align: "right" }
-    )
+    .text(`Certificate ${inspection.testid} | Page ${pageNumber}`, marginX, pageHeight - 88, {
+      width,
+      align: "right",
+      lineBreak: false
+    })
     .fillColor("#111827")
 }
 
@@ -3150,16 +4205,11 @@ function drawCertificatePdf(doc, inspection, results, photos = []) {
   const pageWidth = doc.page.width
   const marginX = 28.35
   const width = pageWidth - (marginX * 2)
-  let y = 14
+  const bottomLimit = doc.page.height - 92
+  let pageNumber = 1
+  let y = 106
 
-  const headerPath = path.join(__dirname, "..", "frontend", "public", "header.jpg")
-  const footerPath = path.join(__dirname, "..", "frontend", "public", "footer.jpg")
-
-  if (fs.existsSync(headerPath)) {
-    doc.image(headerPath, marginX, y, { width, height: 82 })
-  }
-
-  y += 86
+  drawPdfPageFrame(doc, inspection, pageNumber)
 
   doc
     .font("Helvetica-Bold")
@@ -3269,17 +4319,35 @@ function drawCertificatePdf(doc, inspection, results, photos = []) {
     { title: "Remarks", width: width - 375 }
   ]
 
-  let x = marginX
-  doc.font("Helvetica-Bold").fontSize(7)
-  tableColumns.forEach(column => {
-    doc.rect(x, y, column.width, 14).fillAndStroke("#1f3b5c", "#1f3b5c")
-    doc.fillColor("#ffffff")
-    doc.text(column.title, x + 3, y + 4, { width: column.width - 6 })
-    x += column.width
-  })
+  const addNewPdfPage = () => {
+    doc.addPage()
+    pageNumber += 1
+    drawPdfPageFrame(doc, inspection, pageNumber)
+    y = 106
+  }
 
-  y += 14
-  doc.fillColor("#111827").font("Helvetica").fontSize(7)
+  const ensurePdfSpace = requiredHeight => {
+    if (y + requiredHeight <= bottomLimit) return
+    addNewPdfPage()
+  }
+
+  const drawResultsHeader = () => {
+    ensurePdfSpace(18)
+
+    let x = marginX
+    doc.font("Helvetica-Bold").fontSize(7)
+    tableColumns.forEach(column => {
+      doc.rect(x, y, column.width, 14).fillAndStroke("#1f3b5c", "#1f3b5c")
+      doc.fillColor("#ffffff")
+      doc.text(column.title, x + 3, y + 4, { width: column.width - 6 })
+      x += column.width
+    })
+
+    y += 14
+    doc.fillColor("#111827").font("Helvetica").fontSize(7)
+  }
+
+  drawResultsHeader()
 
   results.forEach(row => {
     const values = [
@@ -3296,6 +4364,13 @@ function drawCertificatePdf(doc, inspection, results, photos = []) {
       doc.heightOfString(values[4], { width: tableColumns[4].width - 6 }) + 6
     )
 
+    ensurePdfSpace(rowHeight + 4)
+
+    if (y === 106) {
+      drawResultsHeader()
+    }
+
+    let x = marginX
     x = marginX
     tableColumns.forEach((column, index) => {
       doc.rect(x, y, column.width, rowHeight).strokeColor("#d9e1ec").stroke()
@@ -3309,6 +4384,7 @@ function drawCertificatePdf(doc, inspection, results, photos = []) {
   })
 
   if (shouldShowDrivenMachineryNote(inspection)) {
+    ensurePdfSpace(28)
     y += 10
     doc
       .font("Helvetica-Oblique")
@@ -3327,6 +4403,7 @@ function drawCertificatePdf(doc, inspection, results, photos = []) {
   }
 
   if (shouldShowSans500Note(inspection)) {
+    ensurePdfSpace(20)
     y += 6
     doc
       .font("Helvetica-Oblique")
@@ -3344,24 +4421,111 @@ function drawCertificatePdf(doc, inspection, results, photos = []) {
     }) + 4
   }
 
-  y += 14
-  doc.font("Helvetica-Bold").fontSize(8).text("Inspector Signature", marginX, y)
+  if (shouldShowRegulation18Note(inspection)) {
+    ensurePdfSpace(20)
+    y += 6
+    doc
+      .font("Helvetica-Oblique")
+      .fontSize(8)
+      .fillColor("#d00000")
+      .text(REGULATION_18_CERTIFICATE_NOTE, marginX, y, {
+        width,
+        align: "center"
+      })
+      .fillColor("#111827")
+
+    y += doc.heightOfString(REGULATION_18_CERTIFICATE_NOTE, {
+      width,
+      align: "center"
+    }) + 4
+  }
+
+  if (shouldShowDrivenMachineryItemsNote(inspection)) {
+    ensurePdfSpace(28)
+    y += 6
+    doc
+      .font("Helvetica-Oblique")
+      .fontSize(7.5)
+      .fillColor("#d00000")
+      .text(DRIVEN_MACHINERY_ITEMS_CERTIFICATE_NOTE, marginX, y, {
+        width,
+        align: "center"
+      })
+      .fillColor("#111827")
+
+    y += doc.heightOfString(DRIVEN_MACHINERY_ITEMS_CERTIFICATE_NOTE, {
+      width,
+      align: "center"
+    }) + 4
+  }
+
   const signaturePath = certificateImagePath(inspection.inspector_signature_image)
-  if (signaturePath) {
-    doc.image(signaturePath, marginX, y + 8, {
-      fit: [180, 28],
-      align: "left",
-      valign: "center"
+  const hasInspectorDetails =
+    signaturePath ||
+    valueOrDash(inspection.inspector) !== "-" ||
+    valueOrDash(inspection.inspector_lmi_number) !== "-"
+
+  if (hasInspectorDetails) {
+    ensurePdfSpace(58)
+
+    y += 14
+    doc.font("Helvetica-Bold").fontSize(8).text("Inspector Signature", marginX, y)
+    if (signaturePath) {
+      doc.image(signaturePath, marginX, y + 8, {
+        fit: [180, 28],
+        align: "left",
+        valign: "center"
+      })
+    }
+    doc.moveTo(marginX, y + 36).lineTo(marginX + 180, y + 36).strokeColor("#111827").stroke()
+  }
+
+  addCertificatePhotoPages(doc, inspection, photos, pageNumber + 1)
+}
+
+function createCertificatePdfBuffer(certificate) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({
+      size: "A4",
+      margin: 28,
+      bufferPages: false
     })
-  }
-  doc.moveTo(marginX, y + 36).lineTo(marginX + 180, y + 36).strokeColor("#111827").stroke()
 
-  if (fs.existsSync(footerPath)) {
-    doc.image(footerPath, marginX + (width * 0.38), y - 12, { fit: [width * 0.62, 70] })
+    const chunks = []
+    doc.on("data", chunk => chunks.push(chunk))
+    doc.on("end", () => resolve(Buffer.concat(chunks)))
+    doc.on("error", reject)
+
+    drawCertificatePdf(
+      doc,
+      certificate.inspection,
+      certificate.results,
+      certificate.photos || []
+    )
+    doc.end()
+  })
+}
+
+function getMailTransport() {
+  const host = process.env.SMTP_HOST
+  const port = Number(process.env.SMTP_PORT || 587)
+  const user = process.env.SMTP_USER
+  const pass = process.env.SMTP_PASS
+
+  if (!host || !process.env.MAIL_FROM) {
+    return null
   }
 
-  drawPdfPageFrame(doc, inspection, 1)
-  addCertificatePhotoPages(doc, inspection, photos, 2)
+  return nodemailer.createTransport({
+    host,
+    port,
+    secure: process.env.SMTP_SECURE === "true" || port === 465,
+    auth: user && pass ? { user, pass } : undefined
+  })
+}
+
+function isValidEmailAddress(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim())
 }
 
 app.get("/inspections/:testid/certificate", async (req, res) => {
@@ -3433,6 +4597,330 @@ app.get("/inspections/:testid/certificate.pdf", async (req, res) => {
     res.status(500).json({
       error: "An unexpected server error occurred"
     })
+  }
+})
+
+app.post("/certificates/:testid/email", async (req, res) => {
+  try {
+    const { testid } = req.params
+    const { to, subject, message } = req.body || {}
+    const recipient = String(to || "").trim()
+
+    if (!isValidEmailAddress(recipient)) {
+      return res.status(400).json({ error: "Enter a valid recipient email address" })
+    }
+
+    const transport = getMailTransport()
+
+    if (!transport) {
+      return res.status(400).json({
+        error: "Email is not configured yet. Add SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS and MAIL_FROM to backend/.env."
+      })
+    }
+
+    const certificate = await getCertificateData(testid)
+
+    if (!certificate) {
+      return res.status(404).json({ error: "Certificate not found" })
+    }
+
+    if (!canViewCertificate(req.user, certificate)) {
+      return res.status(403).json({ error: "Access denied" })
+    }
+
+    const inspection = certificate.inspection
+    const pdfBuffer = await createCertificatePdfBuffer(certificate)
+    const defaultSubject = `ATEC Certificate ${inspection.testid}`
+    const defaultMessage = [
+      `Good day,`,
+      ``,
+      `Please find attached certificate ${inspection.testid}.`,
+      ``,
+      `Client: ${valueOrDash(inspection.clientname)}`,
+      `Site: ${valueOrDash(inspection.sitename)}`,
+      `Asset: ${valueOrDash(inspection.description)}`,
+      `Serial No: ${valueOrDash(inspection.serialno)}`,
+      `Inspection Date: ${formatPdfDate(inspection.testdate)}`,
+      `Status: ${valueOrDash(inspection.status)}`,
+      ``,
+      `Regards,`,
+      `ATEC Inspection Platform`
+    ].join("\n")
+
+    await transport.sendMail({
+      from: process.env.MAIL_FROM,
+      to: recipient,
+      subject: String(subject || defaultSubject).trim(),
+      text: String(message || defaultMessage),
+      attachments: [
+        {
+          filename: `certificate-${inspection.testid}.pdf`,
+          content: pdfBuffer,
+          contentType: "application/pdf"
+        }
+      ]
+    })
+
+    await req.logAudit("EMAIL_PDF", "certificates", testid, {
+      to: recipient
+    })
+
+    res.json({ success: true })
+  } catch (err) {
+    console.error("Certificate email error:", err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
+
+function nullableInteger(value) {
+  if (value === null || value === undefined || value === "") return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function riskRating(severity, likelihood) {
+  const sev = nullableInteger(severity)
+  const like = nullableInteger(likelihood)
+
+  if (!sev || !like) return null
+  return sev * like
+}
+
+function normalizeRiskStatus(value) {
+  const status = String(value || "OPEN").toUpperCase()
+  return ["OPEN", "IN_PROGRESS", "CLOSED", "ARCHIVED"].includes(status)
+    ? status
+    : "OPEN"
+}
+
+function riskPayload(body = {}) {
+  const initialSeverity = nullableInteger(body.initial_severity)
+  const initialLikelihood = nullableInteger(body.initial_likelihood)
+  const residualSeverity = nullableInteger(body.residual_severity)
+  const residualLikelihood = nullableInteger(body.residual_likelihood)
+
+  return {
+    assetid: nullableInteger(body.assetid),
+    clientid: nullableInteger(body.clientid),
+    siteid: nullableInteger(body.siteid),
+    sectionid: nullableInteger(body.sectionid),
+    assessment_date: body.assessment_date || new Date().toISOString().split("T")[0],
+    activity: String(body.activity || "").trim(),
+    hazard: String(body.hazard || "").trim(),
+    consequence: String(body.consequence || "").trim() || null,
+    initial_severity: initialSeverity,
+    initial_likelihood: initialLikelihood,
+    initial_rating: riskRating(initialSeverity, initialLikelihood),
+    controls: String(body.controls || "").trim() || null,
+    residual_severity: residualSeverity,
+    residual_likelihood: residualLikelihood,
+    residual_rating: riskRating(residualSeverity, residualLikelihood),
+    action_required: String(body.action_required || "").trim() || null,
+    responsible_person: String(body.responsible_person || "").trim() || null,
+    due_date: body.due_date || null,
+    status: normalizeRiskStatus(body.status)
+  }
+}
+
+app.get("/she/risk-assessments", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        r.*,
+        a.assettagno,
+        a.serialno,
+        a.description AS asset_description,
+        c.clientname,
+        s.sitename,
+        sec.sectionname,
+        COALESCE(NULLIF(u.fullname, ''), u.username) AS created_by_name
+      FROM atec.tblriskassessment r
+      LEFT JOIN atec.tblasset a ON r.assetid = a.assetid
+      LEFT JOIN atec.tblclients c ON COALESCE(r.clientid, a.clientid) = c.clientid
+      LEFT JOIN atec.tblsites s ON COALESCE(r.siteid, a.siteid) = s.siteid
+      LEFT JOIN atec.tblsection sec ON COALESCE(r.sectionid, a.sectionid) = sec.sectionid
+      LEFT JOIN atec.tblusers u ON r.created_by_user_id = u.userid
+      WHERE COALESCE(r.archived, false) = false
+      ORDER BY r.assessment_date DESC, r.riskid DESC
+      LIMIT 500
+    `)
+
+    res.json(result.rows)
+  } catch (err) {
+    console.error("Risk assessment list error:", err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
+
+app.post("/she/risk-assessments", async (req, res) => {
+  try {
+    const payload = riskPayload(req.body)
+
+    if (!payload.activity || !payload.hazard) {
+      return res.status(400).json({ error: "Activity and hazard are required" })
+    }
+
+    if (payload.assetid) {
+      const assetResult = await pool.query(
+        "SELECT clientid, siteid, sectionid FROM atec.tblasset WHERE assetid = $1",
+        [payload.assetid]
+      )
+
+      if (assetResult.rows.length === 0) {
+        return res.status(404).json({ error: "Asset not found" })
+      }
+
+      payload.clientid = payload.clientid || assetResult.rows[0].clientid
+      payload.siteid = payload.siteid || assetResult.rows[0].siteid
+      payload.sectionid = payload.sectionid || assetResult.rows[0].sectionid
+    }
+
+    const result = await pool.query(
+      `
+      INSERT INTO atec.tblriskassessment (
+        assetid, clientid, siteid, sectionid, assessment_date,
+        activity, hazard, consequence,
+        initial_severity, initial_likelihood, initial_rating,
+        controls, residual_severity, residual_likelihood, residual_rating,
+        action_required, responsible_person, due_date, status,
+        created_by_user_id
+      )
+      VALUES (
+        $1,$2,$3,$4,$5,
+        $6,$7,$8,
+        $9,$10,$11,
+        $12,$13,$14,$15,
+        $16,$17,$18,$19,
+        $20
+      )
+      RETURNING *
+      `,
+      [
+        payload.assetid,
+        payload.clientid,
+        payload.siteid,
+        payload.sectionid,
+        payload.assessment_date,
+        payload.activity,
+        payload.hazard,
+        payload.consequence,
+        payload.initial_severity,
+        payload.initial_likelihood,
+        payload.initial_rating,
+        payload.controls,
+        payload.residual_severity,
+        payload.residual_likelihood,
+        payload.residual_rating,
+        payload.action_required,
+        payload.responsible_person,
+        payload.due_date,
+        payload.status,
+        req.user.user_id
+      ]
+    )
+
+    await req.logAudit("CREATE", "she_risk_assessments", result.rows[0].riskid)
+    res.status(201).json(result.rows[0])
+  } catch (err) {
+    console.error("Risk assessment create error:", err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
+
+app.put("/she/risk-assessments/:id", async (req, res) => {
+  try {
+    const payload = riskPayload(req.body)
+
+    if (!payload.activity || !payload.hazard) {
+      return res.status(400).json({ error: "Activity and hazard are required" })
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE atec.tblriskassessment
+      SET
+        assetid = $1,
+        clientid = $2,
+        siteid = $3,
+        sectionid = $4,
+        assessment_date = $5,
+        activity = $6,
+        hazard = $7,
+        consequence = $8,
+        initial_severity = $9,
+        initial_likelihood = $10,
+        initial_rating = $11,
+        controls = $12,
+        residual_severity = $13,
+        residual_likelihood = $14,
+        residual_rating = $15,
+        action_required = $16,
+        responsible_person = $17,
+        due_date = $18,
+        status = $19,
+        updated_at = now()
+      WHERE riskid = $20
+      RETURNING *
+      `,
+      [
+        payload.assetid,
+        payload.clientid,
+        payload.siteid,
+        payload.sectionid,
+        payload.assessment_date,
+        payload.activity,
+        payload.hazard,
+        payload.consequence,
+        payload.initial_severity,
+        payload.initial_likelihood,
+        payload.initial_rating,
+        payload.controls,
+        payload.residual_severity,
+        payload.residual_likelihood,
+        payload.residual_rating,
+        payload.action_required,
+        payload.responsible_person,
+        payload.due_date,
+        payload.status,
+        req.params.id
+      ]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Risk assessment not found" })
+    }
+
+    await req.logAudit("UPDATE", "she_risk_assessments", req.params.id)
+    res.json(result.rows[0])
+  } catch (err) {
+    console.error("Risk assessment update error:", err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
+
+app.put("/she/risk-assessments/:id/archive", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `
+      UPDATE atec.tblriskassessment
+      SET archived = true,
+          status = 'ARCHIVED',
+          updated_at = now()
+      WHERE riskid = $1
+      RETURNING *
+      `,
+      [req.params.id]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Risk assessment not found" })
+    }
+
+    await req.logAudit("ARCHIVE", "she_risk_assessments", req.params.id)
+    res.json(result.rows[0])
+  } catch (err) {
+    console.error("Risk assessment archive error:", err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
   }
 })
 

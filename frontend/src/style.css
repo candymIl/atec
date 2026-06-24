@@ -1644,6 +1644,76 @@ tr:hover {
   padding: 8px;
 }
 
+.bulk-certificate-card {
+  margin-top: 18px;
+}
+
+.bulk-certificate-results {
+  margin-top: 16px;
+}
+
+.bulk-certificate-summary {
+  margin-bottom: 10px;
+  color: #1f2937;
+}
+
+.bulk-certificate-table-wrap {
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid #d9e1ec;
+  border-radius: 8px;
+}
+
+.bulk-certificate-table {
+  min-width: 1120px;
+}
+
+.bulk-certificate-table th,
+.bulk-certificate-table td {
+  white-space: nowrap;
+}
+
+.bulk-certificate-print-view {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  background: #f4f7fb;
+  overflow: auto;
+  padding: 18px;
+}
+
+.bulk-print-toolbar {
+  max-width: 1040px;
+  margin: 0 auto 16px;
+  background: #1f3b5c;
+  color: white;
+  padding: 12px 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.bulk-print-toolbar h2 {
+  margin: 0;
+}
+
+.bulk-certificate-page {
+  max-width: 1040px;
+  margin: 0 auto 18px;
+  background: white;
+  padding: 16px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14);
+  break-after: page;
+  page-break-after: always;
+}
+
+.bulk-certificate-page:last-child {
+  break-after: auto;
+  page-break-after: auto;
+}
+
 .criteria-action-group {
   justify-content: flex-end;
 }
@@ -2169,7 +2239,9 @@ tr:hover {
   }
 
   #certificateModal,
-  #certificateModal * {
+  #certificateModal *,
+  #bulkCertificatePrintView,
+  #bulkCertificatePrintView * {
     visibility: visible;
   }
 
@@ -2189,6 +2261,7 @@ tr:hover {
 
   .certificate-modal-header,
   .certificate-modal-footer,
+  .bulk-print-toolbar,
   .sidebar,
   .form-actions {
     display: none !important;
@@ -2487,7 +2560,9 @@ tr:hover {
   }
 
   #certificateModal,
-  #certificateModal * {
+  #certificateModal *,
+  #bulkCertificatePrintView,
+  #bulkCertificatePrintView * {
     visibility: visible;
   }
 
@@ -2495,6 +2570,17 @@ tr:hover {
     position: static !important;
     width: 100% !important;
     height: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: white !important;
+    overflow: visible !important;
+  }
+
+  #bulkCertificatePrintView {
+    position: static !important;
+    inset: auto !important;
+    width: 100% !important;
+    min-height: auto !important;
     padding: 0 !important;
     margin: 0 !important;
     background: white !important;
@@ -2512,6 +2598,7 @@ tr:hover {
 
   .certificate-modal-header,
   .certificate-modal-footer,
+  .bulk-print-toolbar,
   .sidebar,
   .form-actions {
     display: none !important;
@@ -2538,6 +2625,21 @@ tr:hover {
     page-break-after: auto;
     page-break-before: auto;
     page-break-inside: auto;
+  }
+
+  .bulk-certificate-page {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .bulk-certificate-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
   }
 
   .fb-cert-header {

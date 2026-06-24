@@ -22,8 +22,11 @@
     "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.2.0",
+    "nodemailer": "^9.0.1",
     "pdfkit": "^0.19.1",
-    "pg": "^8.21.0"
+    "pg": "^8.21.0",
+    "puppeteer-core": "^25.2.0",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

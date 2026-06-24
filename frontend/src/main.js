@@ -4,12 +4,13 @@ import { renderCustomerSetup } from './pages/CustomerSetup.js'
 import { renderSites } from './pages/Sites.js'
 import { renderResponsiblePersons } from './pages/ResponsiblePersons.js'
 import { renderSections } from './pages/Sections.js'
-import { renderAssetSetup } from './pages/AssetSetup.js'
+import { renderAssetSetup, renderAssetRow } from './pages/AssetSetup.js'
 import { renderInspections } from './pages/Inspections.js'
 import { renderEquipmentTypeCriteria } from './pages/EquipmentTypeCriteria.js'
 import { renderQuickInspection } from './pages/QuickInspection.js'
 import { renderCertificateSearch } from './pages/Certificates.js'
 import { renderCustomerDetailedReport } from './pages/CustomerDetailedReport.js'
+import { renderRiskAssessments, renderRiskAssessmentTable } from './pages/RiskAssessments.js'
 import { getPaginationState, renderPaginationControls } from './pagination.js'
 import { sortTableRows } from './tableSort.js'
 
@@ -55,6 +56,7 @@ const pageAccess = {
   'quick-inspection': ['ADMIN', 'INSPECTOR'],
   certificates: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER'],
   'customer-report': ['ADMIN', 'MANAGER', 'CUSTOMER'],
+  she: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER'],
   criteria: ['ADMIN'],
   users: ['ADMIN']
 }
@@ -615,6 +617,7 @@ async function loadData() {
     ${menuButton('quick-inspection', 'Quick Inspection/Testing', 'showQuickInspection()')}
     ${menuButton('certificates', 'Certificates', 'showCertificateSearch()')}
     ${menuButton('customer-report', 'Reports', 'showCustomerDetailedReport()')}
+    ${menuButton('she', 'Risk Assessment / SHE', 'showRiskAssessments()')}
     ${menuButton('criteria', 'Equipment Type Criteria', 'showEquipmentTypeCriteria()')}
     ${menuButton('users', 'User Management', 'showUserManagement()')}
 
@@ -1679,6 +1682,126 @@ window.showAssetSetup = function () {
 
 }
 
+window.showRiskAssessments = async function () {
+  if (!ensurePageAccess('she')) return
+
+  localStorage.setItem("currentPage", "she")
+  window.canWriteRiskAssessments = ['ADMIN', 'MANAGER', 'INSPECTOR'].includes(currentUser?.role)
+  await renderRiskAssessments(assets, window.canWriteRiskAssessments)
+}
+
+window.loadRiskAssessments = async function () {
+  const response = await fetch(`${API_BASE}/she/risk-assessments`)
+  const data = await response.json()
+
+  if (!response.ok) {
+    alert(data.error || "Unable to load risk assessments")
+    return
+  }
+
+  window.riskAssessments = data
+  renderRiskAssessmentTable(window.riskAssessments, window.canWriteRiskAssessments)
+}
+
+window.filterRiskAssessments = function () {
+  renderRiskAssessmentTable(window.riskAssessments || [], window.canWriteRiskAssessments)
+}
+
+window.saveRiskAssessment = async function () {
+  const riskid = document.querySelector('#riskId')?.value || ''
+  const payload = {
+    assetid: document.querySelector('#riskAssetId')?.value || null,
+    assessment_date: document.querySelector('#riskAssessmentDate')?.value,
+    activity: document.querySelector('#riskActivity')?.value,
+    hazard: document.querySelector('#riskHazard')?.value,
+    consequence: document.querySelector('#riskConsequence')?.value,
+    initial_severity: document.querySelector('#riskInitialSeverity')?.value,
+    initial_likelihood: document.querySelector('#riskInitialLikelihood')?.value,
+    controls: document.querySelector('#riskControls')?.value,
+    residual_severity: document.querySelector('#riskResidualSeverity')?.value,
+    residual_likelihood: document.querySelector('#riskResidualLikelihood')?.value,
+    action_required: document.querySelector('#riskActionRequired')?.value,
+    responsible_person: document.querySelector('#riskResponsiblePerson')?.value,
+    due_date: document.querySelector('#riskDueDate')?.value || null,
+    status: document.querySelector('#riskStatus')?.value || 'OPEN'
+  }
+
+  if (!payload.activity || !payload.hazard) {
+    alert("Activity and hazard are required")
+    return
+  }
+
+  const response = await fetch(
+    riskid ? `${API_BASE}/she/risk-assessments/${riskid}` : `${API_BASE}/she/risk-assessments`,
+    {
+      method: riskid ? "PUT" : "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    }
+  )
+  const data = await response.json()
+
+  if (!response.ok) {
+    alert(data.error || "Unable to save risk assessment")
+    return
+  }
+
+  alert("Risk assessment saved successfully")
+  await showRiskAssessments()
+}
+
+window.editRiskAssessment = function (riskid) {
+  const risk = (window.riskAssessments || []).find(item => String(item.riskid) === String(riskid))
+
+  if (!risk) return
+
+  if (!document.querySelector('#riskId')) {
+    const hidden = document.createElement('input')
+    hidden.type = 'hidden'
+    hidden.id = 'riskId'
+    document.querySelector('.filter-card').appendChild(hidden)
+  }
+
+  document.querySelector('#riskId').value = risk.riskid
+  document.querySelector('#riskAssetId').value = risk.assetid || ''
+  document.querySelector('#riskAssessmentDate').value = risk.assessment_date ? risk.assessment_date.split('T')[0] : ''
+  document.querySelector('#riskStatus').value = risk.status || 'OPEN'
+  document.querySelector('#riskActivity').value = risk.activity || ''
+  document.querySelector('#riskHazard').value = risk.hazard || ''
+  document.querySelector('#riskConsequence').value = risk.consequence || ''
+  document.querySelector('#riskInitialSeverity').value = risk.initial_severity || 3
+  document.querySelector('#riskInitialLikelihood').value = risk.initial_likelihood || 3
+  document.querySelector('#riskControls').value = risk.controls || ''
+  document.querySelector('#riskResidualSeverity').value = risk.residual_severity || 2
+  document.querySelector('#riskResidualLikelihood').value = risk.residual_likelihood || 2
+  document.querySelector('#riskActionRequired').value = risk.action_required || ''
+  document.querySelector('#riskResponsiblePerson').value = risk.responsible_person || ''
+  document.querySelector('#riskDueDate').value = risk.due_date ? risk.due_date.split('T')[0] : ''
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+window.archiveRiskAssessment = async function (riskid) {
+  if (!confirm("Archive this risk assessment?")) return
+
+  const response = await fetch(`${API_BASE}/she/risk-assessments/${riskid}/archive`, {
+    method: "PUT"
+  })
+  const data = await response.json()
+
+  if (!response.ok) {
+    alert(data.error || "Unable to archive risk assessment")
+    return
+  }
+
+  await window.loadRiskAssessments()
+}
+
+window.openAssetQrLabel = function (assetid) {
+  window.open(`${API_BASE}/assets/${assetid}/qr-label.pdf`, "_blank")
+}
+
 window.showAddAssetForm = function () {
   const sortedCustomers = [...customers].sort((a, b) =>
     (a.clientname || '').localeCompare(b.clientname || '')
@@ -2095,7 +2218,8 @@ window.filterAssets = function (resetPage = false) {
     "sitename",
     "sectionname",
     "equipmenttype",
-    "description"
+    "description",
+    "qrcode"
   ]
 
   const filtered = assets.filter(asset => {
@@ -2123,52 +2247,7 @@ window.filterAssets = function (resetPage = false) {
 
   const tableBody = document.querySelector('#assetTableBody')
 
-  tableBody.innerHTML = visibleAssets.map(asset => `
-    <tr>
-      <td>${asset.assetid}</td>
-      <td>${asset.assettagno || ''}</td>
-      <td>${asset.serialno || ''}</td>
-      <td>${asset.clientname || ''}</td>
-      <td>${asset.sitename || ''}</td>
-      <td>${asset.sectionname || ''}</td>
-      <td>${asset.equipmenttype || ''}</td>
-      <td>${asset.description || ''}</td>
-      <td>
-          <div class="action-buttons">
-
-            <button
-              onclick="startInspection(${asset.assetid}, 'VISUAL', 'inspections')"
-            >
-              Inspection
-            </button>
-
-            ${
-              ['100','400','500'].includes(String(asset.equipgroupid))
-              ? `
-                <button
-                  class="load-test-btn"
-                  onclick="startInspection(${asset.assetid}, 'LOADTEST', 'inspections')"
-                >
-                  Load Test
-                </button>
-              `
-              : ''
-            }
-
-            <button
-              onclick="showAssetHistoryFromSetup(${asset.assetid})"
-            >
-              History
-            </button>
-
-            <button onclick="showMoveAssetForm(${asset.assetid})">
-              Move
-            </button>
-
-          </div>
-        </td>
-    </tr>
-  `).join('')
+  tableBody.innerHTML = visibleAssets.map(renderAssetRow).join('')
 }
 
 function renderAssetPaginationControls(totalRows, startIndex, endIndex, currentPage, totalPages, pageSize) {
@@ -2656,7 +2735,7 @@ window.uploadAssetPhotos = async function (assetid) {
     body: formData,
   })
 
-  const updatedAsset = await response.json()
+  const updatedAsset = await readApiResponse(response)
 
   if (!response.ok) {
     alert("Error uploading photos: " + updatedAsset.error)
@@ -3234,7 +3313,7 @@ window.handleQuickInspectionEnter = function (event) {
   }
 }
 
-window.quickFindAsset = function () {
+window.quickFindAsset = async function () {
   const search = document
     .querySelector('#quickAssetSearch')
     .value
@@ -3259,6 +3338,18 @@ window.quickFindAsset = function () {
   )
 
   if (matchedAssets.length === 0) {
+    try {
+      const response = await fetch(`${API_BASE}/assets/qr/${encodeURIComponent(search)}`)
+
+      if (response.ok) {
+        const asset = await response.json()
+        quickOpenAsset(asset.assetid)
+        return
+      }
+    } catch (err) {
+      console.error("QR lookup failed:", err)
+    }
+
     resultBox.innerHTML = `
       <div class="filter-card">
         <h3>No Asset Found</h3>
@@ -3393,6 +3484,9 @@ window.quickOpenAsset = async function (assetid) {
 <button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'LOADTEST', '${returnPage}')">Load Test
         </button>
 
+<button onclick="openAssetQrLabel(${asset.assetid})">QR Label
+        </button>
+
       </div>
     </div>
   `
@@ -3422,7 +3516,8 @@ window.filterInspectionAssets = function (resetPage = false) {
     "sitename",
     "sectionname",
     "equipmenttype",
-    "description"
+    "description",
+    "qrcode"
   ]
 
   const filtered = assets.filter(asset => {
@@ -3539,6 +3634,27 @@ function isTextCriteria(row) {
     row.fieldtype === "TEXT" ||
     name.includes("defects and recommendations")
   )
+}
+
+function isDefaultNoneTextCriteria(row) {
+  if (String(row.fieldtype || "").toUpperCase() !== "TEXT") return false
+
+  const name = String(row.criteriadescription || row.criterianame || "")
+    .toLowerCase()
+    .trim()
+
+  return (
+    name.includes("any defects noted") ||
+    name.includes("comments") ||
+    name.includes("remarks")
+  )
+}
+
+function textCriteriaValue(row, savedValue = "") {
+  const value = String(savedValue ?? "")
+
+  if (value.trim()) return value
+  return isDefaultNoneTextCriteria(row) ? "None" : ""
 }
 
 function isSafeForServiceCriteria(row) {
@@ -4019,7 +4135,7 @@ window.currentInspectionCriteria = assetCriteria
           id="remarks-${row.criteriaid}"
           rows="3"
           placeholder="${row.criterianame}"
-        ></textarea>
+        >${escapeAttribute(textCriteriaValue(row))}</textarea>
       </div>
 
     </div>
@@ -4558,12 +4674,17 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
     let result =
       resultInput ? resultInput.value : "RECORDED"
 
+      const remarksInput =
+        document.querySelector(`#remarks-${row.criteriaid}`)
+
       const remarks =
-        inspectiontype === "LOADTEST"
-          ? document.querySelector(`#remarks-${row.criteriaid}`)?.value || ""
-          : result === "FAIL"
-            ? document.querySelector(`#remarks-${row.criteriaid}`)?.value || ""
-            : ""
+        isTextCriteria(row)
+          ? remarksInput?.value || ""
+          : inspectiontype === "LOADTEST"
+            ? remarksInput?.value || ""
+            : result === "FAIL"
+              ? remarksInput?.value || ""
+              : ""
 
     if (isSafeContinuationCriteria(row) && !["PASS", "YES"].includes(result)) {
       overallStatus = "NOT SAFE"
@@ -4708,6 +4829,10 @@ switch (currentPage) {
 
   case "customer-report":
     showCustomerDetailedReport()
+    break
+
+  case "she":
+    showRiskAssessments()
     break
 
   case "users":

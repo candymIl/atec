@@ -78,6 +78,69 @@ export function renderCertificateSearch(customers = [], sites = [], sections = [
       </div>
     </div>
 
+    <div class="filter-card bulk-certificate-card">
+      <h2>Bulk Print Certificates</h2>
+      <p>Select a customer and date range, then choose the certificates to print together.</p>
+
+      <div class="asset-form-grid">
+        <div class="form-group">
+          <label>Customer</label>
+          <select id="bulkCertClient">
+            <option value="">Select Customer</option>
+            ${customers.map(c => `
+              <option value="${c.clientid}">${c.clientname}</option>
+            `).join("")}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Date From</label>
+          <input id="bulkCertDateFrom" type="date">
+        </div>
+
+        <div class="form-group">
+          <label>Date To</label>
+          <input id="bulkCertDateTo" type="date">
+        </div>
+
+        <div class="form-group">
+          <label>Site</label>
+          <select id="bulkCertSite">
+            <option value="">All Sites</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Inspection Type</label>
+          <select id="bulkCertInspectionType">
+            <option value="ALL">All Types</option>
+            <option value="VISUAL">Visual Inspection</option>
+            <option value="LOADTEST">Load Test</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Status</label>
+          <select id="bulkCertStatus">
+            <option value="ALL">All Statuses</option>
+            <option value="SAFE">SAFE</option>
+            <option value="NOT SAFE">NOT SAFE</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button id="bulkCertSearchBtn" type="button">Load Certificates</button>
+        <button id="bulkCertPrintBtn" type="button" disabled>Print Selected Certificates</button>
+        <button id="bulkCertDownloadSelectedBtn" type="button" disabled>Download Selected as PDF</button>
+        <button id="bulkCertDownloadAllBtn" type="button" disabled>Download All Results as PDF</button>
+      </div>
+
+      <div id="bulkCertificateResults" class="bulk-certificate-results">
+        <p>No bulk search loaded yet.</p>
+      </div>
+    </div>
+
     <div class="certificate-dashboard-grid">
       <div class="filter-card">
         <h2>Search Results</h2>
@@ -116,6 +179,11 @@ export function renderCertificateSearch(customers = [], sites = [], sections = [
   document.querySelector('#certSite').addEventListener('change', window.filterCertificateSections)
   document.querySelector('#certSearchBtn').addEventListener('click', window.searchCertificates)
   document.querySelector('#certClearBtn').addEventListener('click', window.clearCertificateSearch)
+  document.querySelector('#bulkCertClient').addEventListener('change', window.filterBulkCertificateSites)
+  document.querySelector('#bulkCertSearchBtn').addEventListener('click', window.searchBulkCertificates)
+  document.querySelector('#bulkCertPrintBtn').addEventListener('click', window.printSelectedBulkCertificates)
+  document.querySelector('#bulkCertDownloadSelectedBtn').addEventListener('click', window.downloadSelectedBulkCertificatesPdf)
+  document.querySelector('#bulkCertDownloadAllBtn').addEventListener('click', window.downloadAllBulkCertificatesPdf)
 
   window.searchCertificates()
 }
@@ -151,6 +219,22 @@ window.filterCertificateSections = function () {
     <option value="">All Sections</option>
     ${filteredSections.map(section => `
       <option value="${section.sectionid}">${section.sectionname}</option>
+    `).join("")}
+  `
+}
+
+window.filterBulkCertificateSites = function () {
+  const clientid = document.querySelector('#bulkCertClient').value
+  const siteSelect = document.querySelector('#bulkCertSite')
+
+  const filteredSites = clientid
+    ? window.certificateSites.filter(site => String(site.clientid) === String(clientid))
+    : []
+
+  siteSelect.innerHTML = `
+    <option value="">All Sites</option>
+    ${filteredSites.map(site => `
+      <option value="${site.siteid}">${site.sitename}</option>
     `).join("")}
   `
 }
@@ -309,6 +393,341 @@ function renderCertificateResults(certificates) {
   bindCertificateResultEvents()
 }
 
+window.searchBulkCertificates = async function () {
+  const clientid = document.querySelector('#bulkCertClient').value
+  const datefrom = document.querySelector('#bulkCertDateFrom').value
+  const dateto = document.querySelector('#bulkCertDateTo').value
+  const siteid = document.querySelector('#bulkCertSite').value
+  const inspectiontype = document.querySelector('#bulkCertInspectionType').value
+  const status = document.querySelector('#bulkCertStatus').value
+
+  if (!clientid || !datefrom || !dateto) {
+    alert("Please select a customer, Date From and Date To for bulk printing.")
+    return
+  }
+
+  const params = new URLSearchParams({
+    clientid,
+    datefrom,
+    dateto
+  })
+
+  if (siteid) params.set("siteid", siteid)
+  if (inspectiontype && inspectiontype !== "ALL") params.set("inspectiontype", inspectiontype)
+  if (status && status !== "ALL") params.set("status", status)
+
+  const resultsContainer = document.querySelector('#bulkCertificateResults')
+  const printButton = document.querySelector('#bulkCertPrintBtn')
+  const downloadSelectedButton = document.querySelector('#bulkCertDownloadSelectedBtn')
+  const downloadAllButton = document.querySelector('#bulkCertDownloadAllBtn')
+
+  resultsContainer.innerHTML = `<p>Loading matching certificates...</p>`
+  printButton.disabled = true
+  downloadSelectedButton.disabled = true
+  downloadAllButton.disabled = true
+
+  const response = await fetch(
+    `http://localhost:5000/certificates/bulk-print?${params.toString()}`
+  )
+
+  const data = await response.json()
+
+  if (!response.ok) {
+    resultsContainer.innerHTML = `<p>No bulk search loaded yet.</p>`
+    alert("Error loading bulk certificates: " + (data.error || "Unable to load certificates"))
+    return
+  }
+
+  window.bulkCertificateResults = data.certificates || []
+  renderBulkCertificateResults(window.bulkCertificateResults)
+}
+
+function renderBulkCertificateResults(certificates) {
+  const resultsContainer = document.querySelector('#bulkCertificateResults')
+  const printButton = document.querySelector('#bulkCertPrintBtn')
+  const downloadSelectedButton = document.querySelector('#bulkCertDownloadSelectedBtn')
+  const downloadAllButton = document.querySelector('#bulkCertDownloadAllBtn')
+
+  if (!certificates.length) {
+    resultsContainer.innerHTML = `<p>No certificates found for the selected customer and date range.</p>`
+    printButton.disabled = true
+    downloadSelectedButton.disabled = true
+    downloadAllButton.disabled = true
+    return
+  }
+
+  resultsContainer.innerHTML = `
+    <div class="bulk-certificate-summary">
+      <strong>${certificates.length}</strong> matching certificate${certificates.length === 1 ? "" : "s"} found.
+    </div>
+
+    <div class="table-scroll bulk-certificate-table-wrap">
+      <table class="bulk-certificate-table">
+        <thead>
+          <tr>
+            <th>
+              <input
+                type="checkbox"
+                id="bulkCertSelectAll"
+                checked
+                aria-label="Select all certificates"
+              >
+            </th>
+            <th>Certificate No</th>
+            <th>Date</th>
+            <th>Valid Date</th>
+            <th>Type</th>
+            <th>Status</th>
+            <th>Asset</th>
+            <th>Asset Tag</th>
+            <th>Serial No</th>
+            <th>Site</th>
+            <th>Inspector</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          ${certificates.map(certificate => {
+            const inspection = certificate.inspection || {}
+
+            return `
+              <tr>
+                <td>
+                  <input
+                    type="checkbox"
+                    class="bulk-cert-check"
+                    value="${inspection.testid}"
+                    checked
+                    aria-label="Select certificate ${inspection.testid}"
+                  >
+                </td>
+                <td>${inspection.testid || ""}</td>
+                <td>${formatDate(inspection.testdate)}</td>
+                <td>${formatDate(inspection.validdate)}</td>
+                <td>${inspection.inspectiontype || ""}</td>
+                <td>
+                  <strong class="${inspection.status === "SAFE" ? "status-safe" : "status-unsafe"}">
+                    ${inspection.status || ""}
+                  </strong>
+                </td>
+                <td>${inspection.description || ""}</td>
+                <td>${inspection.assettagno || inspection.tagnumber || "-"}</td>
+                <td>${inspection.serialno || ""}</td>
+                <td>${inspection.sitename || ""}</td>
+                <td>${inspection.inspector || "-"}</td>
+              </tr>
+            `
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `
+
+  document
+    .querySelector('#bulkCertSelectAll')
+    .addEventListener('change', event => {
+      document
+        .querySelectorAll('.bulk-cert-check')
+        .forEach(checkbox => {
+          checkbox.checked = event.target.checked
+        })
+
+      updateBulkPrintButtonState()
+    })
+
+  document
+    .querySelectorAll('.bulk-cert-check')
+    .forEach(checkbox => {
+      checkbox.addEventListener('change', updateBulkPrintButtonState)
+    })
+
+  updateBulkPrintButtonState()
+  downloadAllButton.disabled = false
+}
+
+function updateBulkPrintButtonState() {
+  const selectedCount = document.querySelectorAll('.bulk-cert-check:checked').length
+  const printButton = document.querySelector('#bulkCertPrintBtn')
+  const downloadSelectedButton = document.querySelector('#bulkCertDownloadSelectedBtn')
+  const selectAll = document.querySelector('#bulkCertSelectAll')
+
+  if (printButton) {
+    printButton.disabled = selectedCount === 0
+    printButton.textContent = selectedCount
+      ? `Print Selected Certificates (${selectedCount})`
+      : "Print Selected Certificates"
+  }
+
+  if (downloadSelectedButton) {
+    downloadSelectedButton.disabled = selectedCount === 0
+    downloadSelectedButton.textContent = selectedCount
+      ? `Download Selected as PDF (${selectedCount})`
+      : "Download Selected as PDF"
+  }
+
+  if (selectAll) {
+    const totalCount = document.querySelectorAll('.bulk-cert-check').length
+    selectAll.checked = selectedCount > 0 && selectedCount === totalCount
+    selectAll.indeterminate = selectedCount > 0 && selectedCount < totalCount
+  }
+}
+
+window.printSelectedBulkCertificates = function () {
+  const selectedTestIds = Array.from(document.querySelectorAll('.bulk-cert-check:checked'))
+    .map(checkbox => String(checkbox.value))
+
+  if (!selectedTestIds.length) {
+    alert("Select at least one certificate to print.")
+    return
+  }
+
+  const selectedCertificates = (window.bulkCertificateResults || [])
+    .filter(certificate => selectedTestIds.includes(String(certificate.inspection?.testid)))
+
+  if (!selectedCertificates.length) {
+    alert("No selected certificates could be prepared for printing.")
+    return
+  }
+
+  const existingView = document.querySelector("#bulkCertificatePrintView")
+  if (existingView) existingView.remove()
+
+  const printView = document.createElement("div")
+  printView.id = "bulkCertificatePrintView"
+  printView.className = "bulk-certificate-print-view"
+
+  printView.innerHTML = `
+    <div class="bulk-print-toolbar screen-only">
+      <h2>Bulk Certificate Print</h2>
+      <div class="form-actions">
+        <button type="button" id="bulkPrintNowBtn">Print</button>
+        <button type="button" id="bulkPrintCloseBtn">Close</button>
+      </div>
+    </div>
+
+    <div class="bulk-certificate-print-pages">
+      ${selectedCertificates.map(certificate => `
+        <section class="bulk-certificate-page">
+          ${renderCertificateDocument(certificate)}
+        </section>
+      `).join("")}
+    </div>
+  `
+
+  document.body.appendChild(printView)
+  document.body.classList.add("bulk-print-mode")
+
+  document
+    .querySelector('#bulkPrintCloseBtn')
+    .addEventListener('click', window.closeBulkCertificatePrintView)
+
+  document
+    .querySelector('#bulkPrintNowBtn')
+    .addEventListener('click', () => {
+      window.print()
+    })
+
+  setTimeout(() => window.print(), 250)
+}
+
+window.closeBulkCertificatePrintView = function () {
+  const printView = document.querySelector("#bulkCertificatePrintView")
+  if (printView) printView.remove()
+  document.body.classList.remove("bulk-print-mode")
+}
+
+function getBulkCertificateFilterParams() {
+  const clientid = document.querySelector('#bulkCertClient').value
+  const datefrom = document.querySelector('#bulkCertDateFrom').value
+  const dateto = document.querySelector('#bulkCertDateTo').value
+  const siteid = document.querySelector('#bulkCertSite').value
+  const inspectiontype = document.querySelector('#bulkCertInspectionType').value
+  const status = document.querySelector('#bulkCertStatus').value
+
+  if (!clientid || !datefrom || !dateto) {
+    alert("Please select a customer, Date From and Date To before downloading PDFs.")
+    return null
+  }
+
+  const params = new URLSearchParams({
+    clientid,
+    datefrom,
+    dateto
+  })
+
+  if (siteid) params.set("siteid", siteid)
+  if (inspectiontype && inspectiontype !== "ALL") params.set("inspectiontype", inspectiontype)
+  if (status && status !== "ALL") params.set("status", status)
+
+  return params
+}
+
+function getSelectedBulkCertificateTestIds() {
+  return Array.from(document.querySelectorAll('.bulk-cert-check:checked'))
+    .map(checkbox => String(checkbox.value))
+}
+
+window.downloadSelectedBulkCertificatesPdf = async function () {
+  const selectedTestIds = getSelectedBulkCertificateTestIds()
+
+  if (!selectedTestIds.length) {
+    alert("Select at least one certificate to download.")
+    return
+  }
+
+  const params = getBulkCertificateFilterParams()
+  if (!params) return
+
+  params.set("testids", selectedTestIds.join(","))
+  await downloadBulkCertificatesPdf(params)
+}
+
+window.downloadAllBulkCertificatesPdf = async function () {
+  if (!(window.bulkCertificateResults || []).length) {
+    alert("No certificates found to download. Load certificates first.")
+    return
+  }
+
+  const params = getBulkCertificateFilterParams()
+  if (!params) return
+
+  await downloadBulkCertificatesPdf(params)
+}
+
+async function downloadBulkCertificatesPdf(params) {
+  const response = await fetch(
+    `http://localhost:5000/certificates/bulk-pdf?${params.toString()}`
+  )
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({
+      error: "Unable to download bulk certificates"
+    }))
+    alert(error.error || "Unable to download bulk certificates")
+    return
+  }
+
+  const blob = await response.blob()
+  const filename = getDownloadFilename(
+    response.headers.get("content-disposition"),
+    "FB-Certificates.pdf"
+  )
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement("a")
+
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}
+
+function getDownloadFilename(contentDisposition, fallback) {
+  const match = String(contentDisposition || "").match(/filename="?([^"]+)"?/i)
+  return match ? match[1] : fallback
+}
+
 window.setCertificateRowsPerPage = function (value) {
   window.certRowsPerPage = Number(value) || 25
   window.certCurrentPage = 1
@@ -384,6 +803,7 @@ window.previewCertificate = async function (testid) {
 
   const failCount = results.filter(r => r.result === "FAIL").length
   const passCount = results.filter(r => r.result === "PASS").length
+  const certificateRegulationNotes = getCertificateRegulationNotes(inspection)
 
   const statusClass =
     inspection.status === "SAFE"
@@ -466,6 +886,12 @@ window.previewCertificate = async function (testid) {
       </div>
     </div>
 
+    ${certificateRegulationNotes.map(note => `
+      <p class="fb-cert-driven-note">
+        ${note}
+      </p>
+    `).join("")}
+
     <div class="form-actions">
       <button type="button" id="previewOpenCertificateBtn">Open</button>
       <button type="button" id="previewPrintCertificateBtn">Print</button>
@@ -500,12 +926,6 @@ window.openCertificateModal = async function (testid) {
   }
 
   const inspection = data.inspection
-  const results = data.results || []
-  const inspectionPhotos = getCertificatePhotos(inspection, data.photos || [])
-  const assetDetails = getCertificateAssetDetails(inspection)
-  const certificateTitle = getCertificateTitle(inspection)
-  const drivenMachineryNote = getDrivenMachineryCertificateNote(inspection)
-  const sans500Note = getSans500CertificateNote(inspection)
 
   const existingModal = document.querySelector("#certificateModal")
   if (existingModal) existingModal.remove()
@@ -542,159 +962,7 @@ window.openCertificateModal = async function (testid) {
       </div>
 
       <div class="certificate-modal-body" id="certificatePrintArea">
-
-        <div class="fb-cert-page">
-
-          <img src="/header.jpg" class="fb-cert-header" alt="FB Cranes Header">
-
-          <div class="fb-cert-title">
-            <h1>${certificateTitle}</h1>
-          </div>
-
-          <div class="fb-cert-meta">
-            <div>
-              <strong>Certificate No:</strong>
-              <span>${inspection.testid}</span>
-            </div>
-
-            <div>
-              <strong>Tag Number:</strong>
-              <span>${inspection.tagnumber || "-"}</span>
-            </div>
-
-            <div>
-              <strong>Status:</strong>
-              <span class="${inspection.status === "SAFE" ? "status-safe" : "status-unsafe"}">
-                ${inspection.status || "-"}
-              </span>
-            </div>
-          </div>
-
-          <div class="fb-cert-section">
-            <h3>Customer Details</h3>
-            <div class="fb-cert-grid">
-              <p><strong>Client:</strong> ${inspection.clientname || "-"}</p>
-              <p><strong>Site:</strong> ${inspection.sitename || "-"}</p>
-              <p><strong>Section:</strong> ${inspection.sectionname || "-"}</p>
-            </div>
-          </div>
-
-          <div class="fb-cert-section">
-            <h3>Asset Details</h3>
-            <div class="fb-cert-grid">
-              <p><strong>Asset ID:</strong> ${inspection.assetid || "-"}</p>
-              <p><strong>Asset Tag No:</strong> ${inspection.assettagno || "-"}</p>
-              <p><strong>Equipment Type:</strong> ${inspection.equipmenttype || "-"}</p>
-              <p><strong>Description:</strong> ${inspection.description || "-"}</p>
-              <p><strong>Serial No:</strong> ${inspection.serialno || "-"}</p>
-              <p><strong>Manufacturer:</strong> ${inspection.manufacturer || "-"}</p>
-            </div>
-          </div>
-
-          ${assetDetails.length ? `
-            <div class="fb-cert-section">
-              <h3>Asset Specifications</h3>
-              <div class="fb-cert-grid">
-                ${assetDetails.map(([label, value]) => `
-                  <p><strong>${label}:</strong> ${value}</p>
-                `).join("")}
-              </div>
-            </div>
-          ` : ""}
-
-          <div class="fb-cert-section">
-            <h3>Inspection Details</h3>
-            <div class="fb-cert-grid">
-              <p><strong>Inspection Type:</strong> ${inspection.inspectiontype || "-"}</p>
-              <p><strong>Inspection Date:</strong> ${formatDate(inspection.testdate)}</p>
-              <p><strong>Certificate Expiry Date:</strong> ${formatDate(inspection.validdate)}</p>
-              <p><strong>Inspector:</strong> ${inspection.inspector || "-"}</p>
-              <p><strong>LMI Number:</strong> ${inspection.inspector_lmi_number || "-"}</p>
-            </div>
-          </div>
-
-          <div class="fb-cert-section">
-            <h3>Inspection Photos</h3>
-            <div class="fb-cert-photo-grid">
-              ${inspectionPhotos.length ? inspectionPhotos.slice(0, 4).map((photo, index) => `
-                <div>
-                  <img src="http://localhost:5000${photo.photo_path}">
-                  <p>${photo.photo_type ? photo.photo_type.replaceAll("_", " ") : `Photo ${index + 1}`}</p>
-                  ${photo.caption ? `<p>${photo.caption}</p>` : ""}
-                </div>
-              `).join("") : `
-                <div class="fb-cert-no-photo">No inspection photos</div>
-              `}
-            </div>
-          </div>
-
-          <div class="fb-cert-section">
-            <h3>Inspection Results</h3>
-
-            <table class="fb-cert-results-table">
-              <thead>
-                <tr>
-                  <th>Criteria</th>
-                  <th>Asset Value</th>
-                  <th>Measured Value</th>
-                  <th>Result</th>
-                  <th>Remarks</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                ${results.map(row => `
-                  <tr>
-                    <td>${row.criterianame || ""}</td>
-                    <td>${row.assetvalue || ""}</td>
-                    <td>${row.measuredvalue || ""}</td>
-                    <td>
-                      <strong class="${
-                        row.result === "PASS"
-                          ? "status-safe"
-                          : row.result === "FAIL"
-                            ? "status-unsafe"
-                            : ""
-                      }">
-                        ${row.result || ""}
-                      </strong>
-                    </td>
-                    <td>${row.remarks || ""}</td>
-                  </tr>
-                `).join("")}
-              </tbody>
-            </table>
-          </div>
-
-          ${drivenMachineryNote ? `
-            <p class="fb-cert-driven-note">
-              ${drivenMachineryNote}
-            </p>
-          ` : ""}
-
-          ${sans500Note ? `
-            <p class="fb-cert-driven-note">
-              ${sans500Note}
-            </p>
-          ` : ""}
-
-          <div class="fb-cert-signature-section">
-            <div>
-              <strong>Inspector Signature</strong>
-              ${inspection.inspector_signature_image ? `
-                <img
-                  class="fb-cert-signature-image"
-                  src="http://localhost:5000${inspection.inspector_signature_image}"
-                  alt="Inspector Signature"
-                >
-              ` : ""}
-              <div class="fb-cert-signature-line"></div>
-            </div>
-
-           <img src="/footer.jpg" class="fb-cert-footer" alt="FB Cranes Footer">
-
-        </div>
-
+        ${renderCertificateDocument(data)}
       </div>
     </div>
   `
@@ -710,6 +978,162 @@ window.openCertificateModal = async function (testid) {
     .addEventListener('click', () => {
       window.mailCertificate(inspection.testid)
     })
+}
+
+function renderCertificateDocument(certificate) {
+  const inspection = certificate.inspection || {}
+  const results = certificate.results || []
+  const inspectionPhotos = getCertificatePhotos(inspection, certificate.photos || [])
+  const assetDetails = getCertificateAssetDetails(inspection)
+  const certificateTitle = getCertificateTitle(inspection)
+  const certificateRegulationNotes = getCertificateRegulationNotes(inspection)
+
+  return `
+    <div class="fb-cert-page">
+      <img src="/header.jpg" class="fb-cert-header" alt="FB Cranes Header">
+
+      <div class="fb-cert-title">
+        <h1>${certificateTitle}</h1>
+      </div>
+
+      <div class="fb-cert-meta">
+        <div>
+          <strong>Certificate No:</strong>
+          <span>${inspection.testid}</span>
+        </div>
+
+        <div>
+          <strong>Tag Number:</strong>
+          <span>${inspection.tagnumber || "-"}</span>
+        </div>
+
+        <div>
+          <strong>Status:</strong>
+          <span class="${inspection.status === "SAFE" ? "status-safe" : "status-unsafe"}">
+            ${inspection.status || "-"}
+          </span>
+        </div>
+      </div>
+
+      <div class="fb-cert-section">
+        <h3>Customer Details</h3>
+        <div class="fb-cert-grid">
+          <p><strong>Client:</strong> ${inspection.clientname || "-"}</p>
+          <p><strong>Site:</strong> ${inspection.sitename || "-"}</p>
+          <p><strong>Section:</strong> ${inspection.sectionname || "-"}</p>
+        </div>
+      </div>
+
+      <div class="fb-cert-section">
+        <h3>Asset Details</h3>
+        <div class="fb-cert-grid">
+          <p><strong>Asset ID:</strong> ${inspection.assetid || "-"}</p>
+          <p><strong>Asset Tag No:</strong> ${inspection.assettagno || "-"}</p>
+          <p><strong>Equipment Type:</strong> ${inspection.equipmenttype || "-"}</p>
+          <p><strong>Description:</strong> ${inspection.description || "-"}</p>
+          <p><strong>Serial No:</strong> ${inspection.serialno || "-"}</p>
+          <p><strong>Manufacturer:</strong> ${inspection.manufacturer || "-"}</p>
+        </div>
+      </div>
+
+      ${assetDetails.length ? `
+        <div class="fb-cert-section">
+          <h3>Asset Specifications</h3>
+          <div class="fb-cert-grid">
+            ${assetDetails.map(([label, value]) => `
+              <p><strong>${label}:</strong> ${value}</p>
+            `).join("")}
+          </div>
+        </div>
+      ` : ""}
+
+      <div class="fb-cert-section">
+        <h3>Inspection Details</h3>
+        <div class="fb-cert-grid">
+          <p><strong>Inspection Type:</strong> ${inspection.inspectiontype || "-"}</p>
+          <p><strong>Inspection Date:</strong> ${formatDate(inspection.testdate)}</p>
+          <p><strong>Certificate Expiry Date:</strong> ${formatDate(inspection.validdate)}</p>
+          <p><strong>Inspector:</strong> ${inspection.inspector || "-"}</p>
+          <p><strong>LMI Number:</strong> ${inspection.inspector_lmi_number || "-"}</p>
+        </div>
+      </div>
+
+      <div class="fb-cert-section">
+        <h3>Inspection Photos</h3>
+        <div class="fb-cert-photo-grid">
+          ${inspectionPhotos.length ? inspectionPhotos.slice(0, 4).map((photo, index) => `
+            <div>
+              <img src="http://localhost:5000${photo.photo_path}">
+              <p>${photo.photo_type ? photo.photo_type.replaceAll("_", " ") : `Photo ${index + 1}`}</p>
+              ${photo.caption ? `<p>${photo.caption}</p>` : ""}
+            </div>
+          `).join("") : `
+            <div class="fb-cert-no-photo">No inspection photos</div>
+          `}
+        </div>
+      </div>
+
+      <div class="fb-cert-section">
+        <h3>Inspection Results</h3>
+
+        <table class="fb-cert-results-table">
+          <thead>
+            <tr>
+              <th>Criteria</th>
+              <th>Asset Value</th>
+              <th>Measured Value</th>
+              <th>Result</th>
+              <th>Remarks</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            ${results.map(row => `
+              <tr>
+                <td>${row.criterianame || ""}</td>
+                <td>${row.assetvalue || ""}</td>
+                <td>${row.measuredvalue || ""}</td>
+                <td>
+                  <strong class="${
+                    row.result === "PASS"
+                      ? "status-safe"
+                      : row.result === "FAIL"
+                        ? "status-unsafe"
+                        : ""
+                  }">
+                    ${row.result || ""}
+                  </strong>
+                </td>
+                <td>${row.remarks || ""}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+
+      ${certificateRegulationNotes.map(note => `
+        <p class="fb-cert-driven-note">
+          ${note}
+        </p>
+      `).join("")}
+
+      <div class="fb-cert-signature-section">
+        <div>
+          <strong>Inspector Signature</strong>
+          ${inspection.inspector_signature_image ? `
+            <img
+              class="fb-cert-signature-image"
+              src="http://localhost:5000${inspection.inspector_signature_image}"
+              alt="Inspector Signature"
+            >
+          ` : ""}
+          <div class="fb-cert-signature-line"></div>
+        </div>
+      </div>
+
+      <img src="/footer.jpg" class="fb-cert-footer" alt="FB Cranes Footer">
+    </div>
+  `
 }
 
 window.printCertificatePdf = function (testid) {
@@ -746,36 +1170,31 @@ window.downloadCertificatePdf = async function (testid) {
 }
 
 window.mailCertificate = async function (testid) {
+  const recipient = window.prompt("Enter recipient email address")
+
+  if (!recipient) {
+    return
+  }
+
   const response = await fetch(
-    `http://localhost:5000/inspections/${testid}/certificate`
+    `http://localhost:5000/certificates/${testid}/email`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ to: recipient.trim() })
+    }
   )
 
   const data = await response.json()
 
   if (!response.ok) {
-    alert("Error loading certificate email details: " + data.error)
+    alert(data.error || "Unable to email certificate")
     return
   }
 
-  const inspection = data.inspection
-  const subject = `Certificate ${inspection.testid}`
-  const body = [
-    `Certificate No: ${inspection.testid}`,
-    `Client: ${inspection.clientname || "-"}`,
-    `Site: ${inspection.sitename || "-"}`,
-    `Asset: ${inspection.description || "-"}`,
-    `Serial No: ${inspection.serialno || "-"}`,
-    `Inspection Type: ${inspection.inspectiontype || "-"}`,
-    `Inspection Date: ${formatDate(inspection.testdate)}`,
-    `Status: ${inspection.status || "-"}`,
-    "",
-    "The PDF certificate has been downloaded. Please attach it before sending."
-  ].join("\n")
-
-  await window.downloadCertificatePdf(testid)
-
-  window.location.href =
-    `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+  alert("Certificate emailed successfully")
 }
 
 window.closeCertificateModal = function () {
@@ -825,20 +1244,61 @@ function getCertificateTitle(inspection) {
     : "CERTIFICATE OF INSPECTION"
 }
 
-function getDrivenMachineryCertificateNote(inspection) {
-  const shouldShowNote = ["400", "500"].includes(String(inspection.equipgroupid || ""))
+const DRIVEN_MACHINERY_CERTIFICATE_NOTE =
+  "Certification that the item has been inspected in accordance with the requirements of Driven Machinery and SANS Regulations and the responsible person has been informed of all defects."
 
-  return shouldShowNote
-    ? "Certification that the item has been inspected in accordance with the requirements of Driven Machinery and SANS Regulations and the responsible person has been informed of all defects."
-    : ""
-}
+const DRIVEN_MACHINERY_ITEMS_CERTIFICATE_NOTE =
+  "Certification that the items have been inspected in accordance with the requirements of Driven Machinery and SANS Regulations and the responsible person has been informed of all defects."
 
-function getSans500CertificateNote(inspection) {
-  const shouldShowNote = ["101", "102"].includes(String(inspection.equiptypeid || ""))
+const SANS_500_CERTIFICATE_NOTE =
+  "EXAMINED AND TESTED IN ACCORDANCE WITH SANS 500"
 
-  return shouldShowNote
-    ? "EXAMINED IN ACCORDANCE WITH SANS 500"
-    : ""
+const REGULATION_18_CERTIFICATE_NOTE =
+  "EXAMINED AND TESTED IN ACCORDANCE WITH REGULATION 18 OF OHS ACT 85 OF 1993"
+
+const DRIVEN_MACHINERY_ITEMS_EQUIPTYPE_IDS = new Set([
+  "201",
+  "202",
+  "203",
+  "301",
+  "302",
+  "303",
+  "304",
+  "305",
+  "309",
+  "312",
+  "314",
+  "315",
+  "317",
+  "319",
+  "320",
+  "323",
+  "324",
+  "338",
+  "339"
+])
+
+function getCertificateRegulationNotes(inspection) {
+  const notes = []
+  const equiptypeid = String(inspection.equiptypeid || "")
+
+  if (["400", "500"].includes(String(inspection.equipgroupid || ""))) {
+    notes.push(DRIVEN_MACHINERY_CERTIFICATE_NOTE)
+  }
+
+  if (equiptypeid === "102") {
+    notes.push(SANS_500_CERTIFICATE_NOTE)
+  }
+
+  if (["103", "105"].includes(equiptypeid)) {
+    notes.push(REGULATION_18_CERTIFICATE_NOTE)
+  }
+
+  if (DRIVEN_MACHINERY_ITEMS_EQUIPTYPE_IDS.has(equiptypeid)) {
+    notes.push(DRIVEN_MACHINERY_ITEMS_CERTIFICATE_NOTE)
+  }
+
+  return notes
 }
 
 function prepareCertificatePrint() {

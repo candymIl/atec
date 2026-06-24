@@ -1,4 +1,5 @@
 const jwt = require("jsonwebtoken")
+const fs = require("fs")
 const path = require("path")
 
 const ROLE_ACCESS = {
@@ -155,6 +156,71 @@ function sanitizeFilename(name) {
   return `${Date.now()}-${baseName}${extension}`
 }
 
+function isRealImageFile(filePath) {
+  const header = Buffer.alloc(16)
+  const fd = fs.openSync(filePath, "r")
+
+  try {
+    fs.readSync(fd, header, 0, header.length, 0)
+  } finally {
+    fs.closeSync(fd)
+  }
+
+  const isJpeg = header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff
+  const isPng =
+    header[0] === 0x89 &&
+    header[1] === 0x50 &&
+    header[2] === 0x4e &&
+    header[3] === 0x47 &&
+    header[4] === 0x0d &&
+    header[5] === 0x0a &&
+    header[6] === 0x1a &&
+    header[7] === 0x0a
+  const isWebp =
+    header.toString("ascii", 0, 4) === "RIFF" &&
+    header.toString("ascii", 8, 12) === "WEBP"
+
+  return isJpeg || isPng || isWebp
+}
+
+function flattenUploadedFiles(req) {
+  if (req.file) return [req.file]
+  if (!req.files) return []
+  if (Array.isArray(req.files)) return req.files
+
+  return Object.values(req.files).flat()
+}
+
+function validateUploadedImages(req, res, next) {
+  const files = flattenUploadedFiles(req)
+
+  for (const file of files) {
+    try {
+      if (!file?.path || !isRealImageFile(file.path)) {
+        files.forEach(uploadedFile => {
+          if (uploadedFile?.path) {
+            fs.unlink(uploadedFile.path, () => {})
+          }
+        })
+
+        return res.status(400).json({
+          error: "Only valid JPG, PNG and WebP images are allowed"
+        })
+      }
+    } catch (err) {
+      files.forEach(uploadedFile => {
+        if (uploadedFile?.path) {
+          fs.unlink(uploadedFile.path, () => {})
+        }
+      })
+
+      return next(err)
+    }
+  }
+
+  return next()
+}
+
 module.exports = {
   ROLE_ACCESS,
   asyncRoute,
@@ -167,5 +233,6 @@ module.exports = {
   requireAuth,
   requireRole,
   sanitizeFilename,
-  signAuthToken
+  signAuthToken,
+  validateUploadedImages
 }

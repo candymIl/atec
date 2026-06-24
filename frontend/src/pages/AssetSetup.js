@@ -1,5 +1,56 @@
 import { sortHeader, sortTableRows } from '../tableSort.js'
 
+export function renderAssetRow(asset) {
+  return `
+    <tr>
+      <td>${asset.assetid}</td>
+      <td>${asset.assettagno || ''}</td>
+      <td>${asset.serialno || ''}</td>
+      <td>${asset.clientname || ''}</td>
+      <td>${asset.sitename || ''}</td>
+      <td>${asset.sectionname || ''}</td>
+      <td>${asset.equipmenttype || ''}</td>
+      <td>${asset.description || ''}</td>
+      <td>
+        <div class="action-buttons">
+          <button onclick="editAsset(${asset.assetid})">
+            Edit
+          </button>
+
+          <button onclick="startInspection(${asset.assetid}, 'VISUAL', 'assets')">
+            Inspect
+          </button>
+
+          ${['100', '400', '500'].includes(String(asset.equipgroupid || '')) ? `
+            <button
+              class="load-test-btn"
+              onclick="startInspection(${asset.assetid}, 'LOADTEST', 'assets')"
+            >
+              Load Test
+            </button>
+          ` : ''}
+
+          <button onclick="showAssetHistoryFromSetup(${asset.assetid})">
+            History
+          </button>
+
+          <button onclick="openAssetQrLabel(${asset.assetid})">
+            QR Label
+          </button>
+
+          <button onclick="showMoveAssetForm(${asset.assetid})">
+            Move
+          </button>
+
+          <button onclick="archiveAsset(${asset.assetid})">
+            Archive
+          </button>
+        </div>
+      </td>
+    </tr>
+  `
+}
+
 export function renderAssetSetup(assets) {
   const sortedAssets = sortTableRows(assets, 'assets', {
     assetid: asset => asset.assetid,
@@ -9,7 +60,8 @@ export function renderAssetSetup(assets) {
     sitename: asset => asset.sitename,
     sectionname: asset => asset.sectionname,
     equipmenttype: asset => asset.equipmenttype,
-    description: asset => asset.description
+    description: asset => asset.description,
+    qrcode: asset => asset.qrcode
   }, 'assetid')
   const pageSize = window.assetRowsPerPage || 25
   const totalPages = Math.max(1, Math.ceil(sortedAssets.length / pageSize))
@@ -50,6 +102,7 @@ export function renderAssetSetup(assets) {
             <option value="sectionname">Section</option>
             <option value="equipmenttype">Equipment Type</option>
             <option value="description">Description</option>
+            <option value="qrcode">QR Code</option>
           </select>
         </div>
 
@@ -76,7 +129,8 @@ export function renderAssetSetup(assets) {
           ["sitename", "Site"],
           ["sectionname", "Section"],
           ["equipmenttype", "Equipment Type"],
-          ["description", "Description"]
+          ["description", "Description"],
+          ["qrcode", "QR Code"]
         ].map(([value, label]) => `
           <button type="button" class="filter-key-btn" onclick="setAssetFilterKey('${value}')">
             ${label}
@@ -125,50 +179,7 @@ export function renderAssetSetup(assets) {
       </thead>
 
       <tbody id="assetTableBody">
-        ${visibleAssets.map(asset => `
-          <tr>
-            <td>${asset.assetid}</td>
-            <td>${asset.assettagno || ''}</td>
-            <td>${asset.serialno || ''}</td>
-            <td>${asset.clientname || ''}</td>
-            <td>${asset.sitename || ''}</td>
-            <td>${asset.sectionname || ''}</td>
-            <td>${asset.equipmenttype || ''}</td>
-            <td>${asset.description || ''}</td>
-            <td>
-              <div class="action-buttons">
-                <button onclick="editAsset(${asset.assetid})">
-                  Edit
-                </button>
-
-                <button onclick="startInspection(${asset.assetid}, 'VISUAL', 'assets')">
-                  Inspect
-                </button>
-
-                ${['100', '400', '500'].includes(String(asset.equipgroupid || '')) ? `
-                  <button
-                      class="load-test-btn"
-                      onclick="startInspection(${asset.assetid}, 'LOADTEST', 'assets')"
-                    >
-                      Load Test
-                    </button>                                 
-                ` : ''}
-
-                <button onclick="showAssetHistoryFromSetup(${asset.assetid})">
-                  History
-                </button>
-
-                <button onclick="showMoveAssetForm(${asset.assetid})">
-                  Move
-                </button>
-
-                <button onclick="archiveAsset(${asset.assetid})">
-                  Archive
-                </button>
-              </div>
-            </td>
-          </tr>
-        `).join('')}
+        ${visibleAssets.map(renderAssetRow).join('')}
       </tbody>
     </table>
   `
