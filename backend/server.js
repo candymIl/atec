@@ -125,6 +125,58 @@ const upload = multer({
   }
 });
 
+function flattenUploadFiles(files) {
+  if (!files) return []
+  if (Array.isArray(files)) return files
+  return Object.values(files).flat()
+}
+
+async function compressUploadedPhoto(file) {
+  if (!file?.path || file.fieldname === "signature") return
+
+  const targetPath = file.path.replace(/\.[^.]+$/, ".jpg")
+  const tempPath = `${targetPath}.tmp`
+
+  await sharp(file.path)
+    .rotate()
+    .resize({
+      width: Number(process.env.UPLOAD_IMAGE_MAX_WIDTH || 1600),
+      height: Number(process.env.UPLOAD_IMAGE_MAX_HEIGHT || 1600),
+      fit: "inside",
+      withoutEnlargement: true
+    })
+    .jpeg({
+      quality: Number(process.env.UPLOAD_IMAGE_QUALITY || 72),
+      mozjpeg: true
+    })
+    .toFile(tempPath)
+
+  fs.renameSync(tempPath, targetPath)
+
+  if (targetPath !== file.path) {
+    fs.unlinkSync(file.path)
+  }
+
+  file.path = targetPath
+  file.filename = path.basename(targetPath)
+  file.mimetype = "image/jpeg"
+}
+
+async function compressUploadedPhotos(req, res, next) {
+  const files = [
+    ...(req.file ? [req.file] : []),
+    ...flattenUploadFiles(req.files)
+  ]
+
+  try {
+    await Promise.all(files.map(file => compressUploadedPhoto(file)))
+    next()
+  } catch (err) {
+    removeUploadedFiles(files)
+    next(err)
+  }
+}
+
 app.get("/", (req, res) => {
   res.send("ATEC backend is running");
 });
@@ -2372,6 +2424,7 @@ app.post("/assets/:id/photos",
     { name: "photo2", maxCount: 1 },
   ]),
   validateUploadedImages,
+  compressUploadedPhotos,
   async (req, res) => {
     try {
       const { id } = req.params;
@@ -2908,6 +2961,7 @@ app.post("/inspections",
     { name: "inspectionPhotos", maxCount: 20 },
   ]),
   validateUploadedImages,
+  compressUploadedPhotos,
   async (req, res) => {
     const client = await pool.connect()
 
@@ -3202,6 +3256,7 @@ app.get("/inspections/:testid/photos", async (req, res) => {
 app.post("/inspections/:testid/photos",
   upload.array("inspectionPhotos", 20),
   validateUploadedImages,
+  compressUploadedPhotos,
   async (req, res) => {
     try {
       const { testid } = req.params

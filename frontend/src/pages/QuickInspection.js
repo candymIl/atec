@@ -5,7 +5,7 @@ export function renderQuickInspection() {
     <div class="filter-card">
       <h3>Scan / Search Asset</h3>
 
-      <label>QR Code, Serial No or Asset Tag</label>
+      <label>QR Code, Asset ID, Serial No, Hoist Serial No or Asset Tag</label>
 
       <input
         id="quickAssetSearch"
@@ -16,9 +16,23 @@ export function renderQuickInspection() {
         onkeydown="handleQuickInspectionEnter(event)"
       >
 
-      <button onclick="quickFindAsset()">
-        Find Asset
-      </button>
+      <div class="quick-scan-actions">
+        <button onclick="quickFindAsset()">
+          Find Asset
+        </button>
+
+        <button type="button" class="qr-scan-btn" onclick="startQuickCameraScan()">
+          Scan With Camera
+        </button>
+      </div>
+
+      <div id="quickCameraScanner" class="quick-camera-scanner" hidden>
+        <video id="quickCameraVideo" playsinline></video>
+        <div class="quick-scan-actions">
+          <button type="button" onclick="stopQuickCameraScan()">Stop Scan</button>
+        </div>
+        <p id="quickScanStatus">Point the camera at the ATEC QR label.</p>
+      </div>
     </div>
 
     <div id="quickInspectionResult"></div>

@@ -1143,10 +1143,140 @@ tr:hover {
   margin-bottom: 14px;
 }
 
+.quick-scan-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.qr-scan-btn {
+  background: #f59e0b;
+  color: #111827;
+}
+
+.qr-scan-btn:hover {
+  background: #fbbf24;
+  color: #111827;
+}
+
+.quick-camera-scanner {
+  background: #0f172a;
+  border-radius: 8px;
+  margin-top: 14px;
+  padding: 12px;
+}
+
+.quick-camera-scanner video {
+  aspect-ratio: 4 / 3;
+  background: #020617;
+  border: 2px solid #334155;
+  border-radius: 8px;
+  display: block;
+  max-height: 360px;
+  object-fit: cover;
+  width: 100%;
+}
+
+.quick-camera-scanner p {
+  color: #e5e7eb;
+  font-weight: 700;
+  margin: 10px 0 0;
+}
+
 .quick-asset-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 24px;
+}
+
+.quick-result-card {
+  padding: 16px;
+}
+
+.quick-result-header {
+  align-items: center;
+  border-bottom: 1px solid #d9e1ec;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+}
+
+.quick-result-header h3 {
+  margin: 0;
+}
+
+.quick-result-header strong {
+  background: #eaf1fb;
+  border: 1px solid #cfdbea;
+  border-radius: 999px;
+  color: #12345a;
+  padding: 5px 12px;
+}
+
+.quick-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.quick-detail-grid p,
+.quick-history-card p {
+  background: #f8fafc;
+  border: 1px solid #d9e1ec;
+  border-radius: 6px;
+  margin: 0;
+  padding: 8px 10px;
+}
+
+.quick-detail-grid span,
+.quick-history-card span {
+  color: #64748b;
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  margin-bottom: 3px;
+  text-transform: uppercase;
+}
+
+.quick-detail-grid strong,
+.quick-history-card strong {
+  color: #0f2746;
+  display: block;
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.quick-wide {
+  grid-column: span 3;
+}
+
+.quick-history-card {
+  align-self: start;
+  display: grid;
+  gap: 8px;
+}
+
+.quick-history-card h4 {
+  margin: 0 0 2px;
+}
+
+.quick-history-card em {
+  color: #00843d;
+  display: block;
+  font-style: normal;
+  font-weight: 800;
+  margin-top: 2px;
+}
+
+.quick-result-bottom {
+  align-items: end;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  margin-top: 14px;
 }
 
 .inspection-asset-summary {
@@ -1211,15 +1341,42 @@ tr:hover {
 
 .quick-photo-grid {
   display: grid;
-  grid-template-columns: repeat(2, 260px);
-  gap: 18px;
-  margin: 18px 0;
+  grid-template-columns: repeat(2, minmax(120px, 180px));
+  gap: 10px;
+  margin: 0;
+}
+
+.quick-photo-card {
+  background: #ffffff;
+  border: 1px solid #d9e1ec;
+  border-radius: 8px;
+  padding: 8px;
+  text-align: center;
 }
 
 .quick-photo-card img {
   width: 100%;
-  max-height: 260px;
+  height: 155px;
   object-fit: contain;
+}
+
+.quick-photo-card span {
+  color: #64748b;
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  margin-top: 4px;
+}
+
+.quick-result-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  margin: 0;
+  min-width: 170px;
+}
+
+.quick-result-actions button {
+  width: 100%;
 }
 
 .inspection-photo-preview-grid {
@@ -3430,8 +3587,23 @@ tr:hover {
   .certificate-dashboard-grid,
   .report-filter-grid,
   .bulk-filter-grid,
-  .quick-asset-grid {
+  .quick-asset-grid,
+  .quick-detail-grid,
+  .quick-result-bottom {
     grid-template-columns: 1fr !important;
+  }
+
+  .quick-wide {
+    grid-column: span 1;
+  }
+
+  .quick-photo-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .quick-result-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    min-width: 0;
   }
 
   .section-header {
@@ -3466,7 +3638,8 @@ tr:hover {
 
   .form-actions button,
   .action-buttons button,
-  .inspection-asset-actions button {
+  .inspection-asset-actions button,
+  .quick-result-actions button {
     flex: 1 1 140px;
   }
 
@@ -3516,5 +3689,13 @@ tr:hover {
   .report-pagination-bar,
   .pagination-bar {
     font-size: 12px;
+  }
+
+  .quick-result-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .quick-photo-card img {
+    height: 130px;
   }
 }

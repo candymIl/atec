@@ -3770,12 +3770,42 @@ window.handleQuickInspectionEnter = function (event) {
   }
 }
 
+function normalizeQuickAssetScan(value = '') {
+  const raw = String(value || '').trim()
+  const lower = raw.toLowerCase()
+
+  const qrParamMatch = raw.match(/[?&]qr=([^&\s]+)/i)
+  if (qrParamMatch) return decodeURIComponent(qrParamMatch[1]).trim()
+
+  const atecCodeMatch = raw.match(/ATEC-ASSET-\d+/i)
+  if (atecCodeMatch) return atecCodeMatch[0].trim()
+
+  const preferredLineMatch = raw.match(/(?:Asset ID|Serial No|Hoist Serial No|Asset Tag)\s*:\s*([^\n\r]+)/i)
+  if (preferredLineMatch) {
+    const value = preferredLineMatch[1].replace(/^-$/, '').trim()
+    if (value) return value
+  }
+
+  if (lower.includes('atec asset label')) {
+    const fallbackLine = raw
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .find(line => line && !/^(atec asset label|website|landline|equipment|status|inspection pdf|load test pdf|last |next )/i.test(line))
+
+    if (fallbackLine) return fallbackLine.replace(/^[^:]+:\s*/, '').trim()
+  }
+
+  return raw
+}
+
 window.quickFindAsset = async function () {
-  const search = document
-    .querySelector('#quickAssetSearch')
-    .value
-    .toLowerCase()
-    .trim()
+  const searchInput = document.querySelector('#quickAssetSearch')
+  const normalizedSearch = normalizeQuickAssetScan(searchInput?.value || '')
+  const search = normalizedSearch.toLowerCase().trim()
+
+  if (searchInput && normalizedSearch !== searchInput.value.trim()) {
+    searchInput.value = normalizedSearch
+  }
 
   const resultBox =
     document.querySelector('#quickInspectionResult')
@@ -3792,6 +3822,7 @@ window.quickFindAsset = async function () {
     (asset.assettagno || '').toLowerCase().includes(search) ||
     (asset.serialno || '').toLowerCase().includes(search) ||
     (asset.hoistserialno || '').toLowerCase().includes(search) ||
+    (asset.auxhoistserialno || '').toLowerCase().includes(search) ||
     (asset.qrcode || '').toLowerCase().includes(search)
   )
 
@@ -3858,6 +3889,80 @@ window.quickFindAsset = async function () {
   quickOpenAsset(matchedAssets[0].assetid)
 }
 
+let quickScannerStream = null
+let quickScannerLoopActive = false
+
+window.startQuickCameraScan = async function () {
+  const scanner = document.querySelector('#quickCameraScanner')
+  const video = document.querySelector('#quickCameraVideo')
+  const status = document.querySelector('#quickScanStatus')
+
+  if (!('BarcodeDetector' in window)) {
+    if (status) status.textContent = 'Camera scanning is not supported by this browser. Use the scan/type box above.'
+    scanner?.removeAttribute('hidden')
+    return
+  }
+
+  try {
+    const supportedFormats = await window.BarcodeDetector.getSupportedFormats()
+    const formats = ['qr_code', 'code_128', 'code_39', 'ean_13'].filter(format =>
+      supportedFormats.includes(format)
+    )
+    const detector = new window.BarcodeDetector({ formats })
+
+    quickScannerStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' },
+      audio: false
+    })
+
+    video.srcObject = quickScannerStream
+    scanner?.removeAttribute('hidden')
+    await video.play()
+
+    quickScannerLoopActive = true
+    if (status) status.textContent = 'Scanning... point the camera at the QR label or barcode.'
+
+    const scanFrame = async () => {
+      if (!quickScannerLoopActive) return
+
+      try {
+        const codes = await detector.detect(video)
+        if (codes.length) {
+          const scannedValue = normalizeQuickAssetScan(codes[0].rawValue)
+          document.querySelector('#quickAssetSearch').value = scannedValue
+          stopQuickCameraScan()
+          quickFindAsset()
+          return
+        }
+      } catch (err) {
+        console.error('Quick camera scan failed:', err)
+      }
+
+      requestAnimationFrame(scanFrame)
+    }
+
+    scanFrame()
+  } catch (err) {
+    console.error('Unable to start camera scanner:', err)
+    scanner?.removeAttribute('hidden')
+    if (status) status.textContent = 'Camera could not start. Please allow camera access or use the scan/type box.'
+  }
+}
+
+window.stopQuickCameraScan = function () {
+  quickScannerLoopActive = false
+
+  if (quickScannerStream) {
+    quickScannerStream.getTracks().forEach(track => track.stop())
+    quickScannerStream = null
+  }
+
+  const video = document.querySelector('#quickCameraVideo')
+  if (video) video.srcObject = null
+
+  document.querySelector('#quickCameraScanner')?.setAttribute('hidden', '')
+}
+
 window.quickOpenAsset = async function (assetid) {
   const resultBox =
     document.querySelector('#quickInspectionResult') ||
@@ -3883,67 +3988,56 @@ window.quickOpenAsset = async function (assetid) {
   }
 
   resultBox.innerHTML = `
-    <div class="filter-card">
-      <h3>Asset Found</h3>
+    <div class="filter-card quick-result-card">
+      <div class="quick-result-header">
+        <h3>Asset Found</h3>
+        <strong>${asset.assetid}</strong>
+      </div>
 
       <div class="quick-asset-grid">
 
-        <div>
-          <p><strong>Asset ID:</strong> ${asset.assetid}</p>
-          <p><strong>Asset Tag:</strong> ${asset.assettagno || ''}</p>
-          <p><strong>Serial No:</strong> ${asset.serialno || ''}</p>
-          <p><strong>Description:</strong> ${asset.description || ''}</p>
-          <p><strong>Equipment Type:</strong> ${asset.equipmenttype || ''}</p>
-          <p><strong>Client:</strong> ${asset.clientname || ''}</p>
-          <p><strong>Site:</strong> ${asset.sitename || ''}</p>
-          <p><strong>Section:</strong> ${asset.sectionname || ''}</p>
+        <div class="quick-detail-grid">
+          <p><span>Asset Tag</span><strong>${asset.assettagno || '-'}</strong></p>
+          <p><span>Serial No</span><strong>${asset.serialno || '-'}</strong></p>
+          <p><span>Equipment</span><strong>${asset.equipmenttype || '-'}</strong></p>
+          <p class="quick-wide"><span>Description</span><strong>${asset.description || '-'}</strong></p>
+          <p><span>Client</span><strong>${asset.clientname || '-'}</strong></p>
+          <p><span>Site</span><strong>${asset.sitename || '-'}</strong></p>
+          <p><span>Section</span><strong>${asset.sectionname || '-'}</strong></p>
         </div>
 
-        <div>
+        <div class="quick-history-card">
           <h4>Inspection History</h4>
-
-          <p>
-            <strong>Last Visual:</strong>
-      ${asset.lastvisualdate ? asset.lastvisualdate.split('T')[0] : 'No record'}
-            -
-            ${asset.lastvisualstatus || ''}
-          </p>
-
-          <p>
-            <strong>Last Load Test:</strong>
-    ${asset.lastloadtestdate ? asset.lastloadtestdate.split('T')[0] : 'No record'}          
-            -
-            ${asset.lastloadteststatus || ''}
-          </p>
+          <p><span>Last Visual</span><strong>${asset.lastvisualdate ? asset.lastvisualdate.split('T')[0] : 'No record'}</strong><em>${asset.lastvisualstatus || '-'}</em></p>
+          <p><span>Last Load Test</span><strong>${asset.lastloadtestdate ? asset.lastloadtestdate.split('T')[0] : 'No record'}</strong><em>${asset.lastloadteststatus || '-'}</em></p>
         </div>
 
       </div>
 
-      <div class="quick-photo-grid">
+      <div class="quick-result-bottom">
+        <div class="quick-photo-grid">
         ${asset.media1 ? `
           <div class="quick-photo-card">
-            <h4>Photo 1</h4>
             <img src="${API_BASE}${asset.media1}">
+            <span>Photo 1</span>
           </div>
         ` : ''}
 
         ${asset.media2 ? `
           <div class="quick-photo-card">
-            <h4>Photo 2</h4>
             <img src="${API_BASE}${asset.media2}">
+            <span>Photo 2</span>
           </div>
         ` : ''}
-      </div>
+        </div>
 
-      <div class="form-actions">
-<button onclick="startInspection(${asset.assetid}, 'VISUAL', '${returnPage}')">Visual Inspection
-        </button>
+        <div class="form-actions quick-result-actions">
+          <button onclick="startInspection(${asset.assetid}, 'VISUAL', '${returnPage}')">Visual Inspection</button>
 
-<button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'LOADTEST', '${returnPage}')">Load Test
-        </button>
+          <button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'LOADTEST', '${returnPage}')">Load Test</button>
 
-<button onclick="openAssetQrLabel(${asset.assetid})">QR Label
-        </button>
+          <button onclick="openAssetQrLabel(${asset.assetid})">QR Label</button>
+        </div>
 
       </div>
     </div>
