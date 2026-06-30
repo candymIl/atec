@@ -104,7 +104,7 @@ function renderLogin(message = '') {
   document.querySelector('#app').innerHTML = `
     <div class="login-page">
       <div class="login-card">
-        <img src="${assetUrl('logo.png')}" alt="ATEC Logo" class="login-logo">
+        <img src="${assetUrl('logo.jpg')}" alt="ATEC Logo" class="login-logo">
         <h1>ATEC Login</h1>
         ${message ? `<p class="login-error">${message}</p>` : ''}
         <label>Username or Email</label>
@@ -708,7 +708,7 @@ function renderStartupError(message) {
   document.querySelector('#app').innerHTML = `
     <div class="login-page">
       <div class="login-card">
-        <img src="${assetUrl('logo.png')}" alt="ATEC Logo" class="login-logo">
+        <img src="${assetUrl('logo.jpg')}" alt="ATEC Logo" class="login-logo">
         <h1>ATEC needs a database update</h1>
         <p>${message}</p>
         <p>
@@ -772,7 +772,7 @@ async function loadData() {
   <div class="sidebar">
 
           <div class="logo-container">
-            <img src="${assetUrl('logo.png')}" alt="ATEC Logo" class="logo">
+            <img src="${assetUrl('logo.jpg')}" alt="ATEC Logo" class="logo">
           </div>
 
           <div class="system-title">
