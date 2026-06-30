@@ -87,7 +87,7 @@ function ensurePageAccess(pageKey) {
 
 function menuButton(pageKey, label, action) {
   return hasAccess(pageKey)
-    ? `<button onclick="${action}">${label}</button>`
+    ? `<button onclick="closeMobileMenu(); ${action}">${label}</button>`
     : ''
 }
 
@@ -698,6 +698,11 @@ async function loadData() {
       <span>${currentUser.role}${currentUser.lmi_number ? ` | LMI ${currentUser.lmi_number}` : ''}</span>
     </div>
 
+    <button class="mobile-menu-toggle" onclick="toggleMobileMenu()" aria-expanded="false">
+      Menu
+    </button>
+
+    <div class="mobile-menu-actions">
     ${menuButton('dashboard', 'Dashboard', 'showDashboard()')}
     ${menuButton('customers', 'Customer Setup', 'showCustomerSetup()')}
     ${menuButton('sites', 'Sites', 'showSites()')}
@@ -713,6 +718,7 @@ async function loadData() {
     ${menuButton('users', 'User Management', 'showUserManagement()')}
 
     <button onclick="logoutUser()">Logout</button>
+    </div>
 
   </div>
 
@@ -725,6 +731,21 @@ async function loadData() {
 </div>
 
   `
+
+window.toggleMobileMenu = function () {
+  const sidebar = document.querySelector('.sidebar')
+  const toggle = document.querySelector('.mobile-menu-toggle')
+  const isOpen = sidebar?.classList.toggle('mobile-menu-open')
+  toggle?.setAttribute('aria-expanded', isOpen ? 'true' : 'false')
+}
+
+window.closeMobileMenu = function () {
+  const sidebar = document.querySelector('.sidebar')
+  const toggle = document.querySelector('.mobile-menu-toggle')
+  sidebar?.classList.remove('mobile-menu-open')
+  toggle?.setAttribute('aria-expanded', 'false')
+}
+
 window.showDashboard = function () {
   if (!ensurePageAccess('dashboard')) return
 
