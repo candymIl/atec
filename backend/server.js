@@ -553,6 +553,15 @@ function authorizeRequest(req, res, next) {
   const isRead = method === "GET"
   const isWrite = ["POST", "PUT", "PATCH", "DELETE"].includes(method)
 
+  if (
+    routePath === "/users/me" &&
+    ["GET", "PUT"].includes(method)
+  ) {
+    return next()
+  }
+
+  if (routePath.startsWith("/users/me/signature")) return next()
+
   if (role === "MANAGER") {
     if (method === "POST" && /^\/certificates\/[^/]+\/email$/.test(routePath)) {
       return next()
@@ -691,15 +700,6 @@ function authorizeRequest(req, res, next) {
         error: "Inspectors may only update asset tag numbers and photos"
       })
     }
-
-    if (
-      routePath === "/users/me" &&
-      ["GET", "PUT"].includes(method)
-    ) {
-      return next()
-    }
-
-    if (routePath.startsWith("/users/me/signature")) return next()
 
     return res.status(403).json({ error: "Access denied" })
   }
