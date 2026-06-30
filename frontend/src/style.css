@@ -3266,3 +3266,220 @@ tr:hover {
   min-height: 95px;
   border-radius: 12px;
 }
+
+/* =======================================================
+   18. MOBILE APP LAYOUT
+======================================================= */
+
+@media (max-width: 768px) {
+  html,
+  body {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .app {
+    width: 100%;
+    max-width: none;
+  }
+
+  .layout {
+    display: block;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    width: 100%;
+    min-width: 0;
+    padding: 12px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .logo-container,
+  .system-title,
+  .user-panel {
+    grid-column: 1 / -1;
+  }
+
+  .logo-container {
+    margin-bottom: 4px;
+  }
+
+  .logo {
+    width: 145px;
+  }
+
+  .system-title {
+    font-size: 13px;
+    margin-bottom: 4px;
+  }
+
+  .user-panel {
+    margin-bottom: 2px;
+    padding: 9px;
+  }
+
+  .user-panel strong {
+    font-size: 15px;
+  }
+
+  .user-panel span {
+    font-size: 11px;
+  }
+
+  .sidebar button {
+    margin: 0;
+    min-height: 38px;
+    padding: 8px 9px;
+    text-align: center;
+    white-space: normal;
+    font-size: 12px;
+  }
+
+  .content {
+    width: 100%;
+    padding: 14px 10px 24px;
+    overflow-x: auto;
+  }
+
+  #page {
+    width: 100%;
+    max-width: none;
+  }
+
+  h1 {
+    font-size: 25px;
+  }
+
+  h2 {
+    font-size: 22px;
+  }
+
+  .dashboard-section,
+  .dashboard-panel,
+  .form-section,
+  .search-panel,
+  .report-panel,
+  .card {
+    border-radius: 8px;
+    padding: 12px;
+  }
+
+  .dashboard-cards {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .stat-card {
+    min-height: 78px;
+    padding: 12px;
+  }
+
+  .stat-card p {
+    font-size: 26px;
+  }
+
+  .stat-icon {
+    height: 38px;
+    width: 38px;
+    font-size: 20px;
+  }
+
+  .dashboard-row,
+  .dashboard-buttons,
+  .form-grid,
+  .asset-form-grid,
+  .dynamic-asset-fields,
+  .certificate-dashboard-grid,
+  .report-filter-grid,
+  .bulk-filter-grid,
+  .quick-asset-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .section-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  input,
+  select,
+  textarea {
+    max-width: 100%;
+    font-size: 16px;
+  }
+
+  button,
+  .cert-action-link {
+    min-height: 38px;
+  }
+
+  .form-actions,
+  .action-buttons,
+  .inspection-asset-actions,
+  .report-pagination-bar,
+  .pagination-bar {
+    align-items: stretch;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-start;
+  }
+
+  .form-actions button,
+  .action-buttons button,
+  .inspection-asset-actions button {
+    flex: 1 1 140px;
+  }
+
+  table,
+  .dashboard-table,
+  .asset-table,
+  #certificateResults {
+    min-width: 720px;
+  }
+
+  .certificate-modal {
+    width: 96vw;
+  }
+
+  .certificate-modal-body {
+    padding: 10px;
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 430px) {
+  .sidebar {
+    grid-template-columns: 1fr;
+  }
+
+  .logo {
+    width: 130px;
+  }
+
+  .content {
+    padding: 12px 8px 22px;
+  }
+
+  h1 {
+    font-size: 23px;
+  }
+
+  .dashboard-section,
+  .dashboard-panel,
+  .form-section,
+  .search-panel,
+  .report-panel,
+  .card {
+    padding: 10px;
+  }
+
+  .report-pagination-bar,
+  .pagination-bar {
+    font-size: 12px;
+  }
+}
