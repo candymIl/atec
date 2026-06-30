@@ -5425,6 +5425,40 @@ function getMailTransport() {
   })
 }
 
+function getMailConfigIssues() {
+  return [
+    ["SMTP_HOST", process.env.SMTP_HOST],
+    ["SMTP_PORT", process.env.SMTP_PORT],
+    ["SMTP_USER", process.env.SMTP_USER],
+    ["SMTP_PASS", process.env.SMTP_PASS],
+    ["MAIL_FROM", process.env.MAIL_FROM]
+  ]
+    .filter(([, value]) => !String(value || "").trim())
+    .map(([key]) => key)
+}
+
+function getMailErrorMessage(err) {
+  const code = String(err?.code || "").toUpperCase()
+  const command = err?.command ? ` (${err.command})` : ""
+  const response = String(err?.response || err?.message || "").replace(/\s+/g, " ").trim()
+
+  if (["EAUTH", "AUTH"].includes(code) || /auth|credential|login|password/i.test(response)) {
+    return `SMTP login failed${command}. Check SMTP_USER and SMTP_PASS.`
+  }
+
+  if (["ECONNECTION", "ETIMEDOUT", "ESOCKET", "ECONNREFUSED"].includes(code)) {
+    return `Could not connect to the mail server${command}. Check SMTP_HOST, SMTP_PORT and firewall/hosting mail access.`
+  }
+
+  if (["EENVELOPE", "EMESSAGE"].includes(code) || /sender|recipient|relay|envelope/i.test(response)) {
+    return `The mail server rejected the sender or recipient${command}. Check MAIL_FROM and the recipient email address.`
+  }
+
+  return response
+    ? `Email failed${command}: ${response}`
+    : "Email failed. Check the backend logs for the SMTP error."
+}
+
 function isValidEmailAddress(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim())
 }
@@ -5570,6 +5604,14 @@ app.post("/certificates/:testid/email", async (req, res) => {
       })
     }
 
+    const mailConfigIssues = getMailConfigIssues()
+
+    if (mailConfigIssues.length) {
+      return res.status(400).json({
+        error: `Email is not configured yet. Missing: ${mailConfigIssues.join(", ")}. Add these values to backend/.env and restart the backend.`
+      })
+    }
+
     const transport = getMailTransport()
 
     if (!transport) {
@@ -5628,7 +5670,50 @@ app.post("/certificates/:testid/email", async (req, res) => {
     res.json({ success: true })
   } catch (err) {
     console.error("Certificate email error:", err)
-    res.status(500).json({ error: "An unexpected server error occurred" })
+    res.status(500).json({ error: getMailErrorMessage(err) })
+  }
+})
+
+app.post("/admin/email-test", async (req, res) => {
+  try {
+    if (req.user?.role !== "ADMIN") {
+      return res.status(403).json({ error: "Only admins may test email settings" })
+    }
+
+    const recipient = String(req.body?.to || "").trim()
+
+    if (!isValidEmailAddress(recipient)) {
+      return res.status(400).json({ error: "Enter a valid recipient email address" })
+    }
+
+    const mailConfigIssues = getMailConfigIssues()
+
+    if (mailConfigIssues.length) {
+      return res.status(400).json({
+        error: `Email is not configured yet. Missing: ${mailConfigIssues.join(", ")}. Add these values to backend/.env and restart the backend.`
+      })
+    }
+
+    const transport = getMailTransport()
+
+    await transport.sendMail({
+      from: process.env.MAIL_FROM,
+      to: recipient,
+      subject: "ATEC email test",
+      text: [
+        "Good day,",
+        "",
+        "This is a test email from ATEC.",
+        "",
+        "If you received this, SMTP is working."
+      ].join("\n")
+    })
+
+    await req.logAudit("TEST_EMAIL", "system_email", null, { to: recipient })
+    res.json({ success: true })
+  } catch (err) {
+    console.error("Email test error:", err)
+    res.status(500).json({ error: getMailErrorMessage(err) })
   }
 })
 

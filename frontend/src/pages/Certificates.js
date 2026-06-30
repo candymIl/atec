@@ -1238,25 +1238,31 @@ window.mailCertificate = async function (testid) {
     return
   }
 
-  const response = await fetch(
-    `${API_BASE}/certificates/${testid}/email`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ to: recipient.trim() })
+  try {
+    const response = await fetch(
+      `${API_BASE}/certificates/${testid}/email`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ to: recipient.trim() })
+      }
+    )
+
+    const data = await response.json().catch(() => ({
+      error: "Unable to read the email error from the server."
+    }))
+
+    if (!response.ok) {
+      alert(data.error || "Unable to email certificate")
+      return
     }
-  )
 
-  const data = await response.json()
-
-  if (!response.ok) {
-    alert(data.error || "Unable to email certificate")
-    return
+    alert("Certificate emailed successfully")
+  } catch (err) {
+    alert(`Unable to email certificate: ${err.message}`)
   }
-
-  alert("Certificate emailed successfully")
 }
 
 window.deleteCertificate = async function (testid) {
