@@ -4752,6 +4752,279 @@ window.updateInspectionSafetyWarning = function () {
     : ""
 }
 
+function getInspectionWizardKey(asset, inspectiontype = "VISUAL") {
+  if (inspectiontype !== "VISUAL" && inspectiontype !== "LOADTEST") return "GENERIC"
+
+  const equipmentText = normalizeCriteriaName([
+    asset?.equipmenttype,
+    asset?.equipmenttypedescription,
+    asset?.description
+  ].filter(Boolean).join(" "))
+
+  if (
+    equipmentText.includes("manual chain hoist") ||
+    equipmentText.includes("manual lever hoist") ||
+    equipmentText.includes("chain block") ||
+    equipmentText.includes("lever hoist")
+  ) {
+    return "CHAIN_BLOCK_LEVER_HOIST"
+  }
+
+  return "GENERIC"
+}
+
+function inspectionCriteriaText(row) {
+  return String(row?.criteriadescription || row?.criterianame || "")
+}
+
+function renderMeasurementCriteriaRow(row, asset, inspectiontype) {
+  const assetValue = getCriteriaStandardValue(asset, row)
+  const measuredDefaultValue = getCriteriaMeasuredDefaultValue(asset, row, assetValue)
+
+  return `
+    <div class="inspection-row compact-row ${inspectiontype === "LOADTEST" ? "loadtest-measurement-row" : ""}">
+      <div class="inspection-criteria">
+        ${inspectionCriteriaText(row)}
+        ${row.severity ? `<span class="inspection-criteria-badge ${String(row.severity).toLowerCase()}">${row.severity}</span>` : ""}
+      </div>
+
+      <div class="comparison-grid">
+        ${assetValue ? `
+          <input
+            type="text"
+            value="${escapeAttribute(assetValue)}"
+            readonly
+            class="readonly-value"
+          >
+        ` : `
+          <div class="readonly-value readonly-value-empty"></div>
+        `}
+
+        <input
+          id="measured-${row.criteriaid}"
+          type="text"
+          value="${escapeAttribute(measuredDefaultValue)}"
+        >
+      </div>
+
+      ${inspectiontype === "LOADTEST" && isLoadMassCriteria(row.criterianame) ? `
+        <div class="inspection-remarks">
+          <input
+            id="remarks-${row.criteriaid}"
+            type="text"
+            placeholder="Comments / Remarks"
+          >
+        </div>
+      ` : inspectiontype === "LOADTEST" ? `<div></div>` : ""}
+    </div>
+  `
+}
+
+function renderVisualCriteriaRow(row) {
+  const selectedResult = criteriaDefaultResult(row)
+
+  if (isTextCriteria(row)) {
+    return `
+      <div class="inspection-row compact-row">
+        <div class="inspection-criteria">
+          ${inspectionCriteriaText(row)}
+          ${row.severity ? `<span class="inspection-criteria-badge ${String(row.severity).toLowerCase()}">${row.severity}</span>` : ""}
+        </div>
+
+        <div class="inspection-result inspection-text-result">
+          <textarea
+            id="remarks-${row.criteriaid}"
+            rows="3"
+            placeholder="${escapeAttribute(row.criterianame)}"
+          >${escapeAttribute(textCriteriaValue(row))}</textarea>
+        </div>
+      </div>
+    `
+  }
+
+  return `
+    <div class="inspection-row compact-row">
+      <div class="inspection-criteria">
+        ${inspectionCriteriaText(row)}
+        ${row.severity ? `<span class="inspection-criteria-badge ${String(row.severity).toLowerCase()}">${row.severity}</span>` : ""}
+      </div>
+
+      <div class="inspection-result">
+        <select
+          id="result-${row.criteriaid}"
+          onchange="toggleFailRemark(${row.criteriaid}); updateInspectionSafetyWarning()"
+        >
+          ${
+            row.resulttype === "YES_NO" || isSafeContinuationCriteria(row)
+              ? `
+                ${criteriaResultOption("YES", "YES", selectedResult)}
+                ${criteriaResultOption("NO", "NO", selectedResult)}
+                ${criteriaResultOption("N/A", "N/A", selectedResult)}
+              `
+              : `
+                ${criteriaResultOption("PASS", "PASS", selectedResult)}
+                ${criteriaResultOption("FAIL", "FAIL", selectedResult)}
+                ${criteriaResultOption("N/A", "N/A", selectedResult)}
+              `
+          }
+        </select>
+      </div>
+
+      <div
+        class="inspection-remarks"
+        id="fail-remarks-${row.criteriaid}"
+        style="display:none;"
+      >
+        <input
+          id="remarks-${row.criteriaid}"
+          type="text"
+          placeholder="Reason for FAIL"
+        >
+      </div>
+    </div>
+  `
+}
+
+function renderGenericInspectionCriteria(asset, measurementCriteria, visualCriteria, inspectiontype) {
+  return `
+    ${measurementCriteria.length ? `
+      <div class="inspection-section-title">
+        Measurements
+      </div>
+
+      <div class="inspection-header measurements ${inspectiontype === "LOADTEST" ? "loadtest-measurements" : ""}">
+        <div>Criteria</div>
+        <div>Standard Dimension</div>
+        <div>Measured Dimension</div>
+        ${inspectiontype === "LOADTEST" ? "<div>Comments / Remarks</div>" : ""}
+      </div>
+
+      ${measurementCriteria.map(row => renderMeasurementCriteriaRow(row, asset, inspectiontype)).join("")}
+    ` : ""}
+
+    <div class="inspection-section-title">
+      Visual Inspection
+    </div>
+
+    <div class="inspection-header visual">
+      <div>Criteria</div>
+      <div>Result</div>
+      <div>Reason for FAIL (required)</div>
+    </div>
+
+    ${visualCriteria.map(row => renderVisualCriteriaRow(row)).join("")}
+  `
+}
+
+function getChainBlockWizardSection(row) {
+  const text = normalizeCriteriaName(inspectionCriteriaText(row))
+
+  if (isSafeContinuationCriteria(row) || text.includes("defect") || text.includes("recommendation") || text.includes("comment")) {
+    return "Final Result"
+  }
+
+  if (text.includes("hook") || text.includes("latch") || text.includes("throat")) {
+    return "Hooks"
+  }
+
+  if (text.includes("chain") || text.includes("link")) {
+    return "Load Chain"
+  }
+
+  if (text.includes("brake") || text.includes("load holding") || text.includes("proof load") || text.includes("load limiter") || text.includes("loadcell")) {
+    return "Brake / Load Holding"
+  }
+
+  if (text.includes("marking") || text.includes("swl") || text.includes("wll") || text.includes("identification") || text.includes("serial")) {
+    return "Markings"
+  }
+
+  if (text.includes("body") || text.includes("casing") || text.includes("cover") || text.includes("frame") || text.includes("structure")) {
+    return "Body / Casing"
+  }
+
+  if (text.includes("function") || text.includes("operate") || text.includes("movement") || text.includes("raising") || text.includes("lowering") || text.includes("test")) {
+    return "Functional Test"
+  }
+
+  return "Identification"
+}
+
+function renderChainBlockWizard(asset, assetCriteria, inspectiontype) {
+  const wizardSections = [
+    "Identification",
+    "Hooks",
+    "Load Chain",
+    "Body / Casing",
+    "Brake / Load Holding",
+    "Markings",
+    "Functional Test",
+    "Final Result"
+  ]
+
+  const groupedRows = wizardSections.reduce((sections, section) => {
+    sections[section] = []
+    return sections
+  }, {})
+
+  assetCriteria.forEach(row => {
+    groupedRows[getChainBlockWizardSection(row)].push(row)
+  })
+
+  return `
+    <div class="inspection-wizard-banner">
+      <div>
+        <span>Inspection Wizard</span>
+        <strong>Chain Block / Lever Hoist</strong>
+      </div>
+      <p>Guided sections use the same saved criteria and certificate output as the normal inspection form.</p>
+    </div>
+
+    ${wizardSections.map(section => {
+      const rows = groupedRows[section] || []
+      if (!rows.length) return ""
+
+      const measurementRows = rows.filter(row => row.fieldtype === "NUMBER")
+      const visualRows = rows.filter(row => row.fieldtype !== "NUMBER")
+
+      return `
+        <div class="inspection-wizard-section">
+          <div class="inspection-section-title">${section}</div>
+
+          ${measurementRows.length ? `
+            <div class="inspection-header measurements ${inspectiontype === "LOADTEST" ? "loadtest-measurements" : ""}">
+              <div>Criteria</div>
+              <div>Standard Dimension</div>
+              <div>Measured Dimension</div>
+              ${inspectiontype === "LOADTEST" ? "<div>Comments / Remarks</div>" : ""}
+            </div>
+            ${measurementRows.map(row => renderMeasurementCriteriaRow(row, asset, inspectiontype)).join("")}
+          ` : ""}
+
+          ${visualRows.length ? `
+            <div class="inspection-header visual">
+              <div>Criteria</div>
+              <div>Result</div>
+              <div>Reason for FAIL (required)</div>
+            </div>
+            ${visualRows.map(row => renderVisualCriteriaRow(row)).join("")}
+          ` : ""}
+        </div>
+      `
+    }).join("")}
+  `
+}
+
+function renderInspectionCriteriaLayout(asset, assetCriteria, measurementCriteria, visualCriteria, inspectiontype) {
+  const wizardKey = getInspectionWizardKey(asset, inspectiontype)
+
+  if (wizardKey === "CHAIN_BLOCK_LEVER_HOIST") {
+    return renderChainBlockWizard(asset, assetCriteria, inspectiontype)
+  }
+
+  return renderGenericInspectionCriteria(asset, measurementCriteria, visualCriteria, inspectiontype)
+}
+
 window.pendingInspectionPhotos = []
 
 function inspectionPhotoTypeOptions(selected = "GENERAL") {
@@ -5046,147 +5319,7 @@ window.currentInspectionCriteria = assetCriteria
       </div>
 
 <div class="inspection-list">
-<div class="inspection-list">
-
-${measurementCriteria.length ? `
-    <div class="inspection-section-title">
-        Measurements
-    </div>
-
-    <div class="inspection-header measurements ${inspectiontype === "LOADTEST" ? "loadtest-measurements" : ""}">
-
-        <div>Criteria</div>
-        <div>Standard Dimension</div>
-        <div>Measured Dimension</div>
-        ${inspectiontype === "LOADTEST" ? "<div>Comments / Remarks</div>" : ""}
-
-    </div>
-
-    
-
-  ${measurementCriteria.map(row => {
-    const assetValue = getCriteriaStandardValue(asset, row)
-    const measuredDefaultValue = getCriteriaMeasuredDefaultValue(asset, row, assetValue)
-    const labels = getMeasurementLabels(row.criterianame)
-
-    return `
-      <div class="inspection-row compact-row ${inspectiontype === "LOADTEST" ? "loadtest-measurement-row" : ""}">
-
-        <div class="inspection-criteria">
-          ${row.criterianame}
-        </div>
-
-<div class="comparison-grid">
-
-    ${assetValue ? `
-      <input
-          type="text"
-          value="${assetValue}"
-          readonly
-          class="readonly-value"
-      >
-    ` : `
-      <div class="readonly-value readonly-value-empty"></div>
-    `}
-
-    <input
-        id="measured-${row.criteriaid}"
-        type="text"
-        value="${measuredDefaultValue}"
-    >
-
-</div>
-        ${inspectiontype === "LOADTEST" && isLoadMassCriteria(row.criterianame) ? `
-          <div class="inspection-remarks">
-            <input
-              id="remarks-${row.criteriaid}"
-              type="text"
-              placeholder="Comments / Remarks"
-            >
-          </div>
-        ` : inspectiontype === "LOADTEST" ? `<div></div>` : ""}
-      </div>
-    `
-  }).join('')}
-` : ""}
-
-<div class="inspection-section-title">
-    Visual Inspection
-</div>
-
-<div class="inspection-header visual">
-
-    <div>Criteria</div>
-    <div>Result</div>
-    <div>Reason for FAIL (required)</div>
-
-</div>
-
-  ${visualCriteria.map(row => {
-    const selectedResult = criteriaDefaultResult(row)
-
-    return isTextCriteria(row) ? `
-    <div class="inspection-row compact-row">
-
-      <div class="inspection-criteria">
-        ${row.criteriadescription || row.criterianame}
-        ${row.severity ? `<span class="inspection-criteria-badge ${String(row.severity).toLowerCase()}">${row.severity}</span>` : ""}
-      </div>
-
-      <div class="inspection-result inspection-text-result">
-        <textarea
-          id="remarks-${row.criteriaid}"
-          rows="3"
-          placeholder="${row.criterianame}"
-        >${escapeAttribute(textCriteriaValue(row))}</textarea>
-      </div>
-
-    </div>
-  ` : `
-    <div class="inspection-row compact-row">
-
-      <div class="inspection-criteria">
-        ${row.criteriadescription || row.criterianame}
-        ${row.severity ? `<span class="inspection-criteria-badge ${String(row.severity).toLowerCase()}">${row.severity}</span>` : ""}
-      </div>
-
-      <div class="inspection-result">
-        <select
-          id="result-${row.criteriaid}"
-          onchange="toggleFailRemark(${row.criteriaid}); updateInspectionSafetyWarning()"
-        >
-          ${
-            row.resulttype === "YES_NO" || isSafeContinuationCriteria(row)
-              ? `
-                ${criteriaResultOption("YES", "YES", selectedResult)}
-                ${criteriaResultOption("NO", "NO", selectedResult)}
-                ${criteriaResultOption("N/A", "N/A", selectedResult)}
-              `
-              : `
-                ${criteriaResultOption("PASS", "PASS", selectedResult)}
-                ${criteriaResultOption("FAIL", "FAIL", selectedResult)}
-                ${criteriaResultOption("N/A", "N/A", selectedResult)}
-              `
-          }
-        </select>
-      </div>
-
-      <div
-        class="inspection-remarks"
-        id="fail-remarks-${row.criteriaid}"
-        style="display:none;"
-      >
-        <input
-          id="remarks-${row.criteriaid}"
-          type="text"
-          placeholder="Reason for FAIL"
-        >
-      </div>
-
-    </div>
-  `
-  }).join('')}
-
+  ${renderInspectionCriteriaLayout(asset, assetCriteria, measurementCriteria, visualCriteria, inspectiontype)}
 </div>
 
     <div class="filter-card">
@@ -5679,6 +5812,7 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
 
   let results = []
   let overallStatus = "SAFE"
+  let missingFailReason = null
 
   for (const row of assetCriteria) {
 
@@ -5699,9 +5833,23 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
           ? remarksInput?.value || ""
           : inspectiontype === "LOADTEST"
             ? remarksInput?.value || ""
-            : result === "FAIL"
+            : ["FAIL", "NO"].includes(result)
               ? remarksInput?.value || ""
               : ""
+
+    const autoForcedSafety =
+      isSafeContinuationCriteria(row) &&
+      resultInput?.dataset.autoForcedSafety === "true"
+
+    if (
+      !isTextCriteria(row) &&
+      ["FAIL", "NO"].includes(result) &&
+      !autoForcedSafety &&
+      !String(remarks || "").trim()
+    ) {
+      missingFailReason = row
+      break
+    }
 
     if (isSafeContinuationCriteria(row) && !["PASS", "YES"].includes(result)) {
       overallStatus = "NOT SAFE"
@@ -5725,6 +5873,15 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
       result: result,
       remarks: remarks
     })
+  }
+
+  if (missingFailReason) {
+    alert(`Please enter a reason/comment for the failed item: ${inspectionCriteriaText(missingFailReason)}`)
+    const remarksInput = document.querySelector(`#remarks-${missingFailReason.criteriaid}`)
+    const remarksWrapper = document.querySelector(`#fail-remarks-${missingFailReason.criteriaid}`)
+    if (remarksWrapper) remarksWrapper.style.display = "block"
+    if (remarksInput) remarksInput.focus()
+    return
   }
 
   const formData = new FormData()

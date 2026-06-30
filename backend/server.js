@@ -4688,7 +4688,7 @@ function renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache = nu
             width: 210mm;
             min-height: 297mm;
             margin: 0 auto;
-            padding: 6mm;
+            padding: 3mm;
             overflow: visible;
             page-break-after: always;
             break-after: page;
@@ -4703,8 +4703,9 @@ function renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache = nu
             background: white;
             color: #111827;
             width: 100%;
-            min-height: 285mm;
-            display: block;
+            min-height: 291mm;
+            display: flex;
+            flex-direction: column;
             font-size: 9.5px;
             line-height: 1.08;
             overflow: visible;
@@ -4713,7 +4714,9 @@ function renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache = nu
           }
           .fb-cert-header,
           .fb-cert-footer {
-            width: 100%;
+            width: calc(100% + 6mm);
+            max-width: none;
+            margin-left: -3mm;
             display: block;
             height: auto;
             object-fit: contain;
@@ -4724,7 +4727,7 @@ function renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache = nu
             object-position: center top;
           }
           .fb-cert-footer {
-            margin-top: 4px;
+            margin-top: auto;
             max-height: 22mm;
             object-position: center bottom;
           }

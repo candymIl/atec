@@ -1592,6 +1592,41 @@ tr:hover {
   background: #f8fafc;
 }
 
+.inspection-wizard-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  background: #f0f7ff;
+  border-bottom: 1px solid #cfe1f5;
+}
+
+.inspection-wizard-banner span {
+  display: block;
+  color: #5d718d;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.inspection-wizard-banner strong {
+  display: block;
+  color: #12345a;
+  font-size: 18px;
+}
+
+.inspection-wizard-banner p {
+  margin: 0;
+  color: #516174;
+  font-size: 13px;
+}
+
+.inspection-wizard-section + .inspection-wizard-section {
+  border-top: 2px solid #d8e2ef;
+}
+
 .inspection-criteria {
     font-size: 15px;
     font-weight: 600;
@@ -3004,6 +3039,8 @@ tr:hover {
     font-size: 9.5px;
     line-height: 1.08;
     overflow: hidden;
+    display: flex !important;
+    flex-direction: column !important;
     transform: none !important;
     page-break-after: auto;
     page-break-before: auto;
@@ -3019,7 +3056,7 @@ tr:hover {
     min-height: 297mm !important;
     height: 297mm !important;
     margin: 0 auto !important;
-    padding: 6mm !important;
+    padding: 3mm !important;
     box-shadow: none !important;
     overflow: hidden !important;
     break-after: page;
@@ -3042,6 +3079,9 @@ tr:hover {
   }
 
   .fb-cert-header {
+    width: calc(100% + 6mm) !important;
+    max-width: none !important;
+    margin-left: -3mm !important;
     margin-bottom: 3px;
     max-height: 32mm;
     object-fit: contain;
@@ -3126,7 +3166,10 @@ tr:hover {
   }
 
   .fb-cert-footer {
-    margin-top: 4px;
+    width: calc(100% + 6mm) !important;
+    max-width: none !important;
+    margin-left: -3mm !important;
+    margin-top: auto;
     max-height: 22mm;
     object-fit: contain;
   }
