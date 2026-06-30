@@ -692,6 +692,13 @@ function authorizeRequest(req, res, next) {
       })
     }
 
+    if (
+      routePath === "/users/me" &&
+      ["GET", "PUT"].includes(method)
+    ) {
+      return next()
+    }
+
     if (routePath.startsWith("/users/me/signature")) return next()
 
     return res.status(403).json({ error: "Access denied" })
@@ -861,6 +868,92 @@ app.get("/users", asyncRoute(async (req, res) => {
   )
 
   res.json(result.rows)
+}))
+
+app.get("/users/me", asyncRoute(async (req, res) => {
+  const result = await pool.query(
+    `
+    SELECT
+      userid AS user_id,
+      username,
+      email,
+      COALESCE(NULLIF(fullname, ''), username) AS full_name,
+      COALESCE(
+        role,
+        CASE
+          WHEN userlevel = 1 THEN 'ADMIN'
+          WHEN userlevel = 2 THEN 'MANAGER'
+          WHEN userlevel = 3 THEN 'INSPECTOR'
+          WHEN userlevel = 4 THEN 'VIEWER'
+          WHEN userlevel = 5 THEN 'CUSTOMER'
+          ELSE 'VIEWER'
+        END
+      ) AS role,
+      lmi_no AS lmi_number,
+      usersignature AS signature_image,
+      clientid,
+      siteid,
+      sectionid,
+      is_active
+    FROM atec.tblusers
+    WHERE userid = $1
+    `,
+    [req.user.user_id]
+  )
+
+  if (result.rows.length === 0) {
+    return res.status(404).json({ error: "User profile not found" })
+  }
+
+  res.json({ user: result.rows[0] })
+}))
+
+app.put("/users/me", asyncRoute(async (req, res) => {
+  const fullName = String(req.body?.full_name || "").trim()
+  const email = String(req.body?.email || "").trim()
+  const lmiNumber = String(req.body?.lmi_number || "").trim()
+
+  if (!fullName) {
+    return res.status(400).json({ error: "Full name is required" })
+  }
+
+  if (email && !isValidEmailAddress(email)) {
+    return res.status(400).json({ error: "Enter a valid email address" })
+  }
+
+  const result = await pool.query(
+    `
+    UPDATE atec.tblusers
+    SET
+      fullname = $1,
+      email = NULLIF($2, ''),
+      lmi_no = NULLIF($3, ''),
+      updated_at = now()
+    WHERE userid = $4
+    RETURNING
+      userid AS user_id,
+      username,
+      email,
+      COALESCE(NULLIF(fullname, ''), username) AS full_name,
+      role,
+      lmi_no AS lmi_number,
+      usersignature AS signature_image,
+      clientid,
+      siteid,
+      sectionid,
+      is_active
+    `,
+    [fullName, email, lmiNumber, req.user.user_id]
+  )
+
+  if (result.rows.length === 0) {
+    return res.status(404).json({ error: "User profile not found" })
+  }
+
+  res.cookie("atec_session", signAuthToken(result.rows[0]), authCookieOptions())
+
+  await req.logAudit("UPDATE_PROFILE", "users", req.user.user_id)
+  res.json({ user: result.rows[0] })
 }))
 
 app.post("/users", asyncRoute(async (req, res) => {
@@ -1071,6 +1164,7 @@ app.post("/users/me/signature",
     )
 
     await req.logAudit("SIGNATURE_CHANGE", "users", req.user.user_id)
+    res.cookie("atec_session", signAuthToken(result.rows[0]), authCookieOptions())
     res.json({ user: result.rows[0] })
   })
 )

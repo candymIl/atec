@@ -62,7 +62,8 @@ const pageAccess = {
   'customer-report': ['ADMIN', 'MANAGER', 'VIEWER', 'CUSTOMER'],
   she: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER'],
   criteria: ['ADMIN'],
-  users: ['ADMIN']
+  users: ['ADMIN'],
+  profile: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER']
 }
 
 function hasAccess(pageKey) {
@@ -603,7 +604,92 @@ window.uploadMySignature = async function () {
   currentUser = result.user
   window.currentUser = currentUser
   alert('Signature saved successfully')
-  showUserManagement()
+  if (hasAccess('users') && localStorage.getItem('currentPage') === 'users') {
+    showUserManagement()
+  } else {
+    showMyProfile()
+  }
+}
+
+window.showMyProfile = async function () {
+  if (!ensurePageAccess('profile')) return
+
+  localStorage.setItem('currentPage', 'profile')
+
+  const response = await fetch(`${API_BASE}/users/me`)
+  const result = await readApiResponse(response)
+
+  if (!response.ok) {
+    alert(result.error || 'Unable to load your profile')
+    return
+  }
+
+  currentUser = result.user
+  window.currentUser = currentUser
+
+  document.querySelector('#page').innerHTML = `
+    <h1>My Profile</h1>
+    <div class="filter-card my-profile-card">
+      <h2>Profile Details</h2>
+      <div class="asset-form-grid">
+        <div class="form-group">
+          <label>Username</label>
+          <input value="${currentUser.username || ''}" disabled>
+        </div>
+        <div class="form-group">
+          <label>Role</label>
+          <input value="${currentUser.role || ''}" disabled>
+        </div>
+        <div class="form-group">
+          <label>Full Name</label>
+          <input id="myProfileFullName" type="text" value="${currentUser.full_name || ''}">
+        </div>
+        <div class="form-group">
+          <label>Email</label>
+          <input id="myProfileEmail" type="email" value="${currentUser.email || ''}">
+        </div>
+        <div class="form-group">
+          <label>LMI Number</label>
+          <input id="myProfileLmi" type="text" value="${currentUser.lmi_number || ''}">
+        </div>
+      </div>
+      <button onclick="saveMyProfile()">Save Profile</button>
+    </div>
+
+    <div class="filter-card user-signature-card">
+      <h2>My Signature</h2>
+      <p>Your signature will be used on new inspection and load test certificates saved under your login.</p>
+      <div class="profile-signature-status">
+        Current signature: <strong>${currentUser.signature_image ? 'Saved' : 'Not uploaded yet'}</strong>
+      </div>
+      <input id="mySignatureUpload" type="file" accept="image/*">
+      <button onclick="uploadMySignature()">Upload Signature</button>
+    </div>
+  `
+}
+
+window.saveMyProfile = async function () {
+  const response = await fetch(`${API_BASE}/users/me`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      full_name: document.querySelector('#myProfileFullName')?.value || '',
+      email: document.querySelector('#myProfileEmail')?.value || '',
+      lmi_number: document.querySelector('#myProfileLmi')?.value || ''
+    })
+  })
+
+  const result = await readApiResponse(response)
+
+  if (!response.ok) {
+    alert(result.error || 'Unable to save your profile')
+    return
+  }
+
+  currentUser = result.user
+  window.currentUser = currentUser
+  alert('Profile saved successfully')
+  showMyProfile()
 }
 
 async function fetchJsonOrDefault(url, fallback) {
@@ -716,6 +802,7 @@ async function loadData() {
     ${menuButton('she', 'Risk Assessment / SHE', 'showRiskAssessments()')}
     ${menuButton('criteria', 'Equipment Type Criteria', 'showEquipmentTypeCriteria()')}
     ${menuButton('users', 'User Management', 'showUserManagement()')}
+    ${menuButton('profile', 'My Profile', 'showMyProfile()')}
 
     <button onclick="logoutUser()">Logout</button>
     </div>
@@ -5690,6 +5777,10 @@ switch (currentPage) {
 
   case "users":
     showUserManagement()
+    break
+
+  case "profile":
+    showMyProfile()
     break
 
   default:

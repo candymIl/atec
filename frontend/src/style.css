@@ -577,6 +577,18 @@ td {
   margin: 0;
 }
 
+.my-profile-card {
+  max-width: 980px;
+}
+
+.profile-signature-status {
+  background: #f4f7fb;
+  border: 1px solid #d4dfec;
+  border-radius: 6px;
+  color: #1f2937;
+  padding: 8px 12px;
+}
+
 .user-management-table-wrap {
   background: #ffffff;
   border: 1px solid #d8dee8;
