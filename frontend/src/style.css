@@ -256,6 +256,14 @@ button:hover {
   font-size: 13px;
 }
 
+.secondary-button {
+  background: #64748b;
+}
+
+.secondary-button:hover {
+  background: #475569;
+}
+
 .page-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1103,6 +1111,84 @@ tr:hover {
 
 .asset-description {
   grid-column: span 2;
+}
+
+.slamm-section {
+  border: 1px solid #d8e1ee;
+  border-radius: 8px;
+  margin-top: 14px;
+  padding: 14px;
+  background: #f8fbff;
+}
+
+.slamm-section h3 {
+  color: #12345a;
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.slamm-section p {
+  color: #5b6b82;
+  margin: 0 0 10px;
+}
+
+.slamm-check-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.slamm-check,
+.slamm-question-row,
+.slamm-team-row {
+  border: 1px solid #d8e1ee;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.slamm-check {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  padding: 9px 10px;
+  font-weight: 700;
+}
+
+.slamm-question-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.slamm-question-row {
+  align-items: center;
+  display: grid;
+  grid-template-columns: 1fr 120px;
+  gap: 12px;
+  padding: 8px 10px;
+}
+
+.slamm-question-row span {
+  font-weight: 700;
+}
+
+.slamm-team-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+  gap: 8px;
+}
+
+.slamm-team-row {
+  align-items: center;
+  display: grid;
+  grid-template-columns: 28px 1fr 1fr 1fr;
+  gap: 8px;
+  padding: 8px;
+}
+
+.slamm-team-row span {
+  color: #12345a;
+  font-weight: 800;
+  text-align: center;
 }
 
 .asset-photo-row {

@@ -1937,13 +1937,61 @@ window.downloadRiskAssessments = async function (format = "pdf") {
   URL.revokeObjectURL(url)
 }
 
+function collectCheckedValues(selector) {
+  return Array.from(document.querySelectorAll(selector))
+    .filter(input => input.checked)
+    .map(input => input.value)
+}
+
+function setCheckedValues(selector, values = []) {
+  const selected = Array.isArray(values) ? values : []
+  document.querySelectorAll(selector).forEach(input => {
+    input.checked = selected.includes(input.value)
+  })
+}
+
+function collectKeyedSelectValues(selector) {
+  return Array.from(document.querySelectorAll(selector)).reduce((answers, select) => {
+    answers[select.dataset.key] = select.value || ''
+    return answers
+  }, {})
+}
+
+function setKeyedSelectValues(selector, values = {}) {
+  document.querySelectorAll(selector).forEach(select => {
+    select.value = values?.[select.dataset.key] || ''
+  })
+}
+
+function collectSlammTeamMembers() {
+  return Array.from(document.querySelectorAll('.slamm-team-row')).map(row => ({
+    name: row.querySelector('.slamm-team-name')?.value?.trim() || '',
+    surname: row.querySelector('.slamm-team-surname')?.value?.trim() || '',
+    signature: row.querySelector('.slamm-team-signature')?.value?.trim() || ''
+  })).filter(member => member.name || member.surname || member.signature)
+}
+
+function setSlammTeamMembers(members = []) {
+  const rows = Array.from(document.querySelectorAll('.slamm-team-row'))
+
+  rows.forEach((row, index) => {
+    const member = Array.isArray(members) ? members[index] || {} : {}
+    row.querySelector('.slamm-team-name').value = member.name || ''
+    row.querySelector('.slamm-team-surname').value = member.surname || ''
+    row.querySelector('.slamm-team-signature').value = member.signature || ''
+  })
+}
+
 window.saveRiskAssessment = async function () {
   const riskid = document.querySelector('#riskId')?.value || ''
   const payload = {
     assetid: document.querySelector('#riskAssetId')?.value || null,
     assessment_date: document.querySelector('#riskAssessmentDate')?.value,
+    assessment_time: document.querySelector('#riskAssessmentTime')?.value || null,
     activity: document.querySelector('#riskActivity')?.value,
     hazard: document.querySelector('#riskHazard')?.value,
+    hazard_categories: collectCheckedValues('.risk-hazard-category'),
+    stop_questions: collectKeyedSelectValues('.slamm-stop-question'),
     consequence: document.querySelector('#riskConsequence')?.value,
     initial_severity: document.querySelector('#riskInitialSeverity')?.value,
     initial_likelihood: document.querySelector('#riskInitialLikelihood')?.value,
@@ -1951,6 +1999,13 @@ window.saveRiskAssessment = async function () {
     residual_severity: document.querySelector('#riskResidualSeverity')?.value,
     residual_likelihood: document.querySelector('#riskResidualLikelihood')?.value,
     action_required: document.querySelector('#riskActionRequired')?.value,
+    manage_plan: document.querySelector('#riskManagePlan')?.value,
+    monitor_notes: document.querySelector('#riskMonitorNotes')?.value,
+    review_questions: collectKeyedSelectValues('.slamm-review-question'),
+    additional_notes: document.querySelector('#riskAdditionalNotes')?.value,
+    team_members: collectSlammTeamMembers(),
+    responsible_signoff_name: document.querySelector('#riskResponsibleSignoffName')?.value,
+    supervisor_signoff_name: document.querySelector('#riskSupervisorSignoffName')?.value,
     responsible_person: document.querySelector('#riskResponsiblePerson')?.value,
     due_date: document.querySelector('#riskDueDate')?.value || null,
     status: document.querySelector('#riskStatus')?.value || 'OPEN'
@@ -1997,9 +2052,12 @@ window.editRiskAssessment = function (riskid) {
   document.querySelector('#riskId').value = risk.riskid
   document.querySelector('#riskAssetId').value = risk.assetid || ''
   document.querySelector('#riskAssessmentDate').value = risk.assessment_date ? risk.assessment_date.split('T')[0] : ''
+  document.querySelector('#riskAssessmentTime').value = risk.assessment_time ? String(risk.assessment_time).slice(0, 5) : ''
   document.querySelector('#riskStatus').value = risk.status || 'OPEN'
   document.querySelector('#riskActivity').value = risk.activity || ''
   document.querySelector('#riskHazard').value = risk.hazard || ''
+  setCheckedValues('.risk-hazard-category', risk.hazard_categories || [])
+  setKeyedSelectValues('.slamm-stop-question', risk.stop_questions || {})
   document.querySelector('#riskConsequence').value = risk.consequence || ''
   document.querySelector('#riskInitialSeverity').value = risk.initial_severity || 3
   document.querySelector('#riskInitialLikelihood').value = risk.initial_likelihood || 3
@@ -2007,6 +2065,13 @@ window.editRiskAssessment = function (riskid) {
   document.querySelector('#riskResidualSeverity').value = risk.residual_severity || 2
   document.querySelector('#riskResidualLikelihood').value = risk.residual_likelihood || 2
   document.querySelector('#riskActionRequired').value = risk.action_required || ''
+  document.querySelector('#riskManagePlan').value = risk.manage_plan || ''
+  document.querySelector('#riskMonitorNotes').value = risk.monitor_notes || ''
+  setKeyedSelectValues('.slamm-review-question', risk.review_questions || {})
+  document.querySelector('#riskAdditionalNotes').value = risk.additional_notes || ''
+  setSlammTeamMembers(risk.team_members || [])
+  document.querySelector('#riskResponsibleSignoffName').value = risk.responsible_signoff_name || ''
+  document.querySelector('#riskSupervisorSignoffName').value = risk.supervisor_signoff_name || ''
   document.querySelector('#riskResponsiblePerson').value = risk.responsible_person || ''
   document.querySelector('#riskDueDate').value = risk.due_date ? risk.due_date.split('T')[0] : ''
   window.scrollTo({ top: 0, behavior: 'smooth' })

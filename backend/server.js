@@ -5832,6 +5832,31 @@ function normalizeRiskStatus(value) {
     : "OPEN"
 }
 
+function cleanJsonArray(value) {
+  return Array.isArray(value)
+    ? value.filter(item => item !== null && item !== undefined && String(item).trim() !== "")
+    : []
+}
+
+function cleanJsonObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {}
+
+  return Object.entries(value).reduce((cleaned, [key, entry]) => {
+    cleaned[String(key)] = entry === null || entry === undefined ? "" : String(entry).trim()
+    return cleaned
+  }, {})
+}
+
+function cleanTeamMembers(value) {
+  return Array.isArray(value)
+    ? value.map(member => ({
+        name: String(member?.name || "").trim(),
+        surname: String(member?.surname || "").trim(),
+        signature: String(member?.signature || "").trim()
+      })).filter(member => member.name || member.surname || member.signature)
+    : []
+}
+
 function riskPayload(body = {}) {
   const initialSeverity = nullableInteger(body.initial_severity)
   const initialLikelihood = nullableInteger(body.initial_likelihood)
@@ -5844,8 +5869,11 @@ function riskPayload(body = {}) {
     siteid: nullableInteger(body.siteid),
     sectionid: nullableInteger(body.sectionid),
     assessment_date: body.assessment_date || new Date().toISOString().split("T")[0],
+    assessment_time: body.assessment_time || null,
     activity: String(body.activity || "").trim(),
     hazard: String(body.hazard || "").trim(),
+    hazard_categories: cleanJsonArray(body.hazard_categories),
+    stop_questions: cleanJsonObject(body.stop_questions),
     consequence: String(body.consequence || "").trim() || null,
     initial_severity: initialSeverity,
     initial_likelihood: initialLikelihood,
@@ -5855,6 +5883,13 @@ function riskPayload(body = {}) {
     residual_likelihood: residualLikelihood,
     residual_rating: riskRating(residualSeverity, residualLikelihood),
     action_required: String(body.action_required || "").trim() || null,
+    manage_plan: String(body.manage_plan || "").trim() || null,
+    monitor_notes: String(body.monitor_notes || "").trim() || null,
+    review_questions: cleanJsonObject(body.review_questions),
+    additional_notes: String(body.additional_notes || "").trim() || null,
+    team_members: cleanTeamMembers(body.team_members),
+    responsible_signoff_name: String(body.responsible_signoff_name || "").trim() || null,
+    supervisor_signoff_name: String(body.supervisor_signoff_name || "").trim() || null,
     responsible_person: String(body.responsible_person || "").trim() || null,
     due_date: body.due_date || null,
     status: normalizeRiskStatus(body.status)
@@ -5889,6 +5924,9 @@ async function getRiskAssessmentRows(filters = {}) {
         OR COALESCE(s.sitename, '') ILIKE $${values.length}
         OR COALESCE(r.activity, '') ILIKE $${values.length}
         OR COALESCE(r.hazard, '') ILIKE $${values.length}
+        OR COALESCE(r.manage_plan, '') ILIKE $${values.length}
+        OR COALESCE(r.monitor_notes, '') ILIKE $${values.length}
+        OR COALESCE(r.additional_notes, '') ILIKE $${values.length}
         OR COALESCE(r.status, '') ILIKE $${values.length}
       )
     `)
@@ -5948,16 +5986,18 @@ app.get("/she/risk-assessments.pdf", async (req, res) => {
     doc.pipe(res)
 
     const columns = [
-      ["ID", 34],
-      ["Date", 58],
-      ["Asset", 86],
-      ["Activity", 120],
-      ["Hazard", 145],
-      ["Initial", 48],
-      ["Residual", 54],
-      ["Status", 72],
-      ["Due", 58],
-      ["Responsible", 92]
+      ["ID", 26],
+      ["Date", 52],
+      ["Time", 34],
+      ["Asset", 70],
+      ["Activity", 100],
+      ["Hazard", 112],
+      ["Types", 70],
+      ["Initial", 38],
+      ["Residual", 44],
+      ["Status", 58],
+      ["Due", 50],
+      ["Responsible", 70]
     ]
     const tableWidth = columns.reduce((sum, [, width]) => sum + width, 0)
     const marginX = doc.page.margins.left
@@ -5994,9 +6034,11 @@ app.get("/she/risk-assessments.pdf", async (req, res) => {
       const values = [
         row.riskid,
         reportDate(row.assessment_date),
+        row.assessment_time || "-",
         row.assettagno || row.assetid || "-",
         row.activity || "",
         row.hazard || "",
+        Array.isArray(row.hazard_categories) ? row.hazard_categories.join(", ") : "",
         row.initial_rating || "-",
         row.residual_rating || "-",
         String(row.status || "").replaceAll("_", " "),
@@ -6006,8 +6048,8 @@ app.get("/she/risk-assessments.pdf", async (req, res) => {
 
       const rowHeight = Math.max(
         18,
-        doc.heightOfString(values[3], { width: columns[3][1] - 6 }) + 8,
-        doc.heightOfString(values[4], { width: columns[4][1] - 6 }) + 8
+        doc.heightOfString(values[4], { width: columns[4][1] - 6 }) + 8,
+        doc.heightOfString(values[5], { width: columns[5][1] - 6 }) + 8
       )
 
       if (y + rowHeight > doc.page.height - 30) {
@@ -6020,8 +6062,8 @@ app.get("/she/risk-assessments.pdf", async (req, res) => {
       columns.forEach(([, width], index) => {
         doc.rect(x, y, width, rowHeight).strokeColor("#d9e1ec").stroke()
         doc
-          .font(index === 5 || index === 6 ? "Helvetica-Bold" : "Helvetica")
-          .fillColor(Number(values[index]) >= 15 ? "#d00000" : "#111827")
+          .font(index === 7 || index === 8 ? "Helvetica-Bold" : "Helvetica")
+          .fillColor((index === 7 || index === 8) && Number(values[index]) >= 15 ? "#d00000" : "#111827")
           .text(values[index], x + 3, y + 4, { width: width - 6 })
         x += width
       })
@@ -6049,11 +6091,13 @@ app.get("/she/risk-assessments.xlsx", async (req, res) => {
     sheet.columns = [
       { header: "Risk ID", key: "riskid", width: 10 },
       { header: "Assessment Date", key: "assessment_date", width: 18 },
+      { header: "Assessment Time", key: "assessment_time", width: 16 },
       { header: "Customer", key: "clientname", width: 24 },
       { header: "Site", key: "sitename", width: 22 },
       { header: "Section", key: "sectionname", width: 22 },
       { header: "Asset", key: "asset", width: 22 },
       { header: "Activity", key: "activity", width: 34 },
+      { header: "Hazard Types", key: "hazard_categories_text", width: 34 },
       { header: "Hazard", key: "hazard", width: 38 },
       { header: "Consequence", key: "consequence", width: 38 },
       { header: "Initial Severity", key: "initial_severity", width: 16 },
@@ -6064,6 +6108,9 @@ app.get("/she/risk-assessments.xlsx", async (req, res) => {
       { header: "Residual Likelihood", key: "residual_likelihood", width: 20 },
       { header: "Residual Rating", key: "residual_rating", width: 18 },
       { header: "Action Required", key: "action_required", width: 38 },
+      { header: "Manage Plan", key: "manage_plan", width: 38 },
+      { header: "Monitor Notes", key: "monitor_notes", width: 38 },
+      { header: "Additional Notes", key: "additional_notes", width: 38 },
       { header: "Responsible Person", key: "responsible_person", width: 24 },
       { header: "Due Date", key: "due_date", width: 16 },
       { header: "Status", key: "status", width: 16 },
@@ -6074,7 +6121,9 @@ app.get("/she/risk-assessments.xlsx", async (req, res) => {
       sheet.addRow({
         ...row,
         assessment_date: reportDate(row.assessment_date),
+        assessment_time: row.assessment_time || "",
         asset: row.assettagno || row.assetid || "",
+        hazard_categories_text: Array.isArray(row.hazard_categories) ? row.hazard_categories.join(", ") : "",
         due_date: reportDate(row.due_date),
         status: String(row.status || "").replaceAll("_", " ")
       })
@@ -6087,7 +6136,7 @@ app.get("/she/risk-assessments.xlsx", async (req, res) => {
       fgColor: { argb: "FF1F3B5C" }
     }
     sheet.views = [{ state: "frozen", ySplit: 1 }]
-    sheet.autoFilter = { from: "A1", to: "U1" }
+    sheet.autoFilter = { from: "A1", to: "Z1" }
 
     res.setHeader(
       "Content-Type",
@@ -6129,20 +6178,24 @@ app.post("/she/risk-assessments", async (req, res) => {
     const result = await pool.query(
       `
       INSERT INTO atec.tblriskassessment (
-        assetid, clientid, siteid, sectionid, assessment_date,
-        activity, hazard, consequence,
+        assetid, clientid, siteid, sectionid, assessment_date, assessment_time,
+        activity, hazard, hazard_categories, stop_questions, consequence,
         initial_severity, initial_likelihood, initial_rating,
         controls, residual_severity, residual_likelihood, residual_rating,
-        action_required, responsible_person, due_date, status,
+        action_required, manage_plan, monitor_notes, review_questions,
+        additional_notes, team_members, responsible_signoff_name, supervisor_signoff_name,
+        responsible_person, due_date, status,
         created_by_user_id
       )
       VALUES (
-        $1,$2,$3,$4,$5,
-        $6,$7,$8,
-        $9,$10,$11,
-        $12,$13,$14,$15,
-        $16,$17,$18,$19,
-        $20
+        $1,$2,$3,$4,$5,$6,
+        $7,$8,$9::jsonb,$10::jsonb,$11,
+        $12,$13,$14,
+        $15,$16,$17,$18,
+        $19,$20,$21,$22::jsonb,
+        $23,$24::jsonb,$25,$26,
+        $27,$28,$29,
+        $30
       )
       RETURNING *
       `,
@@ -6152,8 +6205,11 @@ app.post("/she/risk-assessments", async (req, res) => {
         payload.siteid,
         payload.sectionid,
         payload.assessment_date,
+        payload.assessment_time,
         payload.activity,
         payload.hazard,
+        JSON.stringify(payload.hazard_categories),
+        JSON.stringify(payload.stop_questions),
         payload.consequence,
         payload.initial_severity,
         payload.initial_likelihood,
@@ -6163,6 +6219,13 @@ app.post("/she/risk-assessments", async (req, res) => {
         payload.residual_likelihood,
         payload.residual_rating,
         payload.action_required,
+        payload.manage_plan,
+        payload.monitor_notes,
+        JSON.stringify(payload.review_questions),
+        payload.additional_notes,
+        JSON.stringify(payload.team_members),
+        payload.responsible_signoff_name,
+        payload.supervisor_signoff_name,
         payload.responsible_person,
         payload.due_date,
         payload.status,
@@ -6195,22 +6258,32 @@ app.put("/she/risk-assessments/:id", async (req, res) => {
         siteid = $3,
         sectionid = $4,
         assessment_date = $5,
-        activity = $6,
-        hazard = $7,
-        consequence = $8,
-        initial_severity = $9,
-        initial_likelihood = $10,
-        initial_rating = $11,
-        controls = $12,
-        residual_severity = $13,
-        residual_likelihood = $14,
-        residual_rating = $15,
-        action_required = $16,
-        responsible_person = $17,
-        due_date = $18,
-        status = $19,
+        assessment_time = $6,
+        activity = $7,
+        hazard = $8,
+        hazard_categories = $9::jsonb,
+        stop_questions = $10::jsonb,
+        consequence = $11,
+        initial_severity = $12,
+        initial_likelihood = $13,
+        initial_rating = $14,
+        controls = $15,
+        residual_severity = $16,
+        residual_likelihood = $17,
+        residual_rating = $18,
+        action_required = $19,
+        manage_plan = $20,
+        monitor_notes = $21,
+        review_questions = $22::jsonb,
+        additional_notes = $23,
+        team_members = $24::jsonb,
+        responsible_signoff_name = $25,
+        supervisor_signoff_name = $26,
+        responsible_person = $27,
+        due_date = $28,
+        status = $29,
         updated_at = now()
-      WHERE riskid = $20
+      WHERE riskid = $30
       RETURNING *
       `,
       [
@@ -6219,8 +6292,11 @@ app.put("/she/risk-assessments/:id", async (req, res) => {
         payload.siteid,
         payload.sectionid,
         payload.assessment_date,
+        payload.assessment_time,
         payload.activity,
         payload.hazard,
+        JSON.stringify(payload.hazard_categories),
+        JSON.stringify(payload.stop_questions),
         payload.consequence,
         payload.initial_severity,
         payload.initial_likelihood,
@@ -6230,6 +6306,13 @@ app.put("/she/risk-assessments/:id", async (req, res) => {
         payload.residual_likelihood,
         payload.residual_rating,
         payload.action_required,
+        payload.manage_plan,
+        payload.monitor_notes,
+        JSON.stringify(payload.review_questions),
+        payload.additional_notes,
+        JSON.stringify(payload.team_members),
+        payload.responsible_signoff_name,
+        payload.supervisor_signoff_name,
         payload.responsible_person,
         payload.due_date,
         payload.status,
