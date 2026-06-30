@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "compress-uploads:check": "node ../scripts/compress-upload-images.js",
+    "compress-uploads": "node ../scripts/compress-upload-images.js --apply"
   },
   "keywords": [],
   "author": "",

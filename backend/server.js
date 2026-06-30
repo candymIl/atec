@@ -151,10 +151,12 @@ async function compressUploadedPhoto(file) {
     })
     .toFile(tempPath)
 
-  fs.renameSync(tempPath, targetPath)
-
-  if (targetPath !== file.path) {
-    fs.unlinkSync(file.path)
+  if (targetPath === file.path) {
+    fs.rmSync(file.path, { force: true })
+    fs.renameSync(tempPath, targetPath)
+  } else {
+    fs.renameSync(tempPath, targetPath)
+    fs.rmSync(file.path, { force: true })
   }
 
   file.path = targetPath
