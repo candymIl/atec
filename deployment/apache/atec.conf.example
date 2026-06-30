@@ -1,0 +1,29 @@
+# Apache template for https://www.fbcranes.co.za/atec
+#
+# Requirements:
+# - mod_proxy
+# - mod_proxy_http
+# - mod_rewrite
+# - Node backend running on http://127.0.0.1:5000
+
+ProxyPreserveHost On
+ProxyPass /atec/api/ http://127.0.0.1:5000/
+ProxyPassReverse /atec/api/ http://127.0.0.1:5000/
+ProxyPass /atec/uploads/ http://127.0.0.1:5000/uploads/
+ProxyPassReverse /atec/uploads/ http://127.0.0.1:5000/uploads/
+
+Alias /atec/ "/var/www/atec/"
+
+<Directory "/var/www/atec/">
+  Options -Indexes +FollowSymLinks
+  AllowOverride None
+  Require all granted
+
+  RewriteEngine On
+  RewriteBase /atec/
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . /atec/index.html [L]
+</Directory>
+
+RequestHeader set X-Forwarded-Proto "https"

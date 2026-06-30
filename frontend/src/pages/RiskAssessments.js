@@ -1,6 +1,5 @@
 import { sortHeader, sortTableRows } from '../tableSort.js'
-
-const API_BASE = 'http://localhost:5000'
+import { API_BASE } from '../api.js'
 
 function todayIso() {
   return new Date().toISOString().split('T')[0]
@@ -241,3 +240,5 @@ export function renderRiskAssessmentTable(risks = [], canWrite = true) {
     </table>
   `
 }
+
+

@@ -1,0 +1,7 @@
+# Optional rule for the main public_html/.htaccess file.
+# Put this above the WordPress rules if old links still use /Atec.
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule ^Atec(/.*)?$ /atec$1 [R=301,L]
+</IfModule>

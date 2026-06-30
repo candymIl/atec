@@ -13,8 +13,12 @@ import { renderCustomerDetailedReport } from './pages/CustomerDetailedReport.js'
 import { renderRiskAssessments, renderRiskAssessmentTable } from './pages/RiskAssessments.js'
 import { getPaginationState, renderPaginationControls } from './pagination.js'
 import { getTableSortState, sortTableRows } from './tableSort.js'
+import { API_BASE, assetUrl } from './api.js'
 
-const API_BASE = 'http://localhost:5000'
+if (window.location.pathname.toLowerCase().startsWith('/atec/atec')) {
+  window.history.replaceState({}, '', '/atec/')
+}
+
 const originalFetch = window.fetch.bind(window)
 
 window.fetch = function (input, options = {}) {
@@ -55,7 +59,7 @@ const pageAccess = {
   inspections: ['ADMIN', 'INSPECTOR'],
   'quick-inspection': ['ADMIN', 'INSPECTOR'],
   certificates: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER'],
-  'customer-report': ['ADMIN', 'MANAGER', 'CUSTOMER'],
+  'customer-report': ['ADMIN', 'MANAGER', 'VIEWER', 'CUSTOMER'],
   she: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER'],
   criteria: ['ADMIN'],
   users: ['ADMIN']
@@ -87,11 +91,19 @@ function menuButton(pageKey, label, action) {
     : ''
 }
 
+function canManageAssetRecords() {
+  return ['ADMIN', 'MANAGER', 'INSPECTOR'].includes(currentUser?.role)
+}
+
+function canPerformInspections() {
+  return ['ADMIN', 'INSPECTOR'].includes(currentUser?.role)
+}
+
 function renderLogin(message = '') {
   document.querySelector('#app').innerHTML = `
     <div class="login-page">
       <div class="login-card">
-        <img src="/logo.png" alt="ATEC Logo" class="login-logo">
+        <img src="${assetUrl('logo.png')}" alt="ATEC Logo" class="login-logo">
         <h1>ATEC Login</h1>
         ${message ? `<p class="login-error">${message}</p>` : ''}
         <label>Username or Email</label>
@@ -141,11 +153,51 @@ const userManagementSortColumns = {
   full_name: user => user.full_name,
   role: user => user.role,
   lmi_number: user => user.lmi_number,
-  clientid: user => user.clientid,
-  siteid: user => user.siteid,
-  sectionid: user => user.sectionid,
+  clientid: user => getUserCustomerName(user.clientid),
+  siteid: user => getUserSiteName(user.siteid),
+  sectionid: user => getUserSectionName(user.sectionid),
   is_active: user => user.is_active ? 1 : 0,
   signature_image: user => user.signature_image ? 1 : 0
+}
+
+function getUserManagementLookups() {
+  return window.userManagementLookups || {
+    customers: [],
+    sites: [],
+    sections: []
+  }
+}
+
+function getUserCustomerName(clientid) {
+  const customer = getUserManagementLookups().customers
+    .find(item => String(item.clientid) === String(clientid || ""))
+
+  return customer?.clientname || ""
+}
+
+function getUserSiteName(siteid) {
+  const site = getUserManagementLookups().sites
+    .find(item => String(item.siteid) === String(siteid || ""))
+
+  return site?.sitename || ""
+}
+
+function getUserSectionName(sectionid) {
+  const section = getUserManagementLookups().sections
+    .find(item => String(item.sectionid) === String(sectionid || ""))
+
+  return section?.sectionname || ""
+}
+
+function renderUserLookupOptions(items, idKey, nameKey, selectedId, emptyLabel) {
+  return `
+    <option value="">${emptyLabel}</option>
+    ${items.map(item => `
+      <option value="${item[idKey]}" ${String(item[idKey]) === String(selectedId || "") ? "selected" : ""}>
+        ${item[nameKey] || `${emptyLabel} ${item[idKey]}`}
+      </option>
+    `).join("")}
+  `
 }
 
 function getUserManagementSort() {
@@ -214,12 +266,28 @@ window.showUserManagement = async function () {
 
   localStorage.setItem('currentPage', 'users')
 
-  const response = await fetch(`${API_BASE}/users`)
+  const [
+    response,
+    userCustomers,
+    userSites,
+    userSections
+  ] = await Promise.all([
+    fetch(`${API_BASE}/users`),
+    fetchJsonOrDefault(`${API_BASE}/customers`, []),
+    fetchJsonOrDefault(`${API_BASE}/sites`, []),
+    fetchJsonOrDefault(`${API_BASE}/sections`, [])
+  ])
   const users = await response.json()
 
   if (!response.ok) {
     alert(users.error || 'Unable to load users')
     return
+  }
+
+  window.userManagementLookups = {
+    customers: userCustomers,
+    sites: userSites,
+    sections: userSections
   }
 
   const sortedUsers = sortUserManagementRows(users)
@@ -262,16 +330,22 @@ window.showUserManagement = async function () {
           <input id="newUserLmi" type="text">
         </div>
         <div class="form-group">
-          <label>Customer ID</label>
-          <input id="newUserClientId" type="number">
+          <label>Customer Name</label>
+          <select id="newUserClientId">
+            ${renderUserLookupOptions(userCustomers, "clientid", "clientname", "", "No customer selected")}
+          </select>
         </div>
         <div class="form-group">
-          <label>Site ID</label>
-          <input id="newUserSiteId" type="number">
+          <label>Site Name</label>
+          <select id="newUserSiteId">
+            ${renderUserLookupOptions(userSites, "siteid", "sitename", "", "No site selected")}
+          </select>
         </div>
         <div class="form-group">
-          <label>Section ID</label>
-          <input id="newUserSectionId" type="number">
+          <label>Section Name</label>
+          <select id="newUserSectionId">
+            ${renderUserLookupOptions(userSections, "sectionid", "sectionname", "", "No section selected")}
+          </select>
         </div>
       </div>
       <button onclick="createUser()">Create User</button>
@@ -293,9 +367,9 @@ window.showUserManagement = async function () {
           <th>${userSortHeader('Full Name', 'full_name')}</th>
           <th>${userSortHeader('Role', 'role')}</th>
           <th>${userSortHeader('LMI Number', 'lmi_number')}</th>
-          <th>${userSortHeader('Customer', 'clientid')}</th>
-          <th>${userSortHeader('Site ID', 'siteid')}</th>
-          <th>${userSortHeader('Section ID', 'sectionid')}</th>
+          <th>${userSortHeader('Customer Name', 'clientid')}</th>
+          <th>${userSortHeader('Site Name', 'siteid')}</th>
+          <th>${userSortHeader('Section Name', 'sectionid')}</th>
           <th>${userSortHeader('Active', 'is_active')}</th>
           <th>${userSortHeader('Signature', 'signature_image')}</th>
           <th>Actions</th>
@@ -315,9 +389,21 @@ window.showUserManagement = async function () {
               </select>
             </td>
             <td><input id="user-lmi-${user.user_id}" value="${user.lmi_number || ''}"></td>
-            <td><input id="user-client-${user.user_id}" type="number" value="${user.clientid || ''}"></td>
-            <td><input id="user-site-${user.user_id}" type="number" value="${user.siteid || ''}"></td>
-            <td><input id="user-section-${user.user_id}" type="number" value="${user.sectionid || ''}"></td>
+            <td>
+              <select id="user-client-${user.user_id}">
+                ${renderUserLookupOptions(userCustomers, "clientid", "clientname", user.clientid, "No customer selected")}
+              </select>
+            </td>
+            <td>
+              <select id="user-site-${user.user_id}">
+                ${renderUserLookupOptions(userSites, "siteid", "sitename", user.siteid, "No site selected")}
+              </select>
+            </td>
+            <td>
+              <select id="user-section-${user.user_id}">
+                ${renderUserLookupOptions(userSections, "sectionid", "sectionname", user.sectionid, "No section selected")}
+              </select>
+            </td>
             <td class="user-active-cell">
               <input class="user-status-check" id="user-active-${user.user_id}" type="checkbox" ${user.is_active ? 'checked' : ''}>
             </td>
@@ -536,7 +622,7 @@ function renderStartupError(message) {
   document.querySelector('#app').innerHTML = `
     <div class="login-page">
       <div class="login-card">
-        <img src="/logo.png" alt="ATEC Logo" class="login-logo">
+        <img src="${assetUrl('logo.png')}" alt="ATEC Logo" class="login-logo">
         <h1>ATEC needs a database update</h1>
         <p>${message}</p>
         <p>
@@ -600,7 +686,7 @@ async function loadData() {
   <div class="sidebar">
 
           <div class="logo-container">
-            <img src="/logo.png" alt="ATEC Logo" class="logo">
+            <img src="${assetUrl('logo.png')}" alt="ATEC Logo" class="logo">
           </div>
 
           <div class="system-title">
@@ -679,7 +765,7 @@ window.addClient = async function () {
 
   const clientAddress = prompt("Enter Client Address")
 
-  const response = await fetch("http://localhost:5000/customers", {
+  const response = await fetch(`${API_BASE}/customers`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -751,7 +837,7 @@ window.saveClientChanges = async function (clientid) {
     document.querySelector('#editClientAddress').value
 
   const response = await fetch(
-    `http://localhost:5000/customers/${clientid}`,
+    `${API_BASE}/customers/${clientid}`,
     {
       method: "PUT",
 
@@ -860,7 +946,7 @@ window.archiveClient = async function (clientid) {
     return
 
   await fetch(
-    `http://localhost:5000/customers/${clientid}/archive`,
+    `${API_BASE}/customers/${clientid}/archive`,
     {
       method: "PUT"
     }
@@ -875,7 +961,7 @@ window.archiveClient = async function (clientid) {
 window.unarchiveClient = async function (clientid) {
 
   await fetch(
-    `http://localhost:5000/customers/${clientid}/unarchive`,
+    `${API_BASE}/customers/${clientid}/unarchive`,
     {
       method: "PUT"
     }
@@ -941,7 +1027,7 @@ window.saveResponsiblePerson = async function () {
   }
 
   const response = await fetch(
-    "http://localhost:5000/responsible-persons",
+    `${API_BASE}/responsible-persons`,
     {
       method: "POST",
 
@@ -1011,7 +1097,7 @@ window.saveResponsiblePersonChanges = async function (personid) {
     document.querySelector('#editResponsibleName').value
 
   const response = await fetch(
-    `http://localhost:5000/responsible-persons/${personid}`,
+    `${API_BASE}/responsible-persons/${personid}`,
     {
       method: "PUT",
 
@@ -1325,7 +1411,7 @@ window.saveSectionChanges = async function (sectionid) {
   }
 
   const response = await fetch(
-    `http://localhost:5000/sections/${sectionid}`,
+    `${API_BASE}/sections/${sectionid}`,
     {
       method: "PUT",
 
@@ -1365,7 +1451,7 @@ window.saveSectionFromForm = async function () {
     return
   }
 
-  const response = await fetch("http://localhost:5000/sections", {
+  const response = await fetch(`${API_BASE}/sections`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1394,7 +1480,7 @@ window.saveSectionFromForm = async function () {
 window.archiveSection = async function (sectionid) {
   if (!confirm("Archive this section? Active assets must be moved or archived first.")) return
 
-  const response = await fetch(`http://localhost:5000/sections/${sectionid}/archive`, {
+  const response = await fetch(`${API_BASE}/sections/${sectionid}/archive`, {
     method: "PUT"
   })
   const result = await response.json()
@@ -1410,7 +1496,7 @@ window.archiveSection = async function (sectionid) {
 }
 
 window.unarchiveSection = async function (sectionid) {
-  const response = await fetch(`http://localhost:5000/sections/${sectionid}/unarchive`, {
+  const response = await fetch(`${API_BASE}/sections/${sectionid}/unarchive`, {
     method: "PUT"
   })
   const result = await response.json()
@@ -1550,7 +1636,7 @@ window.saveSiteChanges = async function (siteid) {
   }
 
   const response = await fetch(
-    `http://localhost:5000/sites/${siteid}`,
+    `${API_BASE}/sites/${siteid}`,
     {
       method: "PUT",
 
@@ -1581,7 +1667,7 @@ window.saveSiteChanges = async function (siteid) {
 window.archiveSite = async function (siteid) {
   if (!confirm("Archive this site? Active assets must be moved or archived first.")) return
 
-  const response = await fetch(`http://localhost:5000/sites/${siteid}/archive`, {
+  const response = await fetch(`${API_BASE}/sites/${siteid}/archive`, {
     method: "PUT"
   })
   const result = await response.json()
@@ -1597,7 +1683,7 @@ window.archiveSite = async function (siteid) {
 }
 
 window.unarchiveSite = async function (siteid) {
-  const response = await fetch(`http://localhost:5000/sites/${siteid}/unarchive`, {
+  const response = await fetch(`${API_BASE}/sites/${siteid}/unarchive`, {
     method: "PUT"
   })
   const result = await response.json()
@@ -1652,7 +1738,7 @@ window.saveSiteFromForm = async function () {
     return
   }
 
-  const response = await fetch("http://localhost:5000/sites", {
+  const response = await fetch(`${API_BASE}/sites`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1839,6 +1925,11 @@ window.openAssetQrLabel = function (assetid) {
 }
 
 window.showAddAssetForm = function () {
+  if (!canManageAssetRecords()) {
+    showAccessDenied()
+    return
+  }
+
   const sortedCustomers = [...customers].sort((a, b) =>
     (a.clientname || '').localeCompare(b.clientname || '')
   )
@@ -2165,6 +2256,11 @@ function validateAssetPhotoFiles(files) {
 }
 
 window.saveAssetFromForm = async function () {
+  if (!canManageAssetRecords()) {
+    alert("You do not have permission to add assets.")
+    return
+  }
+
   const clientid = document.querySelector('#assetClient').value
   const siteid = document.querySelector('#assetSite').value
   const sectionid = document.querySelector('#assetSection').value
@@ -2188,7 +2284,7 @@ window.saveAssetFromForm = async function () {
     return
   }
 
-  const response = await fetch("http://localhost:5000/assets", {
+  const response = await fetch(`${API_BASE}/assets`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -2245,7 +2341,7 @@ window.saveAssetFromForm = async function () {
     }
 
     const photoResponse = await fetch(
-      `http://localhost:5000/assets/${newAsset.assetid}/photos`,
+      `${API_BASE}/assets/${newAsset.assetid}/photos`,
       {
         method: "POST",
         body: formData,
@@ -2476,6 +2572,11 @@ window.setAssetFilterKey = function (key) {
 }
 
 window.showMoveAssetForm = function (assetid) {
+  if (!canManageAssetRecords()) {
+    showAccessDenied()
+    return
+  }
+
   rememberAssetListState()
 
   const asset = assets.find(a => String(a.assetid) === String(assetid))
@@ -2571,6 +2672,11 @@ window.filterMoveAssetSections = function (selectedSectionId = "") {
 }
 
 window.saveAssetMove = async function (assetid) {
+  if (!canManageAssetRecords()) {
+    alert("You do not have permission to move assets.")
+    return
+  }
+
   const siteid = document.querySelector("#moveAssetSite")?.value || ""
   const sectionid = document.querySelector("#moveAssetSection")?.value || ""
 
@@ -2579,7 +2685,7 @@ window.saveAssetMove = async function (assetid) {
     return
   }
 
-  const response = await fetch(`http://localhost:5000/assets/${assetid}/move`, {
+  const response = await fetch(`${API_BASE}/assets/${assetid}/move`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json"
@@ -2712,6 +2818,11 @@ window.refreshEditAssetDynamicFields = function () {
 }
 
 window.editAsset = function (assetid) {
+  if (!canManageAssetRecords()) {
+    showAccessDenied()
+    return
+  }
+
   rememberAssetListState()
 
   const asset = assets.find(a => String(a.assetid) === String(assetid))
@@ -2816,7 +2927,7 @@ window.editAsset = function (assetid) {
       ${asset.media1 ? `
         <div class="photo-card">
           <h3>Photo 1</h3>
-          <img src="http://localhost:5000${asset.media1}">
+          <img src="${API_BASE}${asset.media1}">
           <button
             type="button"
             class="danger-btn photo-delete-btn"
@@ -2830,7 +2941,7 @@ window.editAsset = function (assetid) {
       ${asset.media2 ? `
         <div class="photo-card">
           <h3>Photo 2</h3>
-          <img src="http://localhost:5000${asset.media2}">
+          <img src="${API_BASE}${asset.media2}">
           <button
             type="button"
             class="danger-btn photo-delete-btn"
@@ -2845,6 +2956,11 @@ window.editAsset = function (assetid) {
 }
 
 window.saveAssetChanges = async function (assetid) {
+  if (!canManageAssetRecords()) {
+    alert("You do not have permission to edit assets.")
+    return
+  }
+
   const equiptypeid = document.querySelector('#editAssetEquipType')?.value || null
   const serialno = document.querySelector('#editAssetSerialNo').value
   const assettagno = document.querySelector('#editAssetTagNo')?.value || ""
@@ -2852,7 +2968,7 @@ window.saveAssetChanges = async function (assetid) {
   const manufactdate = document.querySelector('#editAssetManufactDate')?.value || ""
   const description = document.querySelector('#editAssetDescription').value
 
-  const response = await fetch(`http://localhost:5000/assets/${assetid}`, {
+  const response = await fetch(`${API_BASE}/assets/${assetid}`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -2900,13 +3016,18 @@ window.saveAssetChanges = async function (assetid) {
 }
 
 window.archiveAsset = async function (assetid) {
+  if (!canManageAssetRecords()) {
+    alert("You do not have permission to archive assets.")
+    return
+  }
+
   const confirmArchive = confirm(
     "Archive asset " + assetid + "? It will be hidden but its inspection history will remain."
   )
 
   if (!confirmArchive) return
 
-  const response = await fetch(`http://localhost:5000/assets/${assetid}/archive`, {
+  const response = await fetch(`${API_BASE}/assets/${assetid}/archive`, {
     method: "PUT",
   })
 
@@ -2924,13 +3045,18 @@ window.archiveAsset = async function (assetid) {
 }
 
 window.unarchiveAsset = async function (assetid) {
+  if (!canManageAssetRecords()) {
+    alert("You do not have permission to restore assets.")
+    return
+  }
+
   const confirmRestore = confirm(
     "Restore asset " + assetid + "?"
   );
 
   if (!confirmRestore) return;
 
-  const response = await fetch(`http://localhost:5000/assets/${assetid}/unarchive`, {
+  const response = await fetch(`${API_BASE}/assets/${assetid}/unarchive`, {
     method: "PUT",
   });
 
@@ -2948,6 +3074,11 @@ window.unarchiveAsset = async function (assetid) {
 };
 
 window.uploadAssetPhotos = async function (assetid) {
+  if (!canManageAssetRecords()) {
+    alert("You do not have permission to update asset photos.")
+    return
+  }
+
   const photo1 = document.querySelector('#assetPhoto1').files[0]
   const photo2 = document.querySelector('#assetPhoto2').files[0]
 
@@ -2970,7 +3101,7 @@ window.uploadAssetPhotos = async function (assetid) {
     formData.append("photo2", photo2)
   }
 
-  const response = await fetch(`http://localhost:5000/assets/${assetid}/photos`, {
+  const response = await fetch(`${API_BASE}/assets/${assetid}/photos`, {
     method: "POST",
     body: formData,
   })
@@ -2989,11 +3120,16 @@ window.uploadAssetPhotos = async function (assetid) {
 }
 
 window.deleteAssetPhoto = async function (assetid, slot) {
+  if (!canManageAssetRecords()) {
+    alert("You do not have permission to delete asset photos.")
+    return
+  }
+
   const confirmed = confirm(`Delete asset photo ${slot}?`)
 
   if (!confirmed) return
 
-  const response = await fetch(`http://localhost:5000/assets/${assetid}/photos/${slot}`, {
+  const response = await fetch(`${API_BASE}/assets/${assetid}/photos/${slot}`, {
     method: "DELETE"
   })
 
@@ -3254,8 +3390,8 @@ window.saveCriteria = async function () {
 
   const response = await fetch(
     criteriaid
-      ? `http://localhost:5000/equipment-type-criteria/${criteriaid}`
-      : "http://localhost:5000/equipment-type-criteria",
+      ? `${API_BASE}/equipment-type-criteria/${criteriaid}`
+      : `${API_BASE}/equipment-type-criteria`,
     {
       method: criteriaid ? "PUT" : "POST",
 
@@ -3315,7 +3451,7 @@ window.deleteCriteria = async function (criteriaid) {
   }
 
   const response = await fetch(
-    `http://localhost:5000/equipment-type-criteria/${criteriaid}`,
+    `${API_BASE}/equipment-type-criteria/${criteriaid}`,
     {
       method: "DELETE"
     }
@@ -3361,7 +3497,7 @@ window.showCustomerDetailedReport = function () {
 
   localStorage.setItem("currentPage", "customer-report")
 
-  renderCustomerDetailedReport(customers, equipmentTypes)
+  renderCustomerDetailedReport(customers, equipmentTypes, sites, sections, responsiblePersons)
 }
 
 window.handleCertificateEnter = function (event) {
@@ -3438,7 +3574,7 @@ window.searchCertificates = async function (resetPage = true) {
   params.append("dateto", document.querySelector('#certDateTo')?.value || "")
 
   const response = await fetch(
-    `http://localhost:5000/certificates/search?${params.toString()}`
+    `${API_BASE}/certificates/search?${params.toString()}`
   )
 
   const certificates = await response.json()
@@ -3564,7 +3700,7 @@ function renderCertificateResultRows(certificates) {
               <button onclick="openCertificateModal(${cert.testid})">View</button>
               <a
                 class="cert-action-link"
-                href="http://localhost:5000/inspections/${cert.testid}/certificate.pdf"
+                href="${API_BASE}/inspections/${cert.testid}/certificate.pdf?t=${Date.now()}"
                 download="certificate-${cert.testid}.pdf"
               >
                 Download PDF
@@ -3715,7 +3851,7 @@ window.quickOpenAsset = async function (assetid) {
     resultBox.id === "dashboardAssetSearchResult" ? "quick" : "quick"
 
   const response = await fetch(
-    `http://localhost:5000/assets/${assetid}/quick-details`
+    `${API_BASE}/assets/${assetid}/quick-details`
   )
 
   const asset = await response.json()
@@ -3766,14 +3902,14 @@ window.quickOpenAsset = async function (assetid) {
         ${asset.media1 ? `
           <div class="quick-photo-card">
             <h4>Photo 1</h4>
-            <img src="http://localhost:5000${asset.media1}">
+            <img src="${API_BASE}${asset.media1}">
           </div>
         ` : ''}
 
         ${asset.media2 ? `
           <div class="quick-photo-card">
             <h4>Photo 2</h4>
-            <img src="http://localhost:5000${asset.media2}">
+            <img src="${API_BASE}${asset.media2}">
           </div>
         ` : ''}
       </div>
@@ -3995,12 +4131,18 @@ function isHookMeasuredSizeCriteria(row) {
     criteriaText.includes("measured hook throat opening")
 }
 
+const noProofLoadMultiplierEquipTypeIds = new Set(["401", "402", "404", "406"])
+
 function getCalculatedProofLoadValue(asset) {
   const wll = Number(asset?.wll)
 
-  return Number.isFinite(wll) && wll > 0
-    ? formatStandardNumber(wll * 1.10)
-    : ""
+  if (!Number.isFinite(wll) || wll <= 0) return ""
+
+  const multiplier = noProofLoadMultiplierEquipTypeIds.has(String(asset?.equiptypeid))
+    ? 1
+    : 1.10
+
+  return formatStandardNumber(wll * multiplier)
 }
 
 function getCriteriaStandardValue(asset, row) {
@@ -4169,7 +4311,7 @@ function textCriteriaValue(row, savedValue = "") {
 }
 
 function isSafeForServiceCriteria(row) {
-  return (row.criterianame || "").toLowerCase() === "safe for service"
+  return isSafeContinuationCriteria(row)
 }
 
 function isHookWearCriteria(row) {
@@ -4274,6 +4416,29 @@ function isSafeContinuationCriteria(row) {
   return name === "SAFE FOR CONTINUED OPERATION" || name === "SAFE FOR SERVICE"
 }
 
+function criteriaSavedResult(row) {
+  return String(
+    row?.result ??
+    row?.savedresult ??
+    row?.measuredvalue ??
+    row?.value ??
+    ""
+  ).trim().toUpperCase()
+}
+
+function criteriaDefaultResult(row) {
+  const savedResult = criteriaSavedResult(row)
+
+  if (savedResult) return savedResult
+  if (row.resulttype === "YES_NO" || isSafeContinuationCriteria(row)) return "YES"
+
+  return "PASS"
+}
+
+function criteriaResultOption(value, label, selectedValue) {
+  return `<option value="${value}" ${selectedValue === value ? "selected" : ""}>${label}</option>`
+}
+
 function isCriticalCriteria(row) {
   return String(row?.severity || "").toUpperCase() === "CRITICAL"
 }
@@ -4294,13 +4459,22 @@ window.updateInspectionSafetyWarning = function () {
     if (safeSelect) {
       safeSelect.value = safeSelect.querySelector('option[value="NO"]') ? "NO" : "FAIL"
       safeSelect.disabled = true
+      safeSelect.dataset.autoForcedSafety = "true"
       toggleFailRemark(safeCriteria.criteriaid)
     }
   }
 
   if (safeCriteria && failedCriticalCriteria.length === 0) {
     const safeSelect = document.querySelector(`#result-${safeCriteria.criteriaid}`)
-    if (safeSelect) safeSelect.disabled = false
+    if (safeSelect) {
+      safeSelect.disabled = false
+
+      if (safeSelect.dataset.autoForcedSafety === "true") {
+        safeSelect.value = safeSelect.querySelector('option[value="YES"]') ? "YES" : "PASS"
+        delete safeSelect.dataset.autoForcedSafety
+        toggleFailRemark(safeCriteria.criteriaid)
+      }
+    }
   }
 
   if (!warning) return
@@ -4399,6 +4573,11 @@ function renderInspectionPhotoPreview() {
 }
 
 window.startInspection = async function (assetid, inspectiontype = "VISUAL", returnPage = "quick") {
+  if (!canPerformInspections()) {
+    alert("You do not have permission to create inspections or load tests.")
+    return
+  }
+
   if (returnPage === "assets") {
     rememberAssetListState()
   }
@@ -4407,7 +4586,7 @@ window.startInspection = async function (assetid, inspectiontype = "VISUAL", ret
     a => String(a.assetid) === String(assetid)
   )
 const quickDetailsResponse = await fetch(
-  `http://localhost:5000/assets/${assetid}/quick-details`
+  `${API_BASE}/assets/${assetid}/quick-details`
 )
 const defaultTestDate = dateInputValue()
 const defaultValidDate = calculateValidDateFromTestDate(defaultTestDate, inspectiontype)
@@ -4473,13 +4652,13 @@ window.currentInspectionCriteria = assetCriteria
 
   ${asset.media1 ? `
     <div class="quick-photo-card">
-      <img src="http://localhost:5000${asset.media1}">
+      <img src="${API_BASE}${asset.media1}">
     </div>
   ` : ''}
 
   ${asset.media2 ? `
     <div class="quick-photo-card">
-      <img src="http://localhost:5000${asset.media2}">
+      <img src="${API_BASE}${asset.media2}">
     </div>
   ` : ''}
 
@@ -4676,7 +4855,10 @@ ${measurementCriteria.length ? `
 
 </div>
 
-  ${visualCriteria.map(row => isTextCriteria(row) ? `
+  ${visualCriteria.map(row => {
+    const selectedResult = criteriaDefaultResult(row)
+
+    return isTextCriteria(row) ? `
     <div class="inspection-row compact-row">
 
       <div class="inspection-criteria">
@@ -4709,14 +4891,14 @@ ${measurementCriteria.length ? `
           ${
             row.resulttype === "YES_NO" || isSafeContinuationCriteria(row)
               ? `
-                <option value="YES">YES</option>
-                <option value="NO">NO</option>
-                <option value="N/A">N/A</option>
+                ${criteriaResultOption("YES", "YES", selectedResult)}
+                ${criteriaResultOption("NO", "NO", selectedResult)}
+                ${criteriaResultOption("N/A", "N/A", selectedResult)}
               `
               : `
-                <option value="PASS">PASS</option>
-                <option value="FAIL">FAIL</option>
-                <option value="N/A">N/A</option>
+                ${criteriaResultOption("PASS", "PASS", selectedResult)}
+                ${criteriaResultOption("FAIL", "FAIL", selectedResult)}
+                ${criteriaResultOption("N/A", "N/A", selectedResult)}
               `
           }
         </select>
@@ -4735,7 +4917,8 @@ ${measurementCriteria.length ? `
       </div>
 
     </div>
-  `).join('')}
+  `
+  }).join('')}
 
 </div>
 
@@ -4764,7 +4947,7 @@ ${measurementCriteria.length ? `
 
 window.showInspectionHistory = async function (assetid) {
   const response = await fetch(
-    `http://localhost:5000/assets/${assetid}/inspection-history`
+    `${API_BASE}/assets/${assetid}/inspection-history`
   )
 
   const history = await response.json()
@@ -4818,7 +5001,7 @@ window.showAssetHistoryFromSetup = async function (assetid) {
   rememberAssetListState()
 
   const response = await fetch(
-    `http://localhost:5000/assets/${assetid}/inspection-history`
+    `${API_BASE}/assets/${assetid}/inspection-history`
   )
 
   const history = await response.json()
@@ -4978,7 +5161,7 @@ window.dashboardFindAsset = function () {
 async function loadDashboardAlerts() {
   try {
     const response = await fetch(
-      "http://localhost:5000/dashboard/alerts"
+      `${API_BASE}/dashboard/alerts`
     )
 
     const data = await response.json()
@@ -4992,7 +5175,7 @@ async function loadDashboardAlerts() {
     if (Number(data.overdue) > 0) {
       html += `
         <div class="alert-card danger">
-          🔴 ${data.overdue} Assets Overdue
+          ALERT: ${data.overdue} Assets Overdue
         </div>
       `
     }
@@ -5000,7 +5183,7 @@ async function loadDashboardAlerts() {
     if (Number(data.expiring) > 0) {
       html += `
         <div class="alert-card warning">
-          🟠 ${data.expiring} Certificates Expiring Within 30 Days
+          WARNING: ${data.expiring} Certificates Expiring Within 30 Days
         </div>
       `
     }
@@ -5008,7 +5191,7 @@ async function loadDashboardAlerts() {
     if (Number(data.failed) > 0) {
       html += `
         <div class="alert-card danger">
-          🔴 ${data.failed} Failed Assets
+          ALERT: ${data.failed} Failed Assets
         </div>
       `
     }
@@ -5016,7 +5199,7 @@ async function loadDashboardAlerts() {
     if (html === "") {
       html = `
         <div class="alert-card success">
-          ✓ No operational alerts
+          OK: No operational alerts
         </div>
       `
     }
@@ -5030,7 +5213,7 @@ async function loadDashboardAlerts() {
 
 async function loadDashboardAttention() {
   try {
-    const response = await fetch("http://localhost:5000/dashboard/attention");
+    const response = await fetch(`${API_BASE}/dashboard/attention`);
     const data = await response.json();
 
     const tbody = document.getElementById("attentionTableBody");
@@ -5080,7 +5263,7 @@ async function loadDashboardAttention() {
 async function loadDashboardFailedEquipment() {
   try {
     const response = await fetch(
-      "http://localhost:5000/dashboard/failed-equipment"
+      `${API_BASE}/dashboard/failed-equipment`
     )
 
     const data = await response.json()
@@ -5140,7 +5323,7 @@ async function loadDashboardFailedEquipment() {
 async function loadDashboardUpcomingExpiries() {
   try {
     const response = await fetch(
-      "http://localhost:5000/dashboard/upcoming-expiries"
+      `${API_BASE}/dashboard/upcoming-expiries`
     )
 
     const data = await response.json()
@@ -5306,7 +5489,7 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
 
   try {
     response = await fetch(
-      "http://localhost:5000/inspections",
+      `${API_BASE}/inspections`,
       {
         method: "POST",
         body: formData
@@ -5402,3 +5585,5 @@ switch (currentPage) {
 }
 
 loadData()
+
+

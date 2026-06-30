@@ -47,8 +47,9 @@ function signAuthToken(user) {
 function authCookieOptions() {
   return {
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: process.env.COOKIE_SAME_SITE || "lax",
     secure: process.env.COOKIE_SECURE === "true" || process.env.NODE_ENV === "production",
+    path: process.env.COOKIE_PATH || (process.env.NODE_ENV === "production" ? "/atec" : "/"),
     maxAge: 8 * 60 * 60 * 1000
   }
 }

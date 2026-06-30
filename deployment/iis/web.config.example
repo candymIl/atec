@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  IIS template for https://www.fbcranes.co.za/atec
+
+  Requirements on the server:
+  - IIS URL Rewrite module
+  - IIS Application Request Routing (ARR) with proxy enabled
+  - Node backend running on http://127.0.0.1:5000
+  - Frontend build files copied to the physical /atec folder
+-->
+<configuration>
+  <system.webServer>
+    <rewrite>
+      <rules>
+        <rule name="ATEC API proxy" stopProcessing="true">
+          <match url="^atec/api/(.*)" />
+          <action type="Rewrite" url="http://127.0.0.1:5000/{R:1}" />
+          <serverVariables>
+            <set name="HTTP_X_FORWARDED_PROTO" value="https" />
+          </serverVariables>
+        </rule>
+
+        <rule name="ATEC uploads proxy" stopProcessing="true">
+          <match url="^atec/uploads/(.*)" />
+          <action type="Rewrite" url="http://127.0.0.1:5000/uploads/{R:1}" />
+          <serverVariables>
+            <set name="HTTP_X_FORWARDED_PROTO" value="https" />
+          </serverVariables>
+        </rule>
+
+        <rule name="ATEC frontend fallback" stopProcessing="true">
+          <match url="^atec/.*" />
+          <conditions logicalGrouping="MatchAll">
+            <add input="{REQUEST_FILENAME}" matchType="IsFile" negate="true" />
+            <add input="{REQUEST_FILENAME}" matchType="IsDirectory" negate="true" />
+          </conditions>
+          <action type="Rewrite" url="/atec/index.html" />
+        </rule>
+      </rules>
+    </rewrite>
+  </system.webServer>
+</configuration>

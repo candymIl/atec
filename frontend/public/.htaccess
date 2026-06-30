@@ -1,0 +1,16 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /atec/
+
+  # Let real files and folders load normally.
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # Keep API calls for the Node app/proxy.
+  RewriteRule ^api(/.*)?$ - [L]
+  RewriteRule ^uploads(/.*)?$ - [L]
+
+  # Frontend app fallback for refresh/F5.
+  RewriteRule . /atec/index.html [L]
+</IfModule>

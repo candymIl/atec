@@ -17,6 +17,7 @@ function assetSupportsLoadTest(asset) {
 
 export function renderAssetRow(asset) {
   const serialDisplay = asset.serialno || asset.hoistserialno || ''
+  const canManageAssets = ['ADMIN', 'MANAGER', 'INSPECTOR'].includes(window.currentUser?.role)
 
   return `
     <tr>
@@ -35,38 +36,42 @@ export function renderAssetRow(asset) {
       <td>${asset.description || ''}</td>
       <td>
         <div class="action-buttons">
-          <button onclick="editAsset(${asset.assetid})">
-            Edit
-          </button>
-
-          <button onclick="startInspection(${asset.assetid}, 'VISUAL', 'assets')">
-            Inspect
-          </button>
-
-          ${assetSupportsLoadTest(asset) ? `
-            <button
-              class="load-test-btn"
-              onclick="startInspection(${asset.assetid}, 'LOADTEST', 'assets')"
-            >
-              Load Test
+          ${canManageAssets ? `
+            <button onclick="editAsset(${asset.assetid})">
+              Edit
             </button>
+
+            <button onclick="startInspection(${asset.assetid}, 'VISUAL', 'assets')">
+              Inspect
+            </button>
+
+            ${assetSupportsLoadTest(asset) ? `
+              <button
+                class="load-test-btn"
+                onclick="startInspection(${asset.assetid}, 'LOADTEST', 'assets')"
+              >
+                Load Test
+              </button>
+            ` : ''}
           ` : ''}
 
-          <button onclick="showAssetHistoryFromSetup(${asset.assetid})">
+          <button class="history-btn" onclick="showAssetHistoryFromSetup(${asset.assetid})">
             History
           </button>
 
-          <button onclick="openAssetQrLabel(${asset.assetid})">
+          <button class="qr-label-btn" onclick="openAssetQrLabel(${asset.assetid})">
             QR Label
           </button>
 
-          <button onclick="showMoveAssetForm(${asset.assetid})">
-            Move
-          </button>
+          ${canManageAssets ? `
+            <button class="move-btn" onclick="showMoveAssetForm(${asset.assetid})">
+              Move
+            </button>
 
-          <button onclick="archiveAsset(${asset.assetid})">
-            Archive
-          </button>
+            <button onclick="archiveAsset(${asset.assetid})">
+              Archive
+            </button>
+          ` : ''}
         </div>
       </td>
     </tr>
@@ -113,11 +118,13 @@ export function renderAssetSetup(assets) {
   document.querySelector('#page').innerHTML = `
     <h1>Asset Setup</h1>
 
-    <div class="page-actions">
-      <button onclick="showAddAssetForm()">
-        Add Asset
-      </button>
-    </div>
+    ${['ADMIN', 'MANAGER', 'INSPECTOR'].includes(window.currentUser?.role) ? `
+      <div class="page-actions">
+        <button onclick="showAddAssetForm()">
+          Add Asset
+        </button>
+      </div>
+    ` : ''}
 
     <div class="filter-card">
       <p>

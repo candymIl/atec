@@ -1,12 +1,25 @@
 import { sortHeader, sortTableRows } from '../tableSort.js'
+import { API_BASE } from '../api.js'
 
 let currentReport = null
 let currentReportPage = 1
 let currentReportPageSize = 25
 
-export function renderCustomerDetailedReport(customers = [], equipmentTypes = []) {
+export function renderCustomerDetailedReport(customers = [], equipmentTypes = [], sites = [], sections = [], responsiblePersons = []) {
   const sortedCustomers = [...customers].sort((a, b) =>
     (a.clientname || "").localeCompare(b.clientname || "")
+  )
+
+  const sortedSites = [...sites].sort((a, b) =>
+    (a.sitename || "").localeCompare(b.sitename || "")
+  )
+
+  const sortedSections = [...sections].sort((a, b) =>
+    (a.sectionname || "").localeCompare(b.sectionname || "")
+  )
+
+  const sortedResponsiblePersons = [...responsiblePersons].sort((a, b) =>
+    (a.name || "").localeCompare(b.name || "")
   )
 
   const sortedEquipmentTypes = [...equipmentTypes].sort((a, b) =>
@@ -34,6 +47,42 @@ export function renderCustomerDetailedReport(customers = [], equipmentTypes = []
               `).join("")}
             </select>
           </div>
+
+        <div class="report-filter-control">
+          <label for="customerReportSite">Site</label>
+          <select id="customerReportSite">
+            <option value="">All Sites</option>
+            ${sortedSites.map(site => `
+              <option value="${site.siteid}">
+                ${site.sitename || `Site ${site.siteid}`}
+              </option>
+            `).join("")}
+          </select>
+        </div>
+
+        <div class="report-filter-control">
+          <label for="customerReportSection">Section</label>
+          <select id="customerReportSection">
+            <option value="">All Sections</option>
+            ${sortedSections.map(section => `
+              <option value="${section.sectionid}">
+                ${section.sectionname || `Section ${section.sectionid}`}
+              </option>
+            `).join("")}
+          </select>
+        </div>
+
+        <div class="report-filter-control">
+          <label for="customerReportResponsible">Responsible Person</label>
+          <select id="customerReportResponsible">
+            <option value="">All Responsible Persons</option>
+            ${sortedResponsiblePersons.map(person => `
+              <option value="${person.personid}">
+                ${person.name || `Person ${person.personid}`}
+              </option>
+            `).join("")}
+          </select>
+        </div>
 
         <div class="report-filter-control">
           <label for="customerReportEquipment">Equipment Type</label>
@@ -65,7 +114,7 @@ export function renderCustomerDetailedReport(customers = [], equipmentTypes = []
             <a
               id="customerReportPdfLink"
               class="cert-action-link"
-              href="http://localhost:5000/reports/customer-detailed.pdf"
+              href="${API_BASE}/reports/customer-detailed.pdf"
               download
             >
               Download PDF
@@ -74,7 +123,7 @@ export function renderCustomerDetailedReport(customers = [], equipmentTypes = []
             <a
               id="customerReportExcelLink"
               class="cert-action-link"
-              href="http://localhost:5000/reports/customer-detailed.xlsx"
+              href="${API_BASE}/reports/customer-detailed.xlsx"
               download
             >
               Export Excel
@@ -95,7 +144,7 @@ export function renderCustomerDetailedReport(customers = [], equipmentTypes = []
 
 function bindCustomerReportEvents() {
   document
-    .querySelectorAll("#customerReportClient, #customerReportEquipment, #customerReportDateFrom, #customerReportDateTo")
+    .querySelectorAll("#customerReportClient, #customerReportSite, #customerReportSection, #customerReportResponsible, #customerReportEquipment, #customerReportDateFrom, #customerReportDateTo")
     .forEach(input => {
       input.addEventListener("change", updateCustomerReportLinks)
     })
@@ -112,11 +161,11 @@ function updateCustomerReportLinks() {
   const excelLink = document.querySelector("#customerReportExcelLink")
 
   if (pdfLink) {
-    pdfLink.href = `http://localhost:5000/reports/customer-detailed.pdf${query}`
+    pdfLink.href = `${API_BASE}/reports/customer-detailed.pdf${query}`
   }
 
   if (excelLink) {
-    excelLink.href = `http://localhost:5000/reports/customer-detailed.xlsx${query}`
+    excelLink.href = `${API_BASE}/reports/customer-detailed.xlsx${query}`
   }
 }
 
@@ -129,7 +178,7 @@ async function loadCustomerDetailedReport() {
   preview.className = "report-preview-empty"
   preview.innerHTML = `<div class="report-preview-empty">Loading report...</div>`
 
-  const response = await fetch(`http://localhost:5000/reports/customer-detailed${query}`)
+  const response = await fetch(`${API_BASE}/reports/customer-detailed${query}`)
   const report = await response.json()
 
   if (!response.ok) {
@@ -155,11 +204,17 @@ window.loadCustomerDetailedReport = loadCustomerDetailedReport
 function getCustomerReportQuery() {
   const params = new URLSearchParams()
   const clientid = document.querySelector("#customerReportClient")?.value || ""
+  const siteid = document.querySelector("#customerReportSite")?.value || ""
+  const sectionid = document.querySelector("#customerReportSection")?.value || ""
+  const responsibleid = document.querySelector("#customerReportResponsible")?.value || ""
   const equiptypeid = document.querySelector("#customerReportEquipment")?.value || ""
   const datefrom = document.querySelector("#customerReportDateFrom")?.value || ""
   const dateto = document.querySelector("#customerReportDateTo")?.value || ""
 
   if (clientid) params.append("clientid", clientid)
+  if (siteid) params.append("siteid", siteid)
+  if (sectionid) params.append("sectionid", sectionid)
+  if (responsibleid) params.append("responsibleid", responsibleid)
   if (equiptypeid) params.append("equiptypeid", equiptypeid)
   if (datefrom) params.append("datefrom", datefrom)
   if (dateto) params.append("dateto", dateto)
@@ -182,6 +237,7 @@ function renderCustomerReportPreview(report) {
     serialno: row => row.serialno,
     sitename: row => row.sitename,
     sectionname: row => row.sectionname,
+    responsiblename: row => row.responsiblename,
     equipmenttype: row => row.equipmenttype,
     description: row => row.description,
     latestinspectiondate: row => row.latestinspectiondate,
@@ -273,6 +329,7 @@ function renderCustomerReportPreview(report) {
               <th>${sortHeader('Serial No', 'customerReport', 'serialno', 'rerenderCustomerReport')}</th>
               <th>${sortHeader('Site', 'customerReport', 'sitename', 'rerenderCustomerReport')}</th>
               <th>${sortHeader('Section', 'customerReport', 'sectionname', 'rerenderCustomerReport')}</th>
+              <th>${sortHeader('Responsible Person', 'customerReport', 'responsiblename', 'rerenderCustomerReport')}</th>
               <th>${sortHeader('Equipment Type', 'customerReport', 'equipmenttype', 'rerenderCustomerReport')}</th>
               <th>${sortHeader('Description', 'customerReport', 'description', 'rerenderCustomerReport')}</th>
               <th>${sortHeader('Latest Inspection', 'customerReport', 'latestinspectiondate', 'rerenderCustomerReport')}</th>
@@ -292,6 +349,7 @@ function renderCustomerReportPreview(report) {
                 <td>${row.serialno || "-"}</td>
                 <td>${row.sitename || "-"}</td>
                 <td>${row.sectionname || "-"}</td>
+                <td>${row.responsiblename || "-"}</td>
                 <td>${row.equipmenttype || "-"}</td>
                 <td>${row.description || "-"}</td>
                 <td>${formatReportDate(row.latestinspectiondate)}</td>
@@ -307,7 +365,7 @@ function renderCustomerReportPreview(report) {
               </tr>
             `).join("") || `
               <tr>
-                <td colspan="14">No assets found for this report.</td>
+                <td colspan="15">No assets found for this report.</td>
               </tr>
             `}
           </tbody>
@@ -462,3 +520,5 @@ function formatReportDate(value) {
   if (!value) return "-"
   return String(value).split("T")[0]
 }
+
+

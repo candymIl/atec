@@ -75,7 +75,7 @@ JWT_SECRET=use-a-long-random-secret-at-least-32-characters
 Confirm these items:
 
 - HTTPS is enabled.
-- The backend is not publicly exposed except through the intended `/Atec/api` route.
+- The backend is not publicly exposed except through the intended `/atec/api` route.
 - PostgreSQL is not open to the internet.
 - The database password is strong and not reused.
 - Test users are removed or disabled.

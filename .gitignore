@@ -7,3 +7,5 @@ tmp/
 backups/
 *.dump
 *.backup
+node_modules
+node_modules

@@ -1,5 +1,22 @@
 import { getPaginationState, renderPaginationControls } from '../pagination.js'
 import { getTableSortState, sortTableRows } from '../tableSort.js'
+import { API_BASE, assetUrl } from '../api.js'
+
+async function readCertificateJson(response) {
+  const text = await response.text()
+
+  if (!text) return {}
+
+  try {
+    return JSON.parse(text)
+  } catch (err) {
+    return {
+      error: response.ok
+        ? "The server returned an unexpected certificate response."
+        : "The server returned an unexpected error while loading the certificate."
+    }
+  }
+}
 
 export function renderCertificateSearch(customers = [], sites = [], sections = []) {
   document.querySelector('#page').innerHTML = `
@@ -168,6 +185,7 @@ export function renderCertificateSearch(customers = [], sites = [], sections = [
   window.certificateCustomers = customers
   window.certificateSites = sites
   window.certificateSections = sections
+  installCertificatePageActions()
 
   document.querySelector('#certSearch').addEventListener('keydown', event => {
     if (event.key === 'Enter') {
@@ -186,6 +204,10 @@ export function renderCertificateSearch(customers = [], sites = [], sections = [
   document.querySelector('#bulkCertDownloadAllBtn').addEventListener('click', window.downloadAllBulkCertificatesPdf)
 
   window.searchCertificates()
+}
+
+function installCertificatePageActions() {
+  Object.assign(window, certificatePageActions)
 }
 
 window.filterCertificateSites = function () {
@@ -270,7 +292,7 @@ window.searchCertificates = async function (resetPage = true) {
   params.append("dateto", document.querySelector('#certDateTo')?.value || "")
 
   const response = await fetch(
-    `http://localhost:5000/certificates/search?${params.toString()}`
+    `${API_BASE}/certificates/search?${params.toString()}`
   )
 
   const certificates = await response.json()
@@ -326,6 +348,8 @@ function renderCertificateResults(certificates) {
     document.querySelector('#certificateResults').innerHTML = `<p>No certificates found.</p>`
     return
   }
+
+  const canDeleteCertificates = window.currentUser?.role === "ADMIN"
 
   const sortedCertificates = sortTableRows(certificates, 'certificates', {
     testid: cert => cert.testid,
@@ -393,8 +417,8 @@ function renderCertificateResults(certificates) {
               </button>
 
               <a
-                class="cert-action-link"
-                href="http://localhost:5000/inspections/${cert.testid}/certificate.pdf"
+                class="cert-action-link cert-download-btn"
+                href="${API_BASE}/inspections/${cert.testid}/certificate.pdf?t=${Date.now()}"
                 download="certificate-${cert.testid}.pdf"
                 onclick="event.stopPropagation()"
               >
@@ -404,6 +428,12 @@ function renderCertificateResults(certificates) {
               <button type="button" class="cert-mail-btn" data-testid="${cert.testid}">
                 Mail
               </button>
+
+              ${canDeleteCertificates ? `
+                <button type="button" class="cert-delete-btn" data-testid="${cert.testid}">
+                  Delete
+                </button>
+              ` : ""}
             </td>
           </tr>
         `).join("")}
@@ -448,7 +478,7 @@ window.searchBulkCertificates = async function () {
   downloadAllButton.disabled = true
 
   const response = await fetch(
-    `http://localhost:5000/certificates/bulk-print?${params.toString()}`
+    `${API_BASE}/certificates/bulk-print?${params.toString()}`
   )
 
   const data = await response.json()
@@ -582,8 +612,8 @@ function updateBulkPrintButtonState() {
   if (downloadSelectedButton) {
     downloadSelectedButton.disabled = selectedCount === 0
     downloadSelectedButton.textContent = selectedCount
-      ? `Download Selected as PDF (${selectedCount})`
-      : "Download Selected as PDF"
+      ? `Download Selected PDFs (${selectedCount})`
+      : "Download Selected PDFs"
   }
 
   if (selectAll) {
@@ -696,11 +726,7 @@ window.downloadSelectedBulkCertificatesPdf = async function () {
     return
   }
 
-  const params = getBulkCertificateFilterParams()
-  if (!params) return
-
-  params.set("testids", selectedTestIds.join(","))
-  await downloadBulkCertificatesPdf(params)
+  await downloadIndividualCertificatePdfs(selectedTestIds)
 }
 
 window.downloadAllBulkCertificatesPdf = async function () {
@@ -717,7 +743,7 @@ window.downloadAllBulkCertificatesPdf = async function () {
 
 async function downloadBulkCertificatesPdf(params) {
   const response = await fetch(
-    `http://localhost:5000/certificates/bulk-pdf?${params.toString()}`
+    `${API_BASE}/certificates/bulk-pdf?${params.toString()}`
   )
 
   if (!response.ok) {
@@ -795,6 +821,14 @@ function bindCertificateResultEvents() {
       window.mailCertificate(button.dataset.testid)
     })
   })
+
+  document.querySelectorAll('.cert-delete-btn').forEach(button => {
+    button.addEventListener('click', event => {
+      event.preventDefault()
+      event.stopPropagation()
+      window.deleteCertificate(button.dataset.testid)
+    })
+  })
 }
 
 window.selectCertificateRow = function (rowElement, testid) {
@@ -809,10 +843,10 @@ window.selectCertificateRow = function (rowElement, testid) {
 
 window.previewCertificate = async function (testid) {
   const response = await fetch(
-    `http://localhost:5000/inspections/${testid}/certificate`
+    `${API_BASE}/inspections/${testid}/certificate`
   )
 
-  const data = await response.json()
+  const data = await readCertificateJson(response)
 
   if (!response.ok) {
     alert("Error loading certificate preview: " + data.error)
@@ -936,10 +970,10 @@ window.previewCertificate = async function (testid) {
 
 window.openCertificateModal = async function (testid) {
   const response = await fetch(
-    `http://localhost:5000/inspections/${testid}/certificate`
+    `${API_BASE}/inspections/${testid}/certificate`
   )
 
-  const data = await response.json()
+  const data = await readCertificateJson(response)
 
   if (!response.ok) {
     alert("Error loading certificate: " + data.error)
@@ -964,7 +998,7 @@ window.openCertificateModal = async function (testid) {
           <a
             id="certificatePrintBtn"
             class="cert-action-link"
-            href="http://localhost:5000/inspections/${inspection.testid}/certificate.pdf?inline=1"
+            href="${API_BASE}/inspections/${inspection.testid}/certificate.pdf?inline=1&t=${Date.now()}"
             target="_blank"
           >
             Print
@@ -972,7 +1006,7 @@ window.openCertificateModal = async function (testid) {
           <a
             id="certificateDownloadPdfBtn"
             class="cert-action-link"
-            href="http://localhost:5000/inspections/${inspection.testid}/certificate.pdf"
+            href="${API_BASE}/inspections/${inspection.testid}/certificate.pdf?t=${Date.now()}"
             download="certificate-${inspection.testid}.pdf"
           >
             Download PDF
@@ -1011,7 +1045,7 @@ function renderCertificateDocument(certificate) {
 
   return `
     <div class="fb-cert-page">
-      <img src="/header.jpg" class="fb-cert-header" alt="FB Cranes Header">
+      <img src="${assetUrl('header.jpg')}" class="fb-cert-header" alt="FB Cranes Header">
 
       <div class="fb-cert-title">
         <h1>${certificateTitle}</h1>
@@ -1052,7 +1086,7 @@ function renderCertificateDocument(certificate) {
           <p><strong>Asset Tag No:</strong> ${inspection.assettagno || "-"}</p>
           <p><strong>Equipment Type:</strong> ${inspection.equipmenttype || "-"}</p>
           <p><strong>Description:</strong> ${inspection.description || "-"}</p>
-          <p><strong>Serial No:</strong> ${inspection.serialno || "-"}</p>
+          <p class="fb-cert-serial-line"><strong>Serial No:</strong> <span>${inspection.serialno || "-"}</span></p>
           <p><strong>Manufacturer:</strong> ${inspection.manufacturer || "-"}</p>
         </div>
       </div>
@@ -1084,7 +1118,7 @@ function renderCertificateDocument(certificate) {
         <div class="fb-cert-photo-grid">
           ${inspectionPhotos.length ? inspectionPhotos.slice(0, 4).map((photo, index) => `
             <div>
-              <img src="http://localhost:5000${photo.photo_path}">
+              <img src="${API_BASE}${photo.photo_path}">
               <p>${photo.photo_type ? photo.photo_type.replaceAll("_", " ") : `Photo ${index + 1}`}</p>
               ${photo.caption ? `<p>${photo.caption}</p>` : ""}
             </div>
@@ -1109,8 +1143,8 @@ function renderCertificateDocument(certificate) {
             <tr>
               <th>Criteria</th>
               <th>Result</th>
-              <th>Standard Dimension</th>
-              <th>Measured Dimension</th>
+              <th>Std. Dimension</th>
+              <th>Measured</th>
               <th>Remarks</th>
             </tr>
           </thead>
@@ -1145,7 +1179,7 @@ function renderCertificateDocument(certificate) {
           ${inspection.inspector_signature_image ? `
             <img
               class="fb-cert-signature-image"
-              src="http://localhost:5000${inspection.inspector_signature_image}"
+              src="${API_BASE}${inspection.inspector_signature_image}"
               alt="Inspector Signature"
             >
           ` : ""}
@@ -1159,21 +1193,21 @@ function renderCertificateDocument(certificate) {
         </p>
       `).join("")}
 
-      <img src="/footer.jpg" class="fb-cert-footer" alt="FB Cranes Footer">
+      <img src="${assetUrl('footer.jpg')}" class="fb-cert-footer" alt="FB Cranes Footer">
     </div>
   `
 }
 
 window.printCertificatePdf = function (testid) {
   window.open(
-    `http://localhost:5000/inspections/${testid}/certificate.pdf?inline=1`,
+    `${API_BASE}/inspections/${testid}/certificate.pdf?inline=1&t=${Date.now()}`,
     "_blank"
   )
 }
 
 window.downloadCertificatePdf = async function (testid) {
   const response = await fetch(
-    `http://localhost:5000/inspections/${testid}/certificate.pdf`
+    `${API_BASE}/inspections/${testid}/certificate.pdf?t=${Date.now()}`
   )
 
   if (!response.ok) {
@@ -1205,7 +1239,7 @@ window.mailCertificate = async function (testid) {
   }
 
   const response = await fetch(
-    `http://localhost:5000/certificates/${testid}/email`,
+    `${API_BASE}/certificates/${testid}/email`,
     {
       method: "POST",
       headers: {
@@ -1223,6 +1257,49 @@ window.mailCertificate = async function (testid) {
   }
 
   alert("Certificate emailed successfully")
+}
+
+window.deleteCertificate = async function (testid) {
+  if (window.currentUser?.role !== "ADMIN") {
+    alert("Only admins may delete certificates.")
+    return
+  }
+
+  const confirmed = window.confirm(
+    `Delete certificate ${testid}? This removes it from ATEC and cannot be undone.`
+  )
+
+  if (!confirmed) {
+    return
+  }
+
+  const response = await fetch(
+    `${API_BASE}/certificates/${testid}`,
+    { method: "DELETE" }
+  )
+
+  const data = await readCertificateJson(response)
+
+  if (!response.ok) {
+    alert(data.error || `Unable to delete certificate ${testid}.`)
+    return
+  }
+
+  window.currentCertificateResults = (window.currentCertificateResults || [])
+    .filter(certificate => String(certificate.testid) !== String(testid))
+
+  renderCertificateResults(window.currentCertificateResults)
+  renderCertificateStats(window.currentCertificateResults)
+
+  const previewPanel = document.querySelector('#certificatePreviewPanel')
+  if (previewPanel) {
+    previewPanel.innerHTML = `
+      <h2>Certificate Preview</h2>
+      <p>Certificate ${testid} deleted.</p>
+    `
+  }
+
+  alert(`Certificate ${testid} deleted successfully.`)
 }
 
 window.closeCertificateModal = function () {
@@ -1278,7 +1355,7 @@ function getCertificateTitle(inspection) {
 }
 
 function isCertificateSafeServiceRow(row) {
-  const name = String(row?.criterianame || "")
+  const name = String(row?.criterianame || row?.criteriadescription || "")
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim()
@@ -1420,3 +1497,67 @@ function formatDate(value) {
   if (!value) return "-"
   return String(value).split("T")[0]
 }
+
+async function downloadIndividualCertificatePdfs(testIds) {
+  const selectedCertificates = (window.bulkCertificateResults || [])
+    .filter(certificate => testIds.includes(String(certificate.inspection?.testid)))
+
+  if (!selectedCertificates.length) {
+    alert("No selected certificates could be prepared for download.")
+    return
+  }
+
+  for (const certificate of selectedCertificates) {
+    const testid = certificate.inspection?.testid
+    const response = await fetch(`${API_BASE}/inspections/${testid}/certificate.pdf?t=${Date.now()}`, {
+      credentials: "include"
+    })
+
+    if (!response.ok) {
+      alert(`Unable to download certificate ${testid}.`)
+      continue
+    }
+
+    const blob = await response.blob()
+    const filename = getDownloadFilename(
+      response.headers.get("content-disposition"),
+      `certificate-${testid}.pdf`
+    )
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement("a")
+
+    link.href = url
+    link.download = filename
+    link.style.display = "none"
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+
+    window.setTimeout(() => window.URL.revokeObjectURL(url), 1000)
+  }
+}
+
+const certificatePageActions = {
+  filterCertificateSites: window.filterCertificateSites,
+  filterCertificateSections: window.filterCertificateSections,
+  filterBulkCertificateSites: window.filterBulkCertificateSites,
+  clearCertificateSearch: window.clearCertificateSearch,
+  searchCertificates: window.searchCertificates,
+  rerenderCertificateResults: window.rerenderCertificateResults,
+  goToCertificatePage: window.goToCertificatePage,
+  setCertificateRowsPerPage: window.setCertificateRowsPerPage,
+  previewCertificate: window.previewCertificate,
+  openCertificateModal: window.openCertificateModal,
+  closeCertificateModal: window.closeCertificateModal,
+  downloadCertificatePdf: window.downloadCertificatePdf,
+  mailCertificate: window.mailCertificate,
+  searchBulkCertificates: window.searchBulkCertificates,
+  printSelectedBulkCertificates: window.printSelectedBulkCertificates,
+  closeBulkCertificatePrintView: window.closeBulkCertificatePrintView,
+  downloadSelectedBulkCertificatesPdf: window.downloadSelectedBulkCertificatesPdf,
+  downloadAllBulkCertificatesPdf: window.downloadAllBulkCertificatesPdf,
+  toggleBulkCertificateSelection: window.toggleBulkCertificateSelection,
+  updateBulkCertificateButtons: window.updateBulkCertificateButtons
+}
+
+

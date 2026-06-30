@@ -16,6 +16,7 @@ const ExcelJS = require("exceljs");
 const QRCode = require("qrcode");
 const nodemailer = require("nodemailer");
 const puppeteer = require("puppeteer-core");
+const sharp = require("sharp");
 const {
   asyncRoute,
   auditLogger,
@@ -29,10 +30,41 @@ const {
   validateUploadedImages
 } = require("./middleware/security")
 
-const allowedOrigins = (process.env.FRONTEND_ORIGIN || "http://localhost:5174,http://localhost:5173,http://127.0.0.1:5174,http://127.0.0.1:5173")
+const defaultFrontendOrigin = process.env.NODE_ENV === "production"
+  ? "https://www.fbcranes.co.za"
+  : "http://localhost:5174,http://localhost:5173,http://127.0.0.1:5174,http://127.0.0.1:5173"
+const uploadsRoot = path.resolve(process.env.UPLOADS_PATH || path.join(__dirname, "uploads"))
+const publicBasePath = (process.env.PUBLIC_BASE_PATH || "/atec").replace(/\/+$/, "")
+const allowedOrigins = (process.env.FRONTEND_ORIGIN || defaultFrontendOrigin)
   .split(",")
   .map(origin => origin.trim())
   .filter(Boolean)
+const trustProxy = process.env.TRUST_PROXY || (process.env.NODE_ENV === "production" ? "1" : "")
+
+if (trustProxy) {
+  app.set("trust proxy", trustProxy === "true" ? 1 : trustProxy)
+}
+
+app.use((req, res, next) => {
+  const prefixes = [
+    process.env.BACKEND_API_PREFIX,
+    publicBasePath ? `${publicBasePath}/api` : "",
+    "/api"
+  ].filter(Boolean)
+
+  for (const prefix of prefixes) {
+    if (req.url === prefix || req.url.startsWith(`${prefix}/`)) {
+      req.url = req.url.slice(prefix.length) || "/"
+      return next()
+    }
+  }
+
+  if (publicBasePath && (req.url === `${publicBasePath}/uploads` || req.url.startsWith(`${publicBasePath}/uploads/`))) {
+    req.url = req.url.slice(publicBasePath.length) || "/"
+  }
+
+  return next()
+})
 
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
@@ -59,14 +91,14 @@ app.use((req, res, next) => {
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    let folder = "uploads/assets"
+    let folder = path.join(uploadsRoot, "assets")
 
     if (file.fieldname === "signature") {
-      folder = "uploads/signatures"
+      folder = path.join(uploadsRoot, "signatures")
     }
 
     if (file.fieldname === "inspectionPhotos") {
-      folder = "uploads/inspections"
+      folder = path.join(uploadsRoot, "inspections")
     }
 
     fs.mkdirSync(folder, { recursive: true })
@@ -145,8 +177,7 @@ function resolveUploadFilePath(uploadPath) {
     return null
   }
 
-  const fullPath = path.resolve(__dirname, normalizedPath.replace(/^\/+/, ""))
-  const uploadsRoot = path.resolve(__dirname, "uploads")
+  const fullPath = path.resolve(uploadsRoot, normalizedPath.replace(/^\/uploads\//, ""))
 
   return fullPath.startsWith(uploadsRoot + path.sep) ? fullPath : null
 }
@@ -282,6 +313,10 @@ function isCriticalFailure(resultRow, criteriaRow) {
     result === "NO" ||
     measuredValue === "FAIL" ||
     measuredValue === "NO"
+}
+
+function blankToNull(value) {
+  return value === "" || value === undefined ? null : value
 }
 
 function applyCriticalSafetyRule(results, criteriaRows) {
@@ -505,6 +540,7 @@ function authorizeRequest(req, res, next) {
         routePath.startsWith("/assets") ||
         routePath.startsWith("/certificates") ||
         routePath.includes("/certificate") ||
+        routePath.startsWith("/reports/customer-detailed") ||
         routePath.startsWith("/dashboard") ||
         routePath.startsWith("/inspection-photos") ||
         routePath === "/equipment-types" ||
@@ -518,6 +554,10 @@ function authorizeRequest(req, res, next) {
   }
 
   if (role === "CUSTOMER") {
+    if (method === "POST" && /^\/certificates\/[^/]+\/email$/.test(routePath)) {
+      return next()
+    }
+
     if (
       isRead &&
       (
@@ -698,7 +738,7 @@ async function authorizeUploadRequest(req, res, next) {
   return next()
 }
 
-app.use("/uploads", requireAuth, asyncRoute(authorizeUploadRequest), express.static("uploads"));
+app.use("/uploads", requireAuth, asyncRoute(authorizeUploadRequest), express.static(uploadsRoot));
 app.use(requireAuth)
 app.use(authorizeRequest)
 app.use(asyncRoute(enforceInspectorInspectionOwnership))
@@ -1493,7 +1533,7 @@ app.get("/assets/:id/qr-label.pdf", async (req, res) => {
     }
 
     const asset = await ensureAssetQrCode(result.rows[0])
-    const appUrl = (process.env.PUBLIC_APP_URL || "https://www.fbcranes.co.za/Atec").replace(/\/$/, "")
+    const appUrl = (process.env.PUBLIC_APP_URL || "https://www.fbcranes.co.za/atec").replace(/\/$/, "")
     const latestInspectionResult = await pool.query(
       `
       SELECT DISTINCT ON (inspectiontype)
@@ -1710,7 +1750,7 @@ app.get("/assets/:id/qr-label.pdf", async (req, res) => {
       .font("Helvetica")
       .fontSize(8)
       .fillColor("#475569")
-      .text("FB Cranes Inspection Platform | www.fbcranes.co.za/Atec | 011 902 3271", labelX + innerPad, footerY + 12, {
+      .text("FB Cranes Inspection Platform | www.fbcranes.co.za/atec | 011 902 3271", labelX + innerPad, footerY + 12, {
         width: labelWidth - (innerPad * 2),
         align: "center"
       })
@@ -2001,18 +2041,18 @@ app.post("/assets", async (req, res) => {
         manufacturer,
         description,
         assettagno,
-        manufactdate || null,
-        wll,
-        heightoflift,
-        numberofchainfalls,
-        oemtophooksize,
-        oembottomhooksize,
-        loadchaindiameter,
-        effectivelength,
-        span,
-        permissibledeflection,
-        hooksize,
-        steelwireropemm,
+        blankToNull(manufactdate),
+        blankToNull(wll),
+        blankToNull(heightoflift),
+        blankToNull(numberofchainfalls),
+        blankToNull(oemtophooksize),
+        blankToNull(oembottomhooksize),
+        blankToNull(loadchaindiameter),
+        blankToNull(effectivelength),
+        blankToNull(span),
+        blankToNull(permissibledeflection),
+        blankToNull(hooksize),
+        blankToNull(steelwireropemm),
         hoistdescription,
         hoistserialno,
         auxhoistdescription,
@@ -2179,22 +2219,22 @@ app.put("/assets/:id", async (req, res) => {
         serialno,
         manufacturer,
         description,
-        wll,
-        heightoflift,
-        numberofchainfalls,
-        oemtophooksize,
-        oembottomhooksize,
-        loadchaindiameter,
-        effectivelength,
-        span,
-        permissibledeflection,
-        hooksize,
-        steelwireropemm,
+        blankToNull(wll),
+        blankToNull(heightoflift),
+        blankToNull(numberofchainfalls),
+        blankToNull(oemtophooksize),
+        blankToNull(oembottomhooksize),
+        blankToNull(loadchaindiameter),
+        blankToNull(effectivelength),
+        blankToNull(span),
+        blankToNull(permissibledeflection),
+        blankToNull(hooksize),
+        blankToNull(steelwireropemm),
         hoistdescription,
         hoistserialno,
         assettagno,
-        equiptypeid,
-        manufactdate || null,
+        blankToNull(equiptypeid),
+        blankToNull(manufactdate),
         auxhoistdescription,
         auxhoistserialno,
         auxhoistwll,
@@ -4061,7 +4101,7 @@ function getCertificateTitle(inspection) {
 }
 
 function isCertificateSafeServiceRow(row) {
-  const name = String(row?.criterianame || "")
+  const name = String(row?.criterianame || row?.criteriadescription || "")
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim()
@@ -4169,16 +4209,96 @@ function htmlEscape(value) {
 
 function fileUrlIfExists(filePath) {
   if (!filePath || !fs.existsSync(filePath)) return ""
-  return pathToFileURL(filePath).href
+
+  const stat = fs.statSync(filePath)
+  if (!stat.isFile()) return ""
+
+  const ext = path.extname(filePath).toLowerCase()
+  const mimeType = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".svg": "image/svg+xml"
+  }[ext] || "application/octet-stream"
+
+  return `data:${mimeType};base64,${fs.readFileSync(filePath).toString("base64")}`
 }
 
-function uploadPathToFileUrl(uploadPath) {
+function uploadPathToFileUrl(uploadPath, imageDataUrlCache = null) {
   if (!uploadPath) return ""
 
-  const normalizedPath = String(uploadPath).replace(/^\/+/, "").replace(/\\/g, "/")
-  const fullPath = path.join(__dirname, normalizedPath)
+  const fullPath = resolveUploadFilePath(uploadPath)
+
+  if (imageDataUrlCache?.has(fullPath)) {
+    return imageDataUrlCache.get(fullPath)
+  }
 
   return fileUrlIfExists(fullPath)
+}
+
+function collectCertificatePhotoFilePaths(certificates = []) {
+  const filePaths = new Set()
+
+  for (const certificate of certificates) {
+    const inspection = certificate.inspection || {}
+    const photos = getCertificatePhotosForHtml(inspection, certificate.photos || []).slice(0, 4)
+
+    for (const photo of photos) {
+      const fullPath = resolveUploadFilePath(photo.photo_path)
+
+      if (fullPath && fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+        filePaths.add(fullPath)
+      }
+    }
+  }
+
+  return [...filePaths]
+}
+
+async function compressImageForCertificatePdf(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return ""
+
+  const stat = fs.statSync(filePath)
+  if (!stat.isFile()) return ""
+
+  const buffer = await sharp(filePath)
+    .rotate()
+    .resize({
+      width: 900,
+      height: 700,
+      fit: "inside",
+      withoutEnlargement: true
+    })
+    .jpeg({
+      quality: 62,
+      mozjpeg: true
+    })
+    .toBuffer()
+
+  return `data:image/jpeg;base64,${buffer.toString("base64")}`
+}
+
+async function buildCertificatePdfImageCache(certificates = []) {
+  const imageDataUrlCache = new Map()
+  const photoFilePaths = collectCertificatePhotoFilePaths(certificates)
+
+  if (!photoFilePaths.length) return imageDataUrlCache
+
+  for (const filePath of photoFilePaths) {
+    try {
+      const compressedDataUrl = await compressImageForCertificatePdf(filePath)
+
+      if (compressedDataUrl) {
+        imageDataUrlCache.set(filePath, compressedDataUrl)
+      }
+    } catch (err) {
+      console.warn(`Could not compress certificate image ${filePath}: ${err.message}`)
+    }
+  }
+
+  return imageDataUrlCache
 }
 
 function getCertificatePhotosForHtml(inspection, savedPhotos = []) {
@@ -4221,7 +4341,29 @@ function certificateAssetDetails(inspection) {
   ].filter(([, value]) => value !== null && value !== undefined && value !== "")
 }
 
-function renderBulkCertificateHtml(certificate) {
+function getCertificateRegulationNotes(inspection) {
+  const notes = []
+
+  if (shouldShowDrivenMachineryNote(inspection)) {
+    notes.push(DRIVEN_MACHINERY_CERTIFICATE_NOTE)
+  }
+
+  if (shouldShowSans500Note(inspection)) {
+    notes.push(SANS_500_CERTIFICATE_NOTE)
+  }
+
+  if (shouldShowRegulation18Note(inspection)) {
+    notes.push(REGULATION_18_CERTIFICATE_NOTE)
+  }
+
+  if (shouldShowDrivenMachineryItemsNote(inspection)) {
+    notes.push(DRIVEN_MACHINERY_ITEMS_CERTIFICATE_NOTE)
+  }
+
+  return notes
+}
+
+function renderBulkCertificateHtml(certificate, imageDataUrlCache = null) {
   const inspection = certificate.inspection || {}
   const results = getCertificateResultsForDisplay(certificate.results || [], inspection)
   const photos = getCertificatePhotosForHtml(inspection, certificate.photos || []).slice(0, 4)
@@ -4229,18 +4371,7 @@ function renderBulkCertificateHtml(certificate) {
   const footerUrl = fileUrlIfExists(path.join(__dirname, "..", "frontend", "public", "footer.jpg"))
   const signatureUrl = uploadPathToFileUrl(inspection.inspector_signature_image)
   const assetDetails = certificateAssetDetails(inspection)
-  const drivenMachineryNote = shouldShowDrivenMachineryNote(inspection)
-    ? DRIVEN_MACHINERY_CERTIFICATE_NOTE
-    : ""
-  const sans500Note = shouldShowSans500Note(inspection)
-    ? SANS_500_CERTIFICATE_NOTE
-    : ""
-  const regulation18Note = shouldShowRegulation18Note(inspection)
-    ? REGULATION_18_CERTIFICATE_NOTE
-    : ""
-  const drivenMachineryItemsNote = shouldShowDrivenMachineryItemsNote(inspection)
-    ? DRIVEN_MACHINERY_ITEMS_CERTIFICATE_NOTE
-    : ""
+  const regulationNotes = getCertificateRegulationNotes(inspection)
 
   return `
     <section class="bulk-certificate-page">
@@ -4248,7 +4379,7 @@ function renderBulkCertificateHtml(certificate) {
         ${headerUrl ? `<img src="${headerUrl}" class="fb-cert-header" alt="FB Cranes Header">` : ""}
 
         <div class="fb-cert-title">
-          <h1>${htmlEscape(getCertificateTitle(inspection))}</h1>
+          <h1 style="color:#1f2937 !important; -webkit-text-fill-color:#1f2937 !important;">${htmlEscape(getCertificateTitle(inspection))}</h1>
         </div>
 
         <div class="fb-cert-meta">
@@ -4278,7 +4409,7 @@ function renderBulkCertificateHtml(certificate) {
             <p><strong>Asset Tag No:</strong> ${htmlEscape(inspection.assettagno || "-")}</p>
             <p><strong>Equipment Type:</strong> ${htmlEscape(inspection.equipmenttype || "-")}</p>
             <p><strong>Description:</strong> ${htmlEscape(inspection.description || "-")}</p>
-            <p><strong>Serial No:</strong> ${htmlEscape(inspection.serialno || "-")}</p>
+            <p class="fb-cert-serial-line"><strong>Serial No:</strong> <span>${htmlEscape(inspection.serialno || "-")}</span></p>
             <p><strong>Manufacturer:</strong> ${htmlEscape(inspection.manufacturer || "-")}</p>
           </div>
         </div>
@@ -4309,7 +4440,7 @@ function renderBulkCertificateHtml(certificate) {
           <h3>Inspection Photos</h3>
           <div class="fb-cert-photo-grid">
             ${photos.length ? photos.map((photo, index) => {
-              const photoUrl = uploadPathToFileUrl(photo.photo_path)
+              const photoUrl = uploadPathToFileUrl(photo.photo_path, imageDataUrlCache)
 
               return `
                 <div>
@@ -4338,8 +4469,8 @@ function renderBulkCertificateHtml(certificate) {
               <tr>
                 <th>Criteria</th>
                 <th>Result</th>
-                <th>Standard Dimension</th>
-                <th>Measured Dimension</th>
+                <th>Std. Dimension</th>
+                <th>Measured</th>
                 <th>Remarks</th>
               </tr>
             </thead>
@@ -4375,10 +4506,9 @@ function renderBulkCertificateHtml(certificate) {
           </div>
         </div>
 
-        ${drivenMachineryNote ? `<p class="fb-cert-driven-note">${htmlEscape(drivenMachineryNote)}</p>` : ""}
-        ${sans500Note ? `<p class="fb-cert-driven-note">${htmlEscape(sans500Note)}</p>` : ""}
-        ${regulation18Note ? `<p class="fb-cert-driven-note">${htmlEscape(regulation18Note)}</p>` : ""}
-        ${drivenMachineryItemsNote ? `<p class="fb-cert-driven-note">${htmlEscape(drivenMachineryItemsNote)}</p>` : ""}
+        ${regulationNotes.map(note => `
+          <p class="fb-cert-driven-note">${htmlEscape(note)}</p>
+        `).join("")}
 
         ${footerUrl ? `<img src="${footerUrl}" class="fb-cert-footer" alt="FB Cranes Footer">` : ""}
       </div>
@@ -4386,7 +4516,7 @@ function renderBulkCertificateHtml(certificate) {
   `
 }
 
-function renderBulkCertificatesHtmlDocument(certificates) {
+function renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache = null) {
   return `
     <!doctype html>
     <html>
@@ -4395,7 +4525,7 @@ function renderBulkCertificatesHtmlDocument(certificates) {
         <title>FB Certificates</title>
         <style>
           * { box-sizing: border-box; }
-          @page { size: A4; margin: 8mm; }
+          @page { size: A4; margin: 0; }
           html, body {
             margin: 0;
             padding: 0;
@@ -4404,8 +4534,15 @@ function renderBulkCertificatesHtmlDocument(certificates) {
             font-family: Arial, Helvetica, sans-serif;
           }
           .bulk-certificate-page {
+            width: 210mm;
+            min-height: 297mm;
+            margin: 0 auto;
+            padding: 6mm;
+            overflow: visible;
             page-break-after: always;
             break-after: page;
+            page-break-inside: auto;
+            break-inside: auto;
           }
           .bulk-certificate-page:last-child {
             page-break-after: auto;
@@ -4415,69 +4552,96 @@ function renderBulkCertificatesHtmlDocument(certificates) {
             background: white;
             color: #111827;
             width: 100%;
-            font-size: 10.5px;
-            line-height: 1.15;
+            min-height: 285mm;
+            display: block;
+            font-size: 9.5px;
+            line-height: 1.08;
             overflow: visible;
+            transform: none;
+            transform-origin: top left;
           }
           .fb-cert-header,
           .fb-cert-footer {
             width: 100%;
             display: block;
+            height: auto;
+            object-fit: contain;
           }
-          .fb-cert-header { margin-bottom: 8px; }
-          .fb-cert-footer { margin-top: 10px; }
+          .fb-cert-header {
+            margin-bottom: 3px;
+            max-height: 32mm;
+            object-position: center top;
+          }
+          .fb-cert-footer {
+            margin-top: 4px;
+            max-height: 22mm;
+            object-position: center bottom;
+          }
           .fb-cert-title h1 {
             text-align: center;
             text-transform: uppercase;
-            font-size: 20px;
+            font-size: 18px;
             letter-spacing: 0.5px;
-            margin: 6px 0 8px;
+            margin: 2px 0 3px;
             color: #1f2937;
           }
           .fb-cert-meta {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
+            gap: 8px;
             border-top: 1px solid #9ca3af;
             border-bottom: 1px solid #9ca3af;
-            padding: 5px 0;
-            margin-bottom: 8px;
+            padding: 3px 0;
+            margin-bottom: 4px;
           }
           .fb-cert-meta div {
             display: flex;
             gap: 6px;
           }
-          .fb-cert-section { margin: 7px 0; }
+          .fb-cert-section { margin: 3px 0; }
           .fb-cert-section h3 {
             color: #1f3b5c;
             border-bottom: 1px solid #d9e1ec;
-            padding-bottom: 3px;
-            margin: 0 0 4px;
-            font-size: 12px;
+            padding-bottom: 1px;
+            margin: 0 0 2px;
+            font-size: 11px;
           }
           .fb-cert-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 2px 18px;
+            gap: 1px 16px;
           }
-          .fb-cert-grid p { margin: 2px 0; }
+          .fb-cert-grid p { margin: 1px 0; }
+          .fb-cert-serial-line {
+            background: #fff7d6;
+            border: 1px solid #f2c94c;
+            border-radius: 3px;
+            color: #111827;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 2px 4px;
+          }
+          .fb-cert-serial-line span {
+            color: #b45309;
+            font-size: 13px;
+          }
           .fb-cert-photo-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 8px;
+            gap: 6px;
           }
           .fb-cert-photo-grid div {
             border: 1px solid #d9e1ec;
-            padding: 4px;
+            padding: 2px;
             text-align: center;
-            min-height: 90px;
+            min-height: 95px;
           }
           .fb-cert-photo-grid img {
             max-width: 100%;
-            max-height: 120px;
+            max-height: 105px;
             object-fit: contain;
           }
-          .fb-cert-photo-grid p { margin: 2px 0; }
+          .fb-cert-photo-grid p { margin: 1px 0; }
           .fb-cert-no-photo {
             display: flex;
             align-items: center;
@@ -4488,22 +4652,29 @@ function renderBulkCertificatesHtmlDocument(certificates) {
           .fb-cert-results-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 10.5px;
-            line-height: 1.15;
+            font-size: 8.8px;
+            line-height: 1.02;
           }
-          .fb-cert-results-criteria-col { width: 42%; }
-          .fb-cert-results-standard-col { width: 15%; }
-          .fb-cert-results-measured-col { width: 15%; }
-          .fb-cert-results-result-col { width: 10%; }
-          .fb-cert-results-remarks-col { width: 18%; }
+          .fb-cert-results-table thead {
+            display: table-header-group;
+          }
+          .fb-cert-results-table tr {
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+          .fb-cert-results-criteria-col { width: 39%; }
+          .fb-cert-results-standard-col { width: 10%; }
+          .fb-cert-results-measured-col { width: 10%; }
+          .fb-cert-results-result-col { width: 9%; }
+          .fb-cert-results-remarks-col { width: 32%; }
           .fb-cert-results-table th {
             background: #1f3b5c;
             color: white;
-            padding: 4px;
+            padding: 1px 2px;
           }
           .fb-cert-results-table td {
             border: 1px solid #d9e1ec;
-            padding: 3px 4px;
+            padding: 1px 2px;
             vertical-align: top;
           }
           .fb-cert-results-table th:nth-child(2),
@@ -4526,36 +4697,44 @@ function renderBulkCertificatesHtmlDocument(certificates) {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 60px;
-            margin: 12px 0 4px;
+            margin: 3px 0 1px;
+            page-break-inside: avoid;
+            break-inside: avoid;
           }
           .fb-cert-signature-line {
             border-bottom: 1px solid #111827;
-            height: 4px;
+            height: 3px;
             margin-top: 1px;
             max-width: 300px;
           }
           .fb-cert-signature-image {
             display: block;
-            height: 64px;
-            margin-top: 6px;
-            max-width: 300px;
+            height: 56px;
+            margin-top: 2px;
+            max-width: 340px;
             object-fit: contain;
           }
           .fb-cert-driven-note {
             color: #d00000;
-            font-size: 8px;
+            font-size: 7px;
             font-style: italic;
             font-weight: 700;
-            line-height: 1.35;
-            margin: 4px 0 2px;
+            line-height: 1.15;
+            margin: 2px 0 1px;
+            page-break-inside: avoid;
+            break-inside: avoid;
             text-align: center;
+          }
+          .fb-cert-footer {
+            page-break-inside: avoid;
+            break-inside: avoid;
           }
           .status-safe { color: #0a8f2a; font-weight: 700; }
           .status-unsafe { color: #d00000; font-weight: 700; }
         </style>
       </head>
       <body>
-        ${certificates.map(renderBulkCertificateHtml).join("")}
+        ${certificates.map(certificate => renderBulkCertificateHtml(certificate, imageDataUrlCache)).join("")}
       </body>
     </html>
   `
@@ -4591,19 +4770,24 @@ async function createBulkCertificatesPdfBuffer(certificates) {
   })
 
   try {
+    const imageDataUrlCache = await buildCertificatePdfImageCache(certificates)
     const page = await browser.newPage()
-    await page.setContent(renderBulkCertificatesHtmlDocument(certificates), {
-      waitUntil: "networkidle0"
+    page.setDefaultTimeout(120000)
+    page.setDefaultNavigationTimeout(120000)
+    await page.setContent(renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache), {
+      waitUntil: "load",
+      timeout: 120000
     })
 
     return await page.pdf({
       format: "A4",
       printBackground: true,
+      preferCSSPageSize: true,
       margin: {
-        top: "8mm",
-        right: "8mm",
-        bottom: "8mm",
-        left: "8mm"
+        top: "0",
+        right: "0",
+        bottom: "0",
+        left: "0"
       }
     })
   } finally {
@@ -5068,19 +5252,19 @@ function drawCertificatePdf(doc, inspection, results, photos = []) {
     valueOrDash(inspection.inspector_lmi_number) !== "-"
 
   if (hasInspectorDetails) {
-    ensurePdfSpace(80)
+    ensurePdfSpace(120)
 
     y += 8
     doc.font("Helvetica-Bold").fontSize(8).text("Inspector Signature", marginX, y)
     if (signaturePath) {
       doc.image(signaturePath, marginX, y + 10, {
-        fit: [260, 50],
+        fit: [320, 86],
         align: "left",
         valign: "center"
       })
     }
-    doc.moveTo(marginX, y + 58).lineTo(marginX + 280, y + 58).strokeColor("#111827").stroke()
-    y += 64
+    doc.moveTo(marginX, y + 100).lineTo(marginX + 320, y + 100).strokeColor("#111827").stroke()
+    y += 106
   }
 
   if (shouldShowDrivenMachineryNote(inspection)) {
@@ -5163,26 +5347,7 @@ function drawCertificatePdf(doc, inspection, results, photos = []) {
 }
 
 function createCertificatePdfBuffer(certificate) {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({
-      size: "A4",
-      margin: 28,
-      bufferPages: false
-    })
-
-    const chunks = []
-    doc.on("data", chunk => chunks.push(chunk))
-    doc.on("end", () => resolve(Buffer.concat(chunks)))
-    doc.on("error", reject)
-
-    drawCertificatePdf(
-      doc,
-      certificate.inspection,
-      certificate.results,
-      certificate.photos || []
-    )
-    doc.end()
-  })
+  return createBulkCertificatesPdfBuffer([certificate])
 }
 
 function getMailTransport() {
@@ -5251,24 +5416,21 @@ app.get("/inspections/:testid/certificate.pdf", async (req, res) => {
 
     await req.logAudit("GENERATE_PDF", "certificates", testid)
 
-    res.setHeader("Content-Type", "application/pdf")
     const disposition =
       req.query.inline === "1" ? "inline" : "attachment"
 
+    const pdfBuffer = await createCertificatePdfBuffer(certificate)
+
+    res.setHeader("Content-Type", "application/pdf")
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private")
+    res.setHeader("Pragma", "no-cache")
+    res.setHeader("Expires", "0")
     res.setHeader(
       "Content-Disposition",
       `${disposition}; filename="certificate-${testid}.pdf"`
     )
 
-    const doc = new PDFDocument({
-      size: "A4",
-      margin: 28,
-      bufferPages: false
-    })
-
-    doc.pipe(res)
-    drawCertificatePdf(doc, certificate.inspection, certificate.results, certificate.photos || [])
-    doc.end()
+    res.send(pdfBuffer)
 
   } catch (err) {
     console.error(err)
@@ -5276,6 +5438,59 @@ app.get("/inspections/:testid/certificate.pdf", async (req, res) => {
     res.status(500).json({
       error: "An unexpected server error occurred"
     })
+  }
+})
+
+app.delete("/certificates/:testid", async (req, res) => {
+  const { testid } = req.params
+
+  if (req.user?.role !== "ADMIN") {
+    return res.status(403).json({ error: "Only admins may delete certificates" })
+  }
+
+  const client = await pool.connect()
+
+  try {
+    const certificate = await getCertificateData(testid)
+
+    if (!certificate) {
+      return res.status(404).json({ error: "Certificate not found" })
+    }
+
+    await client.query("BEGIN")
+
+    await client.query(
+      "DELETE FROM atec.tblinspectionphoto WHERE testid = $1",
+      [testid]
+    )
+
+    await client.query(
+      "DELETE FROM atec.tblinspectionresult WHERE testid = $1",
+      [testid]
+    )
+
+    const deleteResult = await client.query(
+      "DELETE FROM atec.tblinspection WHERE testid = $1",
+      [testid]
+    )
+
+    await client.query("COMMIT")
+
+    await req.logAudit("DELETE", "certificates", testid, {
+      assetid: certificate.inspection?.assetid || null,
+      inspectiontype: certificate.inspection?.inspectiontype || null
+    })
+
+    res.json({
+      success: true,
+      deleted: deleteResult.rowCount
+    })
+  } catch (err) {
+    await client.query("ROLLBACK")
+    console.error(err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  } finally {
+    client.release()
   }
 })
 
@@ -5287,6 +5502,15 @@ app.post("/certificates/:testid/email", async (req, res) => {
 
     if (!isValidEmailAddress(recipient)) {
       return res.status(400).json({ error: "Enter a valid recipient email address" })
+    }
+
+    if (
+      req.user.role === "CUSTOMER" &&
+      String(recipient).toLowerCase() !== String(req.user.email || "").trim().toLowerCase()
+    ) {
+      return res.status(403).json({
+        error: "Customer users may only email certificates to their registered email address."
+      })
     }
 
     const transport = getMailTransport()
@@ -5855,6 +6079,9 @@ function reportFileName(report, extension) {
 function customerReportFilters(query = {}) {
   return {
     clientid: query.clientid || "",
+    siteid: query.siteid || "",
+    sectionid: query.sectionid || "",
+    responsibleid: query.responsibleid || "",
     equiptypeid: query.equiptypeid || "",
     datefrom: query.datefrom || "",
     dateto: query.dateto || ""
@@ -5874,6 +6101,9 @@ function customerScopedReportFilters(req) {
 async function getCustomerDetailedReport(filters = {}) {
   const {
     clientid = "",
+    siteid = "",
+    sectionid = "",
+    responsibleid = "",
     equiptypeid = "",
     datefrom = "",
     dateto = ""
@@ -5891,6 +6121,45 @@ async function getCustomerDetailedReport(filters = {}) {
 
     values.push(clientid)
     assetWhere += ` AND a.clientid = $${values.length}`
+  }
+
+  if (siteid) {
+    customerValues.push(siteid)
+    customerWhere += ` AND EXISTS (
+      SELECT 1
+      FROM atec.tblasset customer_asset
+      WHERE customer_asset.clientid = c.clientid
+        AND customer_asset.siteid = $${customerValues.length}
+    )`
+
+    values.push(siteid)
+    assetWhere += ` AND a.siteid = $${values.length}`
+  }
+
+  if (sectionid) {
+    customerValues.push(sectionid)
+    customerWhere += ` AND EXISTS (
+      SELECT 1
+      FROM atec.tblasset customer_asset
+      WHERE customer_asset.clientid = c.clientid
+        AND customer_asset.sectionid = $${customerValues.length}
+    )`
+
+    values.push(sectionid)
+    assetWhere += ` AND a.sectionid = $${values.length}`
+  }
+
+  if (responsibleid) {
+    customerValues.push(responsibleid)
+    customerWhere += ` AND EXISTS (
+      SELECT 1
+      FROM atec.tblasset customer_asset
+      WHERE customer_asset.clientid = c.clientid
+        AND customer_asset.responsibleid = $${customerValues.length}
+    )`
+
+    values.push(responsibleid)
+    assetWhere += ` AND a.responsibleid = $${values.length}`
   }
 
   if (equiptypeid) {
@@ -6048,6 +6317,9 @@ async function getCustomerDetailedReport(filters = {}) {
     generatedAt: new Date().toISOString(),
     filters: {
       clientid: clientid || "",
+      siteid: siteid || "",
+      sectionid: sectionid || "",
+      responsibleid: responsibleid || "",
       equiptypeid: equiptypeid || "",
       datefrom: datefrom || "",
       dateto: dateto || ""
@@ -6137,18 +6409,19 @@ function drawCustomerReportPdf(doc, report) {
   y += 84
 
   const columns = [
-    ["Asset", 45],
-    ["Tag", 56],
-    ["Serial", 70],
-    ["Site", 72],
-    ["Section", 72],
-    ["Equipment", 82],
-    ["Description", 112],
-    ["Last Visual", 58],
-    ["Visual Status", 54],
-    ["Last Load", 58],
-    ["Load Status", 54],
-    ["Report Status", width - 733]
+    ["Asset", 40],
+    ["Tag", 48],
+    ["Serial", 58],
+    ["Site", 58],
+    ["Section", 58],
+    ["Responsible", 68],
+    ["Equipment", 70],
+    ["Description", 96],
+    ["Last Visual", 52],
+    ["Visual Status", 48],
+    ["Last Load", 52],
+    ["Load Status", 48],
+    ["Report Status", width - 696]
   ]
 
   const drawHeader = () => {
@@ -6178,6 +6451,7 @@ function drawCustomerReportPdf(doc, report) {
       row.serialno,
       row.sitename,
       row.sectionname,
+      row.responsiblename,
       row.equipmenttype,
       row.description,
       reportDate(row.visualtestdate),
@@ -6189,15 +6463,15 @@ function drawCustomerReportPdf(doc, report) {
 
     const rowHeight = Math.max(
       18,
-      doc.heightOfString(values[6], { width: columns[6][1] - 6 }) + 8,
-      doc.heightOfString(values[11], { width: columns[11][1] - 6 }) + 8
+      doc.heightOfString(values[7], { width: columns[7][1] - 6 }) + 8,
+      doc.heightOfString(values[12], { width: columns[12][1] - 6 }) + 8
     )
 
     let x = marginX
     columns.forEach(([, colWidth], index) => {
       doc.rect(x, y, colWidth, rowHeight).strokeColor("#d9e1ec").stroke()
       doc
-        .font(index === 11 ? "Helvetica-Bold" : "Helvetica")
+        .font(index === 12 ? "Helvetica-Bold" : "Helvetica")
         .fillColor(values[index] === "NOT SAFE" ? "#d00000" : "#111827")
         .text(values[index], x + 3, y + 4, { width: colWidth - 6 })
       x += colWidth
