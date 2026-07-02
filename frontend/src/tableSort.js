@@ -1,15 +1,15 @@
-export function getTableSortState(tableKey, defaultKey = '') {
+export function getTableSortState(tableKey, defaultKey = '', defaultDirection = 'asc') {
   const stateKey = `${tableKey}Sort`
   window[stateKey] = window[stateKey] || {
     key: defaultKey,
-    direction: 'asc'
+    direction: defaultDirection
   }
 
   return window[stateKey]
 }
 
-export function sortTableRows(rows, tableKey, columns, defaultKey = '') {
-  const sort = getTableSortState(tableKey, defaultKey)
+export function sortTableRows(rows, tableKey, columns, defaultKey = '', defaultDirection = 'asc') {
+  const sort = getTableSortState(tableKey, defaultKey, defaultDirection)
   const activeKey = sort.key || defaultKey
   const getValue = columns[activeKey]
 

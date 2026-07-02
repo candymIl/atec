@@ -2,8 +2,8 @@ import { getPaginationState, renderPaginationControls } from '../pagination.js'
 import { sortHeader, sortTableRows } from '../tableSort.js'
 
 export function renderInspections(assets) {
-  const defaultAssets = [...assets].reverse()
-  const sortedAssets = sortTableRows(defaultAssets, 'inspectionAssets', {
+  const sortedAssets = sortTableRows(assets, 'inspectionAssets', {
+    client_section_serial: asset => `${asset.clientname || ''}\u0000${asset.sectionname || ''}\u0000${asset.serialno || ''}`,
     assetid: asset => asset.assetid,
     assettagno: asset => asset.assettagno,
     serialno: asset => asset.serialno,
@@ -12,7 +12,7 @@ export function renderInspections(assets) {
     sectionname: asset => asset.sectionname,
     description: asset => asset.description,
     equipmenttype: asset => asset.equipmenttype
-  }, 'assetid')
+  }, 'client_section_serial')
   const pagination = getPaginationState(sortedAssets, "inspectionCurrentPage", "inspectionRowsPerPage")
 
   document.querySelector('#page').innerHTML = `

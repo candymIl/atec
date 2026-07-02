@@ -1409,7 +1409,17 @@ window.filterSections = function (resetPage = false) {
     return fieldValue.includes(search)
   })
 
-  const pagination = getPaginationState(filtered, "sectionCurrentPage", "sectionRowsPerPage")
+  const sortedSections = sortTableRows(filtered, 'sections', {
+    client_section: section => `${section.clientname || ''}\u0000${section.sectionname || ''}`,
+    sectionid: section => section.sectionid,
+    clientname: section => section.clientname,
+    sitename: section => section.sitename,
+    responsiblename: section => section.responsiblename,
+    sectionname: section => section.sectionname,
+    archived: section => section.archived ? 'Archived' : 'Active'
+  }, 'client_section')
+
+  const pagination = getPaginationState(sortedSections, "sectionCurrentPage", "sectionRowsPerPage")
   const paginationBar = document.querySelector(".report-pagination-bar")
   if (paginationBar) {
     paginationBar.outerHTML = renderPaginationControls({
@@ -3782,7 +3792,7 @@ window.searchCertificates = async function (resetPage = true) {
 }
 
 function activeCertificateSortHeader(label, key) {
-  const sort = getTableSortState('certificates', 'testid')
+  const sort = getTableSortState('certificates', 'testid', 'desc')
   const isActive = sort.key === key
   const arrow = isActive
     ? sort.direction === 'desc' ? 'v' : '^'
@@ -3818,7 +3828,7 @@ function renderCertificateResultRows(certificates) {
     testdate: cert => cert.testdate,
     status: cert => cert.status,
     inspector: cert => cert.inspector
-  }, 'testid')
+  }, 'testid', 'desc')
 
   const pagination = getPaginationState(sortedCertificates, "certCurrentPage", "certRowsPerPage")
 
@@ -4236,7 +4246,18 @@ window.filterInspectionAssets = function (resetPage = false) {
       .includes(search)
   })
 
-  const sortedFiltered = [...filtered].reverse()
+  const sortedFiltered = sortTableRows(filtered, 'inspectionAssets', {
+    client_section_serial: asset => `${asset.clientname || ''}\u0000${asset.sectionname || ''}\u0000${asset.serialno || ''}`,
+    assetid: asset => asset.assetid,
+    assettagno: asset => asset.assettagno,
+    serialno: asset => asset.serialno,
+    clientname: asset => asset.clientname,
+    sitename: asset => asset.sitename,
+    sectionname: asset => asset.sectionname,
+    description: asset => asset.description,
+    equipmenttype: asset => asset.equipmenttype
+  }, 'client_section_serial')
+
   const pagination = getPaginationState(sortedFiltered, "inspectionCurrentPage", "inspectionRowsPerPage")
   const paginationBar = document.querySelector(".report-pagination-bar")
   if (paginationBar) {

@@ -323,7 +323,7 @@ function renderCertificateStats(certificates) {
 }
 
 function certificateSortHeader(label, key) {
-  const sort = getTableSortState('certificates', 'testid')
+  const sort = getTableSortState('certificates', 'testid', 'desc')
   const isActive = sort.key === key
   const arrow = isActive
     ? sort.direction === 'desc' ? 'v' : '^'
@@ -362,7 +362,7 @@ function renderCertificateResults(certificates) {
     testdate: cert => cert.testdate,
     status: cert => cert.status,
     inspector: cert => cert.inspector
-  }, 'testid')
+  }, 'testid', 'desc')
   const pagination = getPaginationState(sortedCertificates, "certCurrentPage", "certRowsPerPage")
 
   document.querySelector('#certificateResults').innerHTML = `

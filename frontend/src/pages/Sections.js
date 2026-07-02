@@ -10,13 +10,14 @@ export function renderSections(sections, sectionArchiveMode = 'active') {
   })
 
   const sortedSections = sortTableRows(visibleSections, 'sections', {
+    client_section: section => `${section.clientname || ''}\u0000${section.sectionname || ''}`,
     sectionid: section => section.sectionid,
     clientname: section => section.clientname,
     sitename: section => section.sitename,
     responsiblename: section => section.responsiblename,
     sectionname: section => section.sectionname,
     archived: section => section.archived ? 'Archived' : 'Active'
-  }, 'sectionname')
+  }, 'client_section')
   const pagination = getPaginationState(sortedSections, "sectionCurrentPage", "sectionRowsPerPage")
 
   document.querySelector('#page').innerHTML = `

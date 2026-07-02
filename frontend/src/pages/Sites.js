@@ -14,7 +14,7 @@ export function renderSites(sites, siteArchiveMode = 'active') {
     clientname: site => site.clientname,
     sitename: site => site.sitename,
     archived: site => site.archived ? 'Archived' : 'Active'
-  }, 'sitename')
+  }, 'clientname')
   const pagination = getPaginationState(sortedSites, "siteCurrentPage", "siteRowsPerPage")
 
   document.querySelector('#page').innerHTML = `
