@@ -677,6 +677,18 @@ function authorizeRequest(req, res, next) {
     }
 
     if (
+      method === "POST" &&
+      (
+        routePath === "/inspections" ||
+        /^\/inspections\/[^/]+\/results$/.test(routePath) ||
+        /^\/inspections\/[^/]+\/photos$/.test(routePath) ||
+        routePath === "/inspection-results"
+      )
+    ) {
+      return next()
+    }
+
+    if (
       isRead &&
       (
         routePath.startsWith("/customers") ||
@@ -4218,8 +4230,8 @@ app.get("/certificates/search", async (req, res) => {
       `
       SELECT
         i.testid,
-        i.testdate,
-        i.validdate,
+        TO_CHAR(i.testdate, 'YYYY-MM-DD') AS testdate,
+        TO_CHAR(i.validdate, 'YYYY-MM-DD') AS validdate,
         i.inspectiontype,
         i.status,
         COALESCE(i.inspector_name, i.inspector) AS inspector,

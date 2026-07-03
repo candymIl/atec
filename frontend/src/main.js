@@ -65,8 +65,8 @@ const pageAccess = {
   responsible: ['ADMIN'],
   sections: ['ADMIN', 'MANAGER'],
   assets: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER'],
-  inspections: ['ADMIN', 'INSPECTOR'],
-  'quick-inspection': ['ADMIN', 'INSPECTOR'],
+  inspections: ['ADMIN', 'MANAGER', 'INSPECTOR'],
+  'quick-inspection': ['ADMIN', 'MANAGER', 'INSPECTOR'],
   certificates: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER'],
   'customer-report': ['ADMIN', 'MANAGER', 'VIEWER', 'CUSTOMER'],
   she: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER'],
@@ -106,7 +106,7 @@ function canManageAssetRecords() {
 }
 
 function canPerformInspections() {
-  return ['ADMIN', 'INSPECTOR'].includes(currentUser?.role)
+  return ['ADMIN', 'MANAGER', 'INSPECTOR'].includes(currentUser?.role)
 }
 
 function renderLogin(message = '') {
