@@ -689,6 +689,26 @@ function authorizeRequest(req, res, next) {
     }
 
     if (
+      (
+        method === "PUT" &&
+        (
+          /^\/assets\/[^/]+$/.test(routePath) ||
+          /^\/assets\/[^/]+\/move$/.test(routePath)
+        )
+      ) ||
+      (
+        method === "POST" &&
+        /^\/assets\/[^/]+\/photos$/.test(routePath)
+      ) ||
+      (
+        method === "DELETE" &&
+        /^\/assets\/[^/]+\/photos\/[12]$/.test(routePath)
+      )
+    ) {
+      return next()
+    }
+
+    if (
       isRead &&
       (
         routePath.startsWith("/customers") ||
