@@ -4240,7 +4240,7 @@ app.get("/certificates/search", async (req, res) => {
       LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
       LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
       ${where}
-      ORDER BY i.testdate DESC, i.testid DESC
+      ORDER BY i.testid DESC
       LIMIT 200
       `,
       values
@@ -4837,15 +4837,13 @@ function certificatePdfRenderOptions() {
   return {
     format: "A4",
     printBackground: true,
-    preferCSSPageSize: false,
-    displayHeaderFooter: true,
-    headerTemplate: renderCertificatePdfHeaderTemplate(),
-    footerTemplate: renderCertificatePdfFooterTemplate(),
+    preferCSSPageSize: true,
+    displayHeaderFooter: false,
     margin: {
-      top: "38mm",
-      right: "8mm",
-      bottom: "30mm",
-      left: "8mm"
+      top: "0",
+      right: "0",
+      bottom: "0",
+      left: "0"
     }
   }
 }
@@ -5162,7 +5160,8 @@ function renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache = nu
             width: ${includeBranding ? "210mm" : "100%"};
             max-width: 100%;
             margin: 0 auto;
-            padding: ${includeBranding ? "6mm 8mm" : "0"};
+            min-height: ${includeBranding ? "297mm" : "auto"};
+            padding: ${includeBranding ? "5mm 6mm" : "0"};
             overflow: visible;
             page-break-after: always;
             break-after: page;
@@ -5177,7 +5176,9 @@ function renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache = nu
             background: white;
             color: #111827;
             width: 100%;
-            display: block;
+            min-height: ${includeBranding ? "287mm" : "auto"};
+            display: flex;
+            flex-direction: column;
             font-size: 9.2px;
             line-height: 1.05;
             overflow: visible;
@@ -5409,7 +5410,7 @@ async function createBulkCertificatesPdfBufferNow(certificates) {
     page.setDefaultTimeout(120000)
     page.setDefaultNavigationTimeout(120000)
     await page.setContent(renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache, {
-      includeBranding: false
+      includeBranding: true
     }), {
       waitUntil: "load",
       timeout: 120000
