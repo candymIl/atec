@@ -141,7 +141,7 @@ export function renderAssetSetup(assets, pageInfo = {}) {
     <div class="filter-card">
       <p>
         Total Assets:
-        <strong>${totalRows}</strong>
+        <strong id="assetTotalCount">${totalRows}</strong>
       </p>
 
       <h2>Search Assets</h2>
@@ -173,7 +173,7 @@ export function renderAssetSetup(assets, pageInfo = {}) {
             class="search-box"
             type="text"
             placeholder="Type search text..."
-            onkeyup="filterAssets(true)"
+            oninput="filterAssetsDebounced(true)"
           />
         </div>
       </div>
@@ -223,6 +223,71 @@ export function renderAssetSetup(assets, pageInfo = {}) {
 
     ${bottomPaginationBar}
   `
+}
+
+export function updateAssetSetupResults(assets, pageInfo = {}) {
+  const tableBody = document.querySelector('#assetTableBody')
+
+  if (!tableBody) {
+    renderAssetSetup(assets, pageInfo)
+    return
+  }
+
+  const serverPaged = pageInfo.serverPaged === true
+  const sortedAssets = serverPaged ? assets : sortTableRows(assets, 'assets', {
+    assetid: asset => asset.assetid,
+    assettagno: asset => asset.assettagno,
+    serialno: asset => asset.serialno || asset.hoistserialno,
+    clientname: asset => asset.clientname,
+    sitename: asset => asset.sitename,
+    sectionname: asset => asset.sectionname,
+    equipmenttype: asset => asset.equipmenttype,
+    description: asset => asset.description,
+    qrcode: asset => asset.qrcode
+  }, 'assetid')
+  const pageSize = window.assetRowsPerPage || 25
+  const totalRows = serverPaged ? Number(pageInfo.total || 0) : sortedAssets.length
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize))
+  const currentPage = Math.min(window.assetCurrentPage || 1, totalPages)
+  const startIndex = (currentPage - 1) * pageSize
+  const visibleAssets = serverPaged ? sortedAssets : sortedAssets.slice(startIndex, startIndex + pageSize)
+  const endIndex = totalRows === 0 ? 0 : startIndex + visibleAssets.length
+  const totalCount = document.querySelector('#assetTotalCount')
+  const paginationBar = renderAssetPaginationBar(
+    totalRows,
+    startIndex,
+    endIndex,
+    currentPage,
+    totalPages,
+    pageSize,
+    true
+  )
+  const bottomPaginationBar = renderAssetPaginationBar(
+    totalRows,
+    startIndex,
+    endIndex,
+    currentPage,
+    totalPages,
+    pageSize,
+    false
+  )
+
+  if (totalCount) {
+    totalCount.textContent = String(totalRows)
+  }
+
+  tableBody.innerHTML = visibleAssets.map(renderAssetRow).join('')
+
+  const topPagination = document.querySelector('#assetPaginationControls')
+  const bottomPagination = document.querySelector('.asset-pagination-bottom')
+
+  if (topPagination) {
+    topPagination.outerHTML = paginationBar
+  }
+
+  if (bottomPagination) {
+    bottomPagination.outerHTML = bottomPaginationBar
+  }
 }
 
 function renderAssetPaginationBar(totalRows, startIndex, endIndex, currentPage, totalPages, pageSize, showPageSize) {

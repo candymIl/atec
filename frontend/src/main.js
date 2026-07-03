@@ -4,7 +4,7 @@ import { renderCustomerSetup } from './pages/CustomerSetup.js'
 import { renderSites } from './pages/Sites.js'
 import { renderResponsiblePersons } from './pages/ResponsiblePersons.js'
 import { renderSections } from './pages/Sections.js'
-import { renderAssetSetup, renderAssetRow } from './pages/AssetSetup.js'
+import { renderAssetSetup, renderAssetRow, updateAssetSetupResults } from './pages/AssetSetup.js'
 import { renderInspections } from './pages/Inspections.js'
 import { renderEquipmentTypeCriteria } from './pages/EquipmentTypeCriteria.js'
 import { renderQuickInspection } from './pages/QuickInspection.js'
@@ -57,6 +57,7 @@ let sections = []
 let equipmentTypes = []
 let dashboardStats = {}
 let criteria = []
+let assetSearchTimer = null
 
 const pageAccess = {
   dashboard: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER'],
@@ -2608,12 +2609,19 @@ async function loadAssetSetupPage() {
   window.assetCurrentPage = Number(data.page || window.assetCurrentPage || 1)
   window.assetRowsPerPage = Number(data.limit || window.assetRowsPerPage || 25)
 
-  renderAssetSetup(assets, {
+  const pageInfo = {
     serverPaged: true,
     total: data.total || 0,
     page: window.assetCurrentPage,
     limit: window.assetRowsPerPage
-  })
+  }
+
+  if (document.querySelector('#assetTableBody')) {
+    updateAssetSetupResults(assets, pageInfo)
+  } else {
+    renderAssetSetup(assets, pageInfo)
+  }
+
   restoreAssetListState()
 }
 
@@ -2623,6 +2631,18 @@ window.filterAssets = async function (resetPage = false) {
   }
 
   await loadAssetSetupPage()
+}
+
+window.filterAssetsDebounced = function (resetPage = false) {
+  rememberAssetListState()
+
+  if (assetSearchTimer) {
+    clearTimeout(assetSearchTimer)
+  }
+
+  assetSearchTimer = setTimeout(() => {
+    filterAssets(resetPage)
+  }, 350)
 }
 
 function rememberAssetListState() {
