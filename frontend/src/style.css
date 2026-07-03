@@ -3102,7 +3102,7 @@ tr:hover {
     min-height: 297mm !important;
     height: auto !important;
     margin: 0 auto !important;
-    padding: 3mm !important;
+    padding: 6mm 8mm !important;
     box-shadow: none !important;
     overflow: visible !important;
     break-after: page;
@@ -3125,9 +3125,9 @@ tr:hover {
   }
 
   .fb-cert-header {
-    width: calc(100% + 16mm) !important;
-    max-width: none !important;
-    margin-left: -8mm !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin-left: 0 !important;
     margin-bottom: 3px;
     height: 32mm;
     max-height: none;
@@ -3213,9 +3213,9 @@ tr:hover {
   }
 
   .fb-cert-footer {
-    width: calc(100% + 16mm) !important;
-    max-width: none !important;
-    margin-left: -8mm !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin-left: 0 !important;
     margin-top: auto;
     height: 22mm;
     max-height: none;
