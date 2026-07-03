@@ -33,13 +33,68 @@ const {
 const defaultFrontendOrigin = process.env.NODE_ENV === "production"
   ? "https://www.fbcranes.co.za"
   : "http://localhost:5174,http://localhost:5173,http://127.0.0.1:5174,http://127.0.0.1:5173"
-const uploadsRoot = path.resolve(process.env.UPLOADS_PATH || path.join(__dirname, "uploads"))
+const uploadsRoot = path.resolve(
+  process.env.UPLOAD_ROOT ||
+  process.env.UPLOADS_PATH ||
+  path.join(__dirname, "uploads")
+)
 const publicBasePath = (process.env.PUBLIC_BASE_PATH || "/atec").replace(/\/+$/, "")
+const slowRequestMs = Number(process.env.SLOW_REQUEST_MS || 2000)
+const pdfConcurrency = Math.max(1, Number(process.env.PDF_CONCURRENCY || 1))
+const bulkPdfMaxCertificates = Math.max(1, Number(process.env.BULK_PDF_MAX_CERTIFICATES || 50))
+const reportExportMaxRows = Math.max(1, Number(process.env.REPORT_EXPORT_MAX_ROWS || 10000))
+const uploadCompressionConcurrency = Math.max(1, Number(process.env.UPLOAD_COMPRESSION_CONCURRENCY || 2))
 const allowedOrigins = (process.env.FRONTEND_ORIGIN || defaultFrontendOrigin)
   .split(",")
   .map(origin => origin.trim())
   .filter(Boolean)
 const trustProxy = process.env.TRUST_PROXY || (process.env.NODE_ENV === "production" ? "1" : "")
+
+const pdfQueueMetrics = {
+  active: 0,
+  queued: 0,
+  completed: 0,
+  failed: 0
+}
+const pendingPdfJobs = []
+
+function parsePositiveInteger(value, fallback, max = fallback) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback
+  return Math.min(Math.floor(parsed), max)
+}
+
+function runQueuedPdfJob(job) {
+  return new Promise((resolve, reject) => {
+    pendingPdfJobs.push({ job, resolve, reject })
+    pdfQueueMetrics.queued = pendingPdfJobs.length
+    drainPdfQueue()
+  })
+}
+
+function drainPdfQueue() {
+  while (pdfQueueMetrics.active < pdfConcurrency && pendingPdfJobs.length) {
+    const nextJob = pendingPdfJobs.shift()
+    pdfQueueMetrics.queued = pendingPdfJobs.length
+    pdfQueueMetrics.active += 1
+
+    Promise.resolve()
+      .then(nextJob.job)
+      .then(result => {
+        pdfQueueMetrics.completed += 1
+        nextJob.resolve(result)
+      })
+      .catch(err => {
+        pdfQueueMetrics.failed += 1
+        nextJob.reject(err)
+      })
+      .finally(() => {
+        pdfQueueMetrics.active -= 1
+        pdfQueueMetrics.queued = pendingPdfJobs.length
+        drainPdfQueue()
+      })
+  }
+}
 
 if (trustProxy) {
   app.set("trust proxy", trustProxy === "true" ? 1 : trustProxy)
@@ -86,6 +141,24 @@ const logAudit = auditLogger(pool)
 
 app.use((req, res, next) => {
   req.logAudit = (...args) => logAudit(req, ...args)
+  next()
+})
+
+app.use((req, res, next) => {
+  const startedAt = Date.now()
+
+  res.on("finish", () => {
+    const elapsedMs = Date.now() - startedAt
+    if (elapsedMs >= slowRequestMs) {
+      console.warn("SLOW_REQUEST", {
+        method: req.method,
+        path: req.originalUrl,
+        status: res.statusCode,
+        elapsedMs
+      })
+    }
+  })
+
   next()
 })
 
@@ -171,7 +244,11 @@ async function compressUploadedPhotos(req, res, next) {
   ]
 
   try {
-    await Promise.all(files.map(file => compressUploadedPhoto(file)))
+    for (let index = 0; index < files.length; index += uploadCompressionConcurrency) {
+      const batch = files.slice(index, index + uploadCompressionConcurrency)
+      await Promise.all(batch.map(file => compressUploadedPhoto(file)))
+    }
+
     next()
   } catch (err) {
     removeUploadedFiles(files)
@@ -186,6 +263,34 @@ app.get("/", (req, res) => {
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false
+})
+
+const searchLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: Number(process.env.SEARCH_RATE_LIMIT || 120),
+  standardHeaders: true,
+  legacyHeaders: false
+})
+
+const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: Number(process.env.UPLOAD_RATE_LIMIT || 60),
+  standardHeaders: true,
+  legacyHeaders: false
+})
+
+const pdfLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: Number(process.env.PDF_RATE_LIMIT || 40),
+  standardHeaders: true,
+  legacyHeaders: false
+})
+
+const emailLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: Number(process.env.EMAIL_RATE_LIMIT || 30),
   standardHeaders: true,
   legacyHeaders: false
 })
@@ -803,6 +908,55 @@ app.use("/uploads", requireAuth, asyncRoute(authorizeUploadRequest), express.sta
 app.use(requireAuth)
 app.use(authorizeRequest)
 app.use(asyncRoute(enforceInspectorInspectionOwnership))
+
+function getDirectorySizeBytes(folderPath) {
+  let total = 0
+
+  if (!fs.existsSync(folderPath)) return total
+
+  for (const entry of fs.readdirSync(folderPath, { withFileTypes: true })) {
+    const entryPath = path.join(folderPath, entry.name)
+
+    if (entry.isDirectory()) {
+      total += getDirectorySizeBytes(entryPath)
+    } else if (entry.isFile()) {
+      total += fs.statSync(entryPath).size
+    }
+  }
+
+  return total
+}
+
+app.get("/admin/system-health", asyncRoute(async (req, res) => {
+  if (req.user.role !== "ADMIN") {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  const dbSize = await pool.query("SELECT pg_database_size(current_database()) AS bytes")
+
+  res.json({
+    uptimeSeconds: Math.round(process.uptime()),
+    memory: process.memoryUsage(),
+    database: {
+      sizeBytes: Number(dbSize.rows[0]?.bytes || 0),
+      pool: {
+        total: pool.totalCount,
+        idle: pool.idleCount,
+        waiting: pool.waitingCount
+      }
+    },
+    uploads: {
+      root: uploadsRoot,
+      sizeBytes: getDirectorySizeBytes(uploadsRoot)
+    },
+    pdf: {
+      concurrency: pdfConcurrency,
+      maxBulkCertificates: bulkPdfMaxCertificates,
+      ...pdfQueueMetrics
+    }
+  })
+}))
+
 app.use((req, res, next) => {
   const methodAction = {
     POST: "CREATE",
@@ -1134,6 +1288,7 @@ app.delete("/users/:id", asyncRoute(async (req, res) => {
 }))
 
 app.post("/users/me/signature",
+  uploadLimiter,
   upload.single("signature"),
   validateUploadedImages,
   asyncRoute(async (req, res) => {
@@ -1170,6 +1325,7 @@ app.post("/users/me/signature",
 )
 
 app.post("/users/:id/signature",
+  uploadLimiter,
   upload.single("signature"),
   validateUploadedImages,
   asyncRoute(async (req, res) => {
@@ -1392,7 +1548,41 @@ app.put("/customers/:id", async (req, res) => {
       ]
     )
 
-    res.json(result.rows[0])
+    const [topCustomersResult, topEquipmentResult] = await Promise.all([
+      pool.query(`
+        SELECT
+          c.clientname,
+          COUNT(DISTINCT s.siteid)::int AS sites,
+          COUNT(a.assetid)::int AS assets
+        FROM atec.tblclients c
+        LEFT JOIN atec.tblsites s
+          ON c.clientid = s.clientid
+        LEFT JOIN atec.tblasset a
+          ON c.clientid = a.clientid
+          AND COALESCE(a.archived, false) = false
+        GROUP BY c.clientid, c.clientname
+        ORDER BY COUNT(a.assetid) DESC, c.clientname ASC
+        LIMIT 10
+      `),
+      pool.query(`
+        SELECT
+          COALESCE(et.description, 'Unknown') AS equipmenttype,
+          COUNT(a.assetid)::int AS total
+        FROM atec.tblasset a
+        LEFT JOIN atec.tblequiptype et
+          ON a.equiptypeid = et.equiptypeid
+        WHERE COALESCE(a.archived, false) = false
+        GROUP BY COALESCE(et.description, 'Unknown')
+        ORDER BY COUNT(a.assetid) DESC, COALESCE(et.description, 'Unknown') ASC
+        LIMIT 10
+      `)
+    ])
+
+    res.json({
+      ...result.rows[0],
+      topcustomers: topCustomersResult.rows,
+      topequipment: topEquipmentResult.rows
+    })
 
   } catch (err) {
 
@@ -1465,7 +1655,41 @@ app.put("/sites/:id", async (req, res) => {
       ]
     )
 
-    res.json(result.rows[0])
+    const [topCustomersResult, topEquipmentResult] = await Promise.all([
+      pool.query(`
+        SELECT
+          c.clientname,
+          COUNT(DISTINCT s.siteid)::int AS sites,
+          COUNT(a.assetid)::int AS assets
+        FROM atec.tblclients c
+        LEFT JOIN atec.tblsites s
+          ON c.clientid = s.clientid
+        LEFT JOIN atec.tblasset a
+          ON c.clientid = a.clientid
+          AND COALESCE(a.archived, false) = false
+        GROUP BY c.clientid, c.clientname
+        ORDER BY COUNT(a.assetid) DESC, c.clientname ASC
+        LIMIT 10
+      `),
+      pool.query(`
+        SELECT
+          COALESCE(et.description, 'Unknown') AS equipmenttype,
+          COUNT(a.assetid)::int AS total
+        FROM atec.tblasset a
+        LEFT JOIN atec.tblequiptype et
+          ON a.equiptypeid = et.equiptypeid
+        WHERE COALESCE(a.archived, false) = false
+        GROUP BY COALESCE(et.description, 'Unknown')
+        ORDER BY COUNT(a.assetid) DESC, COALESCE(et.description, 'Unknown') ASC
+        LIMIT 10
+      `)
+    ])
+
+    res.json({
+      ...result.rows[0],
+      topcustomers: topCustomersResult.rows,
+      topequipment: topEquipmentResult.rows
+    })
 
   } catch (err) {
 
@@ -1508,7 +1732,39 @@ app.put("/sites/:id/archive", async (req, res) => {
       [id]
     )
 
-    res.json(result.rows[0])
+    const [topCustomersResult, topEquipmentResult] = await Promise.all([
+      pool.query(`
+        SELECT
+          c.clientname,
+          COUNT(DISTINCT s.siteid)::int AS sites,
+          COUNT(a.assetid)::int AS assets
+        FROM atec.tblclients c
+        LEFT JOIN atec.tblsites s ON c.clientid = s.clientid
+        LEFT JOIN atec.tblasset a
+          ON c.clientid = a.clientid
+          AND COALESCE(a.archived, false) = false
+        GROUP BY c.clientid, c.clientname
+        ORDER BY COUNT(a.assetid) DESC, c.clientname ASC
+        LIMIT 10
+      `),
+      pool.query(`
+        SELECT
+          COALESCE(et.description, 'Unknown') AS equipmenttype,
+          COUNT(a.assetid)::int AS total
+        FROM atec.tblasset a
+        LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
+        WHERE COALESCE(a.archived, false) = false
+        GROUP BY COALESCE(et.description, 'Unknown')
+        ORDER BY COUNT(a.assetid) DESC, COALESCE(et.description, 'Unknown') ASC
+        LIMIT 10
+      `)
+    ])
+
+    res.json({
+      ...result.rows[0],
+      topcustomers: topCustomersResult.rows,
+      topequipment: topEquipmentResult.rows
+    })
   } catch (err) {
     console.error(err)
     res.status(500).json({ error: "An unexpected server error occurred" })
@@ -1536,71 +1792,172 @@ app.put("/sites/:id/unarchive", async (req, res) => {
   }
 })
 
-app.get("/assets", async (req, res) => {
+const assetSortColumns = {
+  assetid: "a.assetid",
+  assettagno: "a.assettagno",
+  serialno: "COALESCE(NULLIF(a.serialno, ''), a.hoistserialno)",
+  hoistserialno: "a.hoistserialno",
+  clientname: "c.clientname",
+  sitename: "s.sitename",
+  sectionname: "sec.sectionname",
+  equipmenttype: "et.description",
+  description: "a.description",
+  qrcode: "a.qrcode"
+}
+
+const assetSearchColumns = {
+  assetid: "a.assetid::text",
+  assettagno: "a.assettagno",
+  serialno: "COALESCE(a.serialno, a.hoistserialno)",
+  hoistserialno: "a.hoistserialno",
+  clientname: "c.clientname",
+  sitename: "s.sitename",
+  sectionname: "sec.sectionname",
+  equipmenttype: "et.description",
+  description: "a.description",
+  qrcode: "a.qrcode"
+}
+
+async function getPagedAssets(req, defaultSortKey = "assetid", defaultSortDirection = "desc") {
+  const page = parsePositiveInteger(req.query.page, 1, 100000)
+  const limit = parsePositiveInteger(req.query.limit, 25, 250)
+  const offset = (page - 1) * limit
+  const search = String(req.query.search || "").trim()
+  const searchBy = String(req.query.searchBy || "all")
+  const archiveMode = String(req.query.archiveMode || "active").toLowerCase()
+  const sortKey = assetSortColumns[req.query.sortKey] ? req.query.sortKey : defaultSortKey
+  const sortDirection = String(req.query.sortDir || defaultSortDirection).toLowerCase() === "asc" ? "ASC" : "DESC"
+  const values = []
+  const where = []
+
+  if (archiveMode === "archived") {
+    where.push("COALESCE(a.archived, false) = true")
+  } else if (archiveMode !== "all") {
+    where.push("COALESCE(a.archived, false) = false")
+  }
+
+  if (req.user.role === "CUSTOMER") {
+    if (!req.user.clientid) {
+      return { rows: [], total: 0, page, limit }
+    }
+
+    values.push(req.user.clientid)
+    where.push(`a.clientid = $${values.length}`)
+  }
+
+  if (search) {
+    values.push(`%${search.toLowerCase()}%`)
+    const searchParam = `$${values.length}`
+
+    if (searchBy !== "all" && assetSearchColumns[searchBy]) {
+      where.push(`LOWER(COALESCE(${assetSearchColumns[searchBy]}, '')) LIKE ${searchParam}`)
+    } else {
+      where.push(`(
+        LOWER(COALESCE(a.assetid::text, '')) LIKE ${searchParam}
+        OR LOWER(COALESCE(a.assettagno, '')) LIKE ${searchParam}
+        OR LOWER(COALESCE(a.serialno, '')) LIKE ${searchParam}
+        OR LOWER(COALESCE(a.hoistserialno, '')) LIKE ${searchParam}
+        OR LOWER(COALESCE(a.qrcode, '')) LIKE ${searchParam}
+        OR LOWER(COALESCE(a.description, '')) LIKE ${searchParam}
+        OR LOWER(COALESCE(c.clientname, '')) LIKE ${searchParam}
+        OR LOWER(COALESCE(s.sitename, '')) LIKE ${searchParam}
+        OR LOWER(COALESCE(sec.sectionname, '')) LIKE ${searchParam}
+        OR LOWER(COALESCE(et.description, '')) LIKE ${searchParam}
+      )`)
+    }
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : ""
+  const orderSql = sortKey === "client_section_serial"
+    ? [
+        `c.clientname ${sortDirection} NULLS LAST`,
+        `sec.sectionname ${sortDirection} NULLS LAST`,
+        `COALESCE(NULLIF(a.serialno, ''), a.hoistserialno) ${sortDirection} NULLS LAST`
+      ].join(", ")
+    : `${assetSortColumns[sortKey] || assetSortColumns.assetid} ${sortDirection} NULLS LAST`
+
+  const countResult = await pool.query(
+    `
+    SELECT COUNT(*)::int AS total
+    FROM atec.tblasset a
+    LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
+    LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
+    LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
+    LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
+    ${whereSql}
+    `,
+    values
+  )
+
+  values.push(limit, offset)
+  const limitParam = `$${values.length - 1}`
+  const offsetParam = `$${values.length}`
+
+  const result = await pool.query(
+    `
+    SELECT
+      a.assetid,
+      a.clientid,
+      a.siteid,
+      a.sectionid,
+      a.responsibleid,
+      a.equiptypeid,
+      a.serialno,
+      a.assettagno,
+      a.manufacturer,
+      a.description,
+      a.wll,
+      a.heightoflift,
+      a.numberofchainfalls,
+      a.oemtophooksize,
+      a.oembottomhooksize,
+      a.loadchaindiameter,
+      a.effectivelength,
+      a.span,
+      a.permissibledeflection,
+      a.hooksize,
+      a.steelwireropemm,
+      a.hoistdescription,
+      a.hoistserialno,
+      a.auxhoistdescription,
+      a.auxhoistserialno,
+      a.auxhoistwll,
+      a.auxhoisthooksize,
+      a.auxhoistropemm,
+      a.media1,
+      a.media2,
+      a.qrcode,
+      a.manufactdate,
+      a.archived,
+      c.clientname,
+      s.sitename,
+      sec.sectionname,
+      et.description AS equipmenttype,
+      et.equipgroupid
+    FROM atec.tblasset a
+    LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
+    LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
+    LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
+    LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
+    ${whereSql}
+    ORDER BY ${orderSql}, a.assetid DESC
+    LIMIT ${limitParam}
+    OFFSET ${offsetParam}
+    `,
+    values
+  )
+
+  return {
+    rows: result.rows,
+    total: countResult.rows[0]?.total || 0,
+    page,
+    limit
+  }
+}
+
+app.get("/assets", searchLimiter, async (req, res) => {
   try {
-    const result = await pool.query(`
-SELECT 
-        a.assetid,
-        a.clientid,
-        a.siteid,
-        a.equiptypeid,
-        a.serialno,
-        a.assettagno,
-        a.manufacturer,
-        a.description,
-        a.wll,
-        a.span,
-        a.permissibledeflection,
-        a.hooksize,
-        a.steelwireropemm,
-        a.hoistdescription,
-        a.hoistserialno,
-        a.oemtophooksize,
-        a.oembottomhooksize,
-        a.loadchaindiameter,
-        a.auxhoistwll,
-        a.auxhoistdescription,
-        a.auxhoistserialno,
-        a.auxhoistropemm,
-        a.auxhoisthooksize,
-        a.media1,
-        a.media2,
-        a.qrcode,
-        a.manufactdate,
-        a.wll,
-        a.heightoflift,
-        a.numberofchainfalls,
-        a.oemtophooksize,
-        a.oembottomhooksize,
-        a.loadchaindiameter,
-        a.effectivelength,
-        a.span,
-        a.permissibledeflection,
-        a.hooksize,
-        a.steelwireropemm,
-        a.hoistdescription,
-        a.hoistserialno,
-        a.auxhoistdescription,
-        a.auxhoistserialno,
-        a.auxhoistwll,
-        a.auxhoisthooksize,
-        a.auxhoistropemm,
-        c.clientname,
-        s.sitename,
-        sec.sectionname,
-        et.description AS equipmenttype,
-        et.equipgroupid
-      FROM atec.tblasset a
-      LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
-      LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
-      LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
-      LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
-      WHERE COALESCE(a.archived, false) = false
-      ORDER BY a.assetid DESC
-    `)
-
-    res.json(result.rows)
-
+    res.json(await getPagedAssets(req, "assetid", "desc"))
   } catch (err) {
     console.error(err)
     res.status(500).json({
@@ -1609,7 +1966,18 @@ SELECT
   }
 })
 
-app.get("/assets/qr/:code", async (req, res) => {
+app.get("/inspections/assets", searchLimiter, async (req, res) => {
+  try {
+    res.json(await getPagedAssets(req, "client_section_serial", "asc"))
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({
+      error: "An unexpected server error occurred"
+    })
+  }
+})
+
+app.get("/assets/qr/:code", searchLimiter, async (req, res) => {
   try {
     const code = String(req.params.code || "").trim()
 
@@ -1633,9 +2001,13 @@ app.get("/assets/qr/:code", async (req, res) => {
       LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
       WHERE COALESCE(a.archived, false) = false
         AND (
-          a.qrcode = $1
+          LOWER(COALESCE(a.qrcode, '')) = LOWER($1)
           OR CAST(a.assetid AS text) = $1
-          OR ('ATEC-ASSET-' || a.assetid) = $1
+          OR LOWER('ATEC-ASSET-' || a.assetid) = LOWER($1)
+          OR LOWER(COALESCE(a.assettagno, '')) = LOWER($1)
+          OR LOWER(COALESCE(a.serialno, '')) = LOWER($1)
+          OR LOWER(COALESCE(a.hoistserialno, '')) = LOWER($1)
+          OR LOWER(COALESCE(a.auxhoistserialno, '')) = LOWER($1)
         )
       LIMIT 1
       `,
@@ -1914,7 +2286,7 @@ app.get("/assets/:id/qr-label.pdf", async (req, res) => {
   }
 })
 
-app.get("/assets/:id/quick-details", async (req, res) => {
+app.get("/assets/:id/quick-details", searchLimiter, async (req, res) => {
   try {
     const { id } = req.params
 
@@ -2515,6 +2887,7 @@ app.put("/assets/:id/unarchive", async (req, res) => {
 });
 
 app.post("/assets/:id/photos",
+  uploadLimiter,
   upload.fields([
     { name: "photo1", maxCount: 1 },
     { name: "photo2", maxCount: 1 },
@@ -3051,6 +3424,7 @@ app.put("/sections/:id", async (req, res) => {
 })
 
 app.post("/inspections",
+  uploadLimiter,
   upload.fields([
     { name: "photo1", maxCount: 1 },
     { name: "photo2", maxCount: 1 },
@@ -3350,6 +3724,7 @@ app.get("/inspections/:testid/photos", async (req, res) => {
 })
 
 app.post("/inspections/:testid/photos",
+  uploadLimiter,
   upload.array("inspectionPhotos", 20),
   validateUploadedImages,
   compressUploadedPhotos,
@@ -3716,25 +4091,42 @@ app.post("/inspection-results", async (req, res) => {
 
 })
 
-app.get("/inspections/assets/search", async (req, res) => {
+app.get("/inspections/assets/search", searchLimiter, async (req, res) => {
   try {
-    const q = req.query.q || ""
+    const q = String(req.query.q || "").trim()
+
+    if (!q) {
+      return res.json([])
+    }
 
     const result = await pool.query(`
       SELECT 
-        assetid,
-        assettagno,
-        serialno,
-        description,
-        manufacturer
-      FROM atec.tblasset
+        a.assetid,
+        a.assettagno,
+        a.serialno,
+        a.hoistserialno,
+        a.qrcode,
+        a.description,
+        a.manufacturer,
+        a.equiptypeid,
+        et.equipgroupid,
+        et.description AS equipmenttype
+      FROM atec.tblasset a
+      LEFT JOIN atec.tblequiptype et
+        ON a.equiptypeid = et.equiptypeid
       WHERE
-        assettagno ILIKE $1 OR
-        serialno ILIKE $1 OR
-        description ILIKE $1 OR
-        CAST(assetid AS TEXT) ILIKE $1 OR
-        qrcode ILIKE $1
-      ORDER BY assetid DESC
+        COALESCE(a.archived, false) = false
+        AND (
+        a.assettagno ILIKE $1 OR
+        a.serialno ILIKE $1 OR
+        a.hoistserialno ILIKE $1 OR
+        a.auxhoistserialno ILIKE $1 OR
+        a.description ILIKE $1 OR
+          CAST(a.assetid AS TEXT) ILIKE $1 OR
+          a.qrcode ILIKE $1 OR
+          ('ATEC-ASSET-' || a.assetid) ILIKE $1
+        )
+      ORDER BY a.assetid DESC
       LIMIT 50
     `, [`%${q}%`])
 
@@ -3984,12 +4376,18 @@ app.get("/certificates/bulk-print", async (req, res) => {
   }
 })
 
-app.get("/certificates/bulk-pdf", async (req, res) => {
+app.get("/certificates/bulk-pdf", pdfLimiter, async (req, res) => {
   try {
     const { filters, certificates } = await getBulkCertificateMatches(req, true)
 
     if (!certificates.length) {
       return res.status(404).json({ error: "No certificates found for the selected filters" })
+    }
+
+    if (certificates.length > bulkPdfMaxCertificates) {
+      return res.status(400).json({
+        error: `Too many certificates selected for one PDF job. Please select ${bulkPdfMaxCertificates} or fewer certificates.`
+      })
     }
 
     const pdfBuffer = await createBulkCertificatesPdfBuffer(certificates)
@@ -4002,7 +4400,10 @@ app.get("/certificates/bulk-pdf", async (req, res) => {
     })
 
     res.setHeader("Content-Type", "application/pdf")
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`)
+    res.setHeader(
+      "Content-Disposition",
+      `${req.query.inline === "1" ? "inline" : "attachment"}; filename="${filename}"`
+    )
     res.send(pdfBuffer)
   } catch (err) {
     console.error("Bulk certificate PDF error:", err)
@@ -4377,6 +4778,78 @@ function fileUrlIfExists(filePath) {
   return `data:${mimeType};base64,${fs.readFileSync(filePath).toString("base64")}`
 }
 
+const certificateBrandImageCache = new Map()
+
+function certificateBrandImageDataUrl(fileName) {
+  if (certificateBrandImageCache.has(fileName)) {
+    return certificateBrandImageCache.get(fileName)
+  }
+
+  const imageUrl = fileUrlIfExists(path.join(__dirname, "..", "frontend", "public", fileName))
+  certificateBrandImageCache.set(fileName, imageUrl)
+  return imageUrl
+}
+
+function renderCertificateHeaderHtml(className = "fb-cert-header") {
+  const headerUrl = certificateBrandImageDataUrl("header.jpg")
+  return headerUrl ? `<img src="${headerUrl}" class="${className}" alt="FB Cranes Header">` : ""
+}
+
+function renderCertificateFooterHtml(className = "fb-cert-footer") {
+  const footerUrl = certificateBrandImageDataUrl("footer.jpg")
+  return footerUrl ? `<img src="${footerUrl}" class="${className}" alt="FB Cranes Footer">` : ""
+}
+
+function renderCertificatePdfHeaderTemplate() {
+  const headerUrl = certificateBrandImageDataUrl("header.jpg")
+
+  return `
+    <div style="width:100%;padding:0 8mm;margin:0;box-sizing:border-box;overflow:hidden;">
+      ${headerUrl ? `
+        <img
+          src="${headerUrl}"
+          style="display:block;width:100%;height:36mm;margin:0;object-fit:fill;object-position:center top;"
+        >
+      ` : ""}
+    </div>
+  `
+}
+
+function renderCertificatePdfFooterTemplate() {
+  const footerUrl = certificateBrandImageDataUrl("footer.jpg")
+
+  return `
+    <div style="width:100%;padding:0 8mm;margin:0;box-sizing:border-box;overflow:hidden;font-family:Arial,Helvetica,sans-serif;">
+      ${footerUrl ? `
+        <img
+          src="${footerUrl}"
+          style="display:block;width:100%;height:25mm;margin:0;object-fit:fill;object-position:center bottom;"
+        >
+      ` : ""}
+      <div style="margin-top:0.5mm;text-align:right;font-size:6px;color:#475569;">
+        Page <span class="pageNumber"></span> of <span class="totalPages"></span>
+      </div>
+    </div>
+  `
+}
+
+function certificatePdfRenderOptions() {
+  return {
+    format: "A4",
+    printBackground: true,
+    preferCSSPageSize: false,
+    displayHeaderFooter: true,
+    headerTemplate: renderCertificatePdfHeaderTemplate(),
+    footerTemplate: renderCertificatePdfFooterTemplate(),
+    margin: {
+      top: "38mm",
+      right: "8mm",
+      bottom: "30mm",
+      left: "8mm"
+    }
+  }
+}
+
 function uploadPathToFileUrl(uploadPath, imageDataUrlCache = null) {
   if (!uploadPath) return ""
 
@@ -4514,20 +4987,19 @@ function getCertificateRegulationNotes(inspection) {
   return notes
 }
 
-function renderBulkCertificateHtml(certificate, imageDataUrlCache = null) {
+function renderBulkCertificateHtml(certificate, imageDataUrlCache = null, options = {}) {
   const inspection = certificate.inspection || {}
   const results = getCertificateResultsForDisplay(certificate.results || [], inspection)
   const photos = getCertificatePhotosForHtml(inspection, certificate.photos || []).slice(0, 4)
-  const headerUrl = fileUrlIfExists(path.join(__dirname, "..", "frontend", "public", "header.jpg"))
-  const footerUrl = fileUrlIfExists(path.join(__dirname, "..", "frontend", "public", "footer.jpg"))
   const signatureUrl = uploadPathToFileUrl(inspection.inspector_signature_image)
   const assetDetails = certificateAssetDetails(inspection)
   const regulationNotes = getCertificateRegulationNotes(inspection)
+  const includeBranding = options.includeBranding !== false
 
   return `
     <section class="bulk-certificate-page">
       <div class="fb-cert-page">
-        ${headerUrl ? `<img src="${headerUrl}" class="fb-cert-header" alt="FB Cranes Header">` : ""}
+        ${includeBranding ? renderCertificateHeaderHtml() : ""}
 
         <div class="fb-cert-title">
           <h1 style="color:#1f2937 !important; -webkit-text-fill-color:#1f2937 !important;">${htmlEscape(getCertificateTitle(inspection))}</h1>
@@ -4661,13 +5133,15 @@ function renderBulkCertificateHtml(certificate, imageDataUrlCache = null) {
           <p class="fb-cert-driven-note">${htmlEscape(note)}</p>
         `).join("")}
 
-        ${footerUrl ? `<img src="${footerUrl}" class="fb-cert-footer" alt="FB Cranes Footer">` : ""}
+        ${includeBranding ? renderCertificateFooterHtml() : ""}
       </div>
     </section>
   `
 }
 
-function renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache = null) {
+function renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache = null, options = {}) {
+  const includeBranding = options.includeBranding !== false
+
   return `
     <!doctype html>
     <html>
@@ -4685,10 +5159,10 @@ function renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache = nu
             font-family: Arial, Helvetica, sans-serif;
           }
           .bulk-certificate-page {
-            width: 210mm;
-            min-height: 297mm;
+            width: ${includeBranding ? "210mm" : "100%"};
+            max-width: 100%;
             margin: 0 auto;
-            padding: 3mm;
+            padding: ${includeBranding ? "6mm 8mm" : "0"};
             overflow: visible;
             page-break-after: always;
             break-after: page;
@@ -4703,32 +5177,31 @@ function renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache = nu
             background: white;
             color: #111827;
             width: 100%;
-            min-height: 291mm;
-            display: flex;
-            flex-direction: column;
-            font-size: 9.5px;
-            line-height: 1.08;
+            display: block;
+            font-size: 9.2px;
+            line-height: 1.05;
             overflow: visible;
             transform: none;
             transform-origin: top left;
           }
           .fb-cert-header,
           .fb-cert-footer {
-            width: calc(100% + 6mm);
-            max-width: none;
-            margin-left: -3mm;
+            width: 100%;
+            max-width: 100%;
+            margin-left: 0;
             display: block;
-            height: auto;
-            object-fit: contain;
+            object-fit: fill;
           }
           .fb-cert-header {
             margin-bottom: 3px;
-            max-height: 32mm;
+            height: 32mm;
+            max-height: none;
             object-position: center top;
           }
           .fb-cert-footer {
             margin-top: auto;
-            max-height: 22mm;
+            height: 22mm;
+            max-height: none;
             object-position: center bottom;
           }
           .fb-cert-title h1 {
@@ -4753,6 +5226,11 @@ function renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache = nu
             gap: 6px;
           }
           .fb-cert-section { margin: 3px 0; }
+          .fb-cert-signature-section,
+          .fb-cert-driven-note {
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
           .fb-cert-section h3 {
             color: #1f3b5c;
             border-bottom: 1px solid #d9e1ec;
@@ -4788,11 +5266,11 @@ function renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache = nu
             border: 1px solid #d9e1ec;
             padding: 2px;
             text-align: center;
-            min-height: 95px;
+            min-height: 135px;
           }
           .fb-cert-photo-grid img {
             max-width: 100%;
-            max-height: 105px;
+            max-height: 145px;
             object-fit: contain;
           }
           .fb-cert-photo-grid p { margin: 1px 0; }
@@ -4806,8 +5284,8 @@ function renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache = nu
           .fb-cert-results-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 8.8px;
-            line-height: 1.02;
+            font-size: 8.4px;
+            line-height: 1;
           }
           .fb-cert-results-table thead {
             display: table-header-group;
@@ -4852,8 +5330,6 @@ function renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache = nu
             grid-template-columns: 1fr 1fr;
             gap: 60px;
             margin: 3px 0 1px;
-            page-break-inside: avoid;
-            break-inside: avoid;
           }
           .fb-cert-signature-line {
             border-bottom: 1px solid #111827;
@@ -4875,8 +5351,6 @@ function renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache = nu
             font-weight: 700;
             line-height: 1.15;
             margin: 2px 0 1px;
-            page-break-inside: avoid;
-            break-inside: avoid;
             text-align: center;
           }
           .fb-cert-footer {
@@ -4888,7 +5362,7 @@ function renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache = nu
         </style>
       </head>
       <body>
-        ${certificates.map(certificate => renderBulkCertificateHtml(certificate, imageDataUrlCache)).join("")}
+        ${certificates.map(certificate => renderBulkCertificateHtml(certificate, imageDataUrlCache, { includeBranding })).join("")}
       </body>
     </html>
   `
@@ -4909,6 +5383,10 @@ function findChromiumExecutable() {
 }
 
 async function createBulkCertificatesPdfBuffer(certificates) {
+  return runQueuedPdfJob(() => createBulkCertificatesPdfBufferNow(certificates))
+}
+
+async function createBulkCertificatesPdfBufferNow(certificates) {
   const executablePath = findChromiumExecutable()
 
   if (!executablePath) {
@@ -4923,28 +5401,27 @@ async function createBulkCertificatesPdfBuffer(certificates) {
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--allow-file-access-from-files"]
   })
 
+  let page
+
   try {
     const imageDataUrlCache = await buildCertificatePdfImageCache(certificates)
-    const page = await browser.newPage()
+    page = await browser.newPage()
     page.setDefaultTimeout(120000)
     page.setDefaultNavigationTimeout(120000)
-    await page.setContent(renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache), {
+    await page.setContent(renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache, {
+      includeBranding: false
+    }), {
       waitUntil: "load",
       timeout: 120000
     })
+    await page.emulateMediaType("print")
 
-    return await page.pdf({
-      format: "A4",
-      printBackground: true,
-      preferCSSPageSize: true,
-      margin: {
-        top: "0",
-        right: "0",
-        bottom: "0",
-        left: "0"
-      }
-    })
+    return await page.pdf(certificatePdfRenderOptions())
   } finally {
+    if (page) {
+      await page.close().catch(() => {})
+    }
+
     await browser.close()
   }
 }
@@ -5587,7 +6064,7 @@ app.get("/inspections/:testid/certificate", async (req, res) => {
   }
 })
 
-app.get("/inspections/:testid/certificate.pdf", async (req, res) => {
+app.get("/inspections/:testid/certificate.pdf", pdfLimiter, async (req, res) => {
   try {
     const { testid } = req.params
     const certificate = await getCertificateData(testid)
@@ -5682,7 +6159,7 @@ app.delete("/certificates/:testid", async (req, res) => {
   }
 })
 
-app.post("/certificates/:testid/email", async (req, res) => {
+app.post("/certificates/:testid/email", emailLimiter, async (req, res) => {
   try {
     const { testid } = req.params
     const { to, subject, message } = req.body || {}
@@ -5771,7 +6248,7 @@ app.post("/certificates/:testid/email", async (req, res) => {
   }
 })
 
-app.post("/admin/email-test", async (req, res) => {
+app.post("/admin/email-test", emailLimiter, async (req, res) => {
   try {
     if (req.user?.role !== "ADMIN") {
       return res.status(403).json({ error: "Only admins may test email settings" })
@@ -6907,7 +7384,7 @@ async function buildCustomerReportWorkbook(report) {
   return workbook
 }
 
-app.get("/reports/customer-detailed", async (req, res) => {
+app.get("/reports/customer-detailed", searchLimiter, async (req, res) => {
   try {
     const report = await getCustomerDetailedReport(customerScopedReportFilters(req))
     res.json(report)
@@ -6917,9 +7394,16 @@ app.get("/reports/customer-detailed", async (req, res) => {
   }
 })
 
-app.get("/reports/customer-detailed.pdf", async (req, res) => {
+app.get("/reports/customer-detailed.pdf", pdfLimiter, async (req, res) => {
   try {
     const report = await getCustomerDetailedReport(customerScopedReportFilters(req))
+
+    if (report.assets.length > reportExportMaxRows) {
+      return res.status(400).json({
+        error: `Report export is limited to ${reportExportMaxRows} rows. Please use filters to reduce the result size.`
+      })
+    }
+
     const filename = reportFileName(report, "pdf")
 
     res.setHeader("Content-Type", "application/pdf")
@@ -6941,9 +7425,16 @@ app.get("/reports/customer-detailed.pdf", async (req, res) => {
   }
 })
 
-app.get("/reports/customer-detailed.xlsx", async (req, res) => {
+app.get("/reports/customer-detailed.xlsx", searchLimiter, async (req, res) => {
   try {
     const report = await getCustomerDetailedReport(customerScopedReportFilters(req))
+
+    if (report.assets.length > reportExportMaxRows) {
+      return res.status(400).json({
+        error: `Report export is limited to ${reportExportMaxRows} rows. Please use filters to reduce the result size.`
+      })
+    }
+
     const workbook = await buildCustomerReportWorkbook(report)
     const filename = reportFileName(report, "xlsx")
 
@@ -7031,6 +7522,70 @@ app.get("/dashboard/stats", async (req, res) => {
 
   } catch (err) {
     console.error("Dashboard stats error:", err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
+
+app.get("/dashboard/top-customers", async (req, res) => {
+  try {
+    const scopedToClient =
+      ["CUSTOMER", "VIEWER"].includes(req.user?.role) &&
+      req.user?.clientid
+
+    const whereClause = scopedToClient ? "WHERE c.clientid = $1" : ""
+    const values = scopedToClient ? [req.user.clientid] : []
+
+    const result = await pool.query(`
+      SELECT
+        c.clientid,
+        c.clientname,
+        COUNT(DISTINCT s.siteid)::int AS sites,
+        COUNT(DISTINCT a.assetid)::int AS assets
+      FROM atec.tblclients c
+      LEFT JOIN atec.tblsites s
+        ON c.clientid = s.clientid
+      LEFT JOIN atec.tblasset a
+        ON c.clientid = a.clientid
+        AND COALESCE(a.archived, false) = false
+      ${whereClause}
+      GROUP BY c.clientid, c.clientname
+      ORDER BY COUNT(DISTINCT a.assetid) DESC, c.clientname ASC
+      LIMIT 10
+    `, values)
+
+    res.json(result.rows)
+  } catch (err) {
+    console.error("Dashboard top customers error:", err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
+
+app.get("/dashboard/equipment-by-type", async (req, res) => {
+  try {
+    const scopedToClient =
+      ["CUSTOMER", "VIEWER"].includes(req.user?.role) &&
+      req.user?.clientid
+
+    const clientFilter = scopedToClient ? "AND a.clientid = $1" : ""
+    const values = scopedToClient ? [req.user.clientid] : []
+
+    const result = await pool.query(`
+      SELECT
+        COALESCE(et.description, 'Unknown') AS equipmenttype,
+        COUNT(a.assetid)::int AS total
+      FROM atec.tblasset a
+      LEFT JOIN atec.tblequiptype et
+        ON a.equiptypeid = et.equiptypeid
+      WHERE COALESCE(a.archived, false) = false
+      ${clientFilter}
+      GROUP BY COALESCE(et.description, 'Unknown')
+      ORDER BY COUNT(a.assetid) DESC, COALESCE(et.description, 'Unknown') ASC
+      LIMIT 10
+    `, values)
+
+    res.json(result.rows)
+  } catch (err) {
+    console.error("Dashboard equipment by type error:", err)
     res.status(500).json({ error: "An unexpected server error occurred" })
   }
 })
@@ -7139,6 +7694,45 @@ app.get("/dashboard/failed-equipment", async (req, res) => {
   }
 })
 
+app.get("/dashboard/failed-equipment-by-customer", async (req, res) => {
+  try {
+    const values = []
+    let clientScope = ""
+
+    if (["CUSTOMER", "VIEWER"].includes(req.user?.role) && req.user?.clientid) {
+      values.push(req.user.clientid)
+      clientScope = `AND a.clientid = $${values.length}`
+    }
+
+    const result = await pool.query(`
+      SELECT
+        a.clientid,
+        COALESCE(c.clientname, 'Unknown Customer') AS clientname,
+        COUNT(DISTINCT a.assetid)::int AS failed_assets,
+        COUNT(i.testid)::int AS failed_certificates,
+        MAX(i.testdate) AS latest_failed_date
+      FROM atec.tblinspection i
+      JOIN atec.tblasset a
+        ON i.assetid = a.assetid
+      LEFT JOIN atec.tblclients c
+        ON a.clientid = c.clientid
+      WHERE i.status = 'NOT SAFE'
+        AND COALESCE(a.archived, false) = false
+        ${clientScope}
+      GROUP BY a.clientid, c.clientname
+      ORDER BY failed_assets DESC, clientname ASC
+      LIMIT 50
+    `, values)
+
+    res.json(result.rows)
+  } catch (err) {
+    console.error("Dashboard failed equipment customer summary error:", err)
+    res.status(500).json({
+      error: "Failed to load failed equipment by customer"
+    })
+  }
+})
+
 app.get("/dashboard/upcoming-expiries", async (req, res) => {
   try {
     const result = await pool.query(`
@@ -7177,6 +7771,48 @@ app.get("/dashboard/upcoming-expiries", async (req, res) => {
     console.error("Dashboard upcoming expiries:", err)
     res.status(500).json({
       error: "Failed to load upcoming expiries"
+    })
+  }
+})
+
+app.get("/dashboard/upcoming-expiries-by-customer", async (req, res) => {
+  try {
+    const values = []
+    let clientScope = ""
+
+    if (["CUSTOMER", "VIEWER"].includes(req.user?.role) && req.user?.clientid) {
+      values.push(req.user.clientid)
+      clientScope = `AND a.clientid = $${values.length}`
+    }
+
+    const result = await pool.query(`
+      SELECT
+        a.clientid,
+        COALESCE(c.clientname, 'Unknown Customer') AS clientname,
+        COUNT(DISTINCT a.assetid)::int AS upcoming_assets,
+        COUNT(i.testid)::int AS upcoming_certificates,
+        MIN(i.validdate) AS next_expiry_date,
+        MIN(i.validdate - CURRENT_DATE) AS days_remaining
+      FROM atec.tblinspection i
+      JOIN atec.tblasset a
+        ON i.assetid = a.assetid
+      LEFT JOIN atec.tblclients c
+        ON a.clientid = c.clientid
+      WHERE i.validdate IS NOT NULL
+        AND i.validdate >= CURRENT_DATE
+        AND i.validdate <= CURRENT_DATE + INTERVAL '90 days'
+        AND COALESCE(a.archived, false) = false
+        ${clientScope}
+      GROUP BY a.clientid, c.clientname
+      ORDER BY next_expiry_date ASC, upcoming_assets DESC, clientname ASC
+      LIMIT 50
+    `, values)
+
+    res.json(result.rows)
+  } catch (err) {
+    console.error("Dashboard upcoming expiries customer summary error:", err)
+    res.status(500).json({
+      error: "Failed to load upcoming expiries by customer"
     })
   }
 })

@@ -119,7 +119,7 @@ export async function renderRiskAssessments(assets = [], canWrite = true) {
       <h2>New SLAMM Risk Assessment</h2>
       <input type="hidden" id="riskId" value="">
 
-      <div class="asset-form-grid">
+      <div class="risk-form-grid risk-form-grid--top">
         <div class="form-group">
           <label>Asset</label>
           <select id="riskAssetId">${assetOptions(assets)}</select>
@@ -140,7 +140,7 @@ export async function renderRiskAssessments(assets = [], canWrite = true) {
           <select id="riskStatus">${statusOptions()}</select>
         </div>
 
-        <div class="form-group asset-description">
+        <div class="form-group risk-span-2">
           <label>Task Description</label>
           <input id="riskActivity" type="text">
         </div>
@@ -171,13 +171,13 @@ export async function renderRiskAssessments(assets = [], canWrite = true) {
         </div>
       </div>
 
-      <div class="asset-form-grid">
-        <div class="form-group asset-description">
+      <div class="risk-form-grid">
+        <div class="form-group risk-span-2">
           <label>LOOK / ASSESS - Hazards and Risks</label>
           <textarea id="riskHazard" rows="2"></textarea>
         </div>
 
-        <div class="form-group asset-description">
+        <div class="form-group risk-span-2">
           <label>Consequence</label>
           <textarea id="riskConsequence" rows="2"></textarea>
         </div>
@@ -192,7 +192,7 @@ export async function renderRiskAssessments(assets = [], canWrite = true) {
           <select id="riskInitialLikelihood">${riskOptions(3)}</select>
         </div>
 
-        <div class="form-group asset-description">
+        <div class="form-group risk-span-2">
           <label>Controls to Manage the Hazards and Risks</label>
           <textarea id="riskControls" rows="2"></textarea>
         </div>
@@ -207,17 +207,17 @@ export async function renderRiskAssessments(assets = [], canWrite = true) {
           <select id="riskResidualLikelihood">${riskOptions(2)}</select>
         </div>
 
-        <div class="form-group asset-description">
+        <div class="form-group risk-span-2">
           <label>MANAGE - Actions Required</label>
           <textarea id="riskActionRequired" rows="2"></textarea>
         </div>
 
-        <div class="form-group asset-description">
+        <div class="form-group risk-span-2">
           <label>Manage Plan</label>
           <textarea id="riskManagePlan" rows="2"></textarea>
         </div>
 
-        <div class="form-group asset-description">
+        <div class="form-group risk-span-2">
           <label>MONITOR - New Hazards / Changes During Task</label>
           <textarea id="riskMonitorNotes" rows="2"></textarea>
         </div>

@@ -14,6 +14,7 @@ import { renderRiskAssessments, renderRiskAssessmentTable } from './pages/RiskAs
 import { getPaginationState, renderPaginationControls } from './pagination.js'
 import { getTableSortState, sortTableRows } from './tableSort.js'
 import { API_BASE, assetUrl } from './api.js'
+import { escapeHtml, safeAttr } from './utils/security.js'
 
 if (window.location.pathname.toLowerCase().startsWith('/atec/atec')) {
   window.history.replaceState({}, '', '/atec/')
@@ -48,6 +49,14 @@ async function readApiResponse(response) {
 }
 
 let currentUser = null
+let customers = []
+let assets = []
+let sites = []
+let responsiblePersons = []
+let sections = []
+let equipmentTypes = []
+let dashboardStats = {}
+let criteria = []
 
 const pageAccess = {
   dashboard: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER'],
@@ -704,6 +713,23 @@ async function fetchJsonOrDefault(url, fallback) {
   return response.json()
 }
 
+async function getAssetForAction(assetid) {
+  const cachedAsset = assets.find(
+    asset => String(asset.assetid) === String(assetid)
+  )
+
+  if (cachedAsset) return cachedAsset
+
+  const response = await fetch(`${API_BASE}/assets/${assetid}`)
+  const result = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(result.error || "Asset not found")
+  }
+
+  return result
+}
+
 function renderStartupError(message) {
   document.querySelector('#app').innerHTML = `
     <div class="login-page">
@@ -740,24 +766,34 @@ async function loadData() {
   currentUser = session.user
   window.currentUser = currentUser
 
-  let customers
-  let assets
-  let sites
-  let responsiblePersons
-  let sections
-  let equipmentTypes
-  let dashboardStats
-  let criteria
+  assets = []
 
   try {
-    customers = await fetchJsonOrDefault(`${API_BASE}/customers`, [])
-    assets = await fetchJsonOrDefault(`${API_BASE}/assets`, [])
-    sites = await fetchJsonOrDefault(`${API_BASE}/sites`, [])
-    responsiblePersons = await fetchJsonOrDefault(`${API_BASE}/responsible-persons`, [])
-    sections = await fetchJsonOrDefault(`${API_BASE}/sections`, [])
-    equipmentTypes = await fetchJsonOrDefault(`${API_BASE}/equipment-types`, [])
-    dashboardStats = await fetchJsonOrDefault(`${API_BASE}/dashboard/stats`, {})
-    criteria = await fetchJsonOrDefault(`${API_BASE}/equipment-type-criteria`, [])
+    const [
+      customersData,
+      sitesData,
+      responsiblePersonsData,
+      sectionsData,
+      equipmentTypesData,
+      dashboardStatsData,
+      criteriaData
+    ] = await Promise.all([
+      fetchJsonOrDefault(`${API_BASE}/customers`, []),
+      fetchJsonOrDefault(`${API_BASE}/sites`, []),
+      fetchJsonOrDefault(`${API_BASE}/responsible-persons`, []),
+      fetchJsonOrDefault(`${API_BASE}/sections`, []),
+      fetchJsonOrDefault(`${API_BASE}/equipment-types`, []),
+      fetchJsonOrDefault(`${API_BASE}/dashboard/stats`, {}),
+      fetchJsonOrDefault(`${API_BASE}/equipment-type-criteria`, [])
+    ])
+
+    customers = customersData
+    sites = sitesData
+    responsiblePersons = responsiblePersonsData
+    sections = sectionsData
+    equipmentTypes = equipmentTypesData
+    dashboardStats = dashboardStatsData
+    criteria = criteriaData
     window.atecCriteria = criteria
   } catch (err) {
     renderStartupError(err.message || "The database update has not been completed.")
@@ -847,9 +883,10 @@ window.showDashboard = function () {
   )
 
   loadDashboardAlerts()
-  loadDashboardAttention()
   loadDashboardFailedEquipment()
   loadDashboardUpcomingExpiries()
+  loadDashboardTopCustomers()
+  loadDashboardEquipmentTypes()
 }
 
 let customerArchiveMode = localStorage.getItem("customerArchiveMode") || "active"
@@ -1019,9 +1056,9 @@ window.filterCustomers = function (resetPage = false) {
 
     return `
       <tr>
-        <td>${customer.clientid}</td>
-        <td>${customer.clientname || ""}</td>
-        <td>${customer.clientaddr || ""}</td>
+        <td>${escapeHtml(customer.clientid)}</td>
+        <td>${escapeHtml(customer.clientname || "")}</td>
+        <td>${escapeHtml(customer.clientaddr || "")}</td>
         <td>${isArchived ? "Archived" : "Active"}</td>
         <td>
           <button onclick="editClient(${customer.clientid})">Edit</button>
@@ -1102,8 +1139,8 @@ window.showAddResponsiblePersonForm = function () {
       <option value="">Select Client</option>
 
       ${sortedCustomers.map(client => `
-        <option value="${client.clientid}">
-          ${client.clientname}
+        <option value="${safeAttr(client.clientid)}">
+          ${escapeHtml(client.clientname)}
         </option>
       `).join('')}
     </select>
@@ -1880,7 +1917,7 @@ window.saveSiteFromForm = async function () {
   showSites()
 }
 
-window.showAssetSetup = function () {
+window.showAssetSetup = async function () {
   if (!ensurePageAccess('assets')) return
 
   localStorage.setItem("currentPage", "assets")
@@ -1888,9 +1925,7 @@ window.showAssetSetup = function () {
   window.assetCurrentPage = state.currentPage || window.assetCurrentPage || 1
   window.assetRowsPerPage = state.rowsPerPage || window.assetRowsPerPage || 25
 
-  renderAssetSetup(assets)
-  restoreAssetListState()
-
+  await loadAssetSetupPage()
 }
 
 window.showRiskAssessments = async function () {
@@ -2547,64 +2582,47 @@ window.saveAssetFromForm = async function () {
   showAssetSetup()
 }
 
-window.filterAssets = function (resetPage = false) {
+async function loadAssetSetupPage() {
+  rememberAssetListState()
+
+  const state = window.assetListState || {}
+  const sort = getTableSortState('assets', 'assetid', 'desc')
+  const params = new URLSearchParams({
+    page: String(window.assetCurrentPage || state.currentPage || 1),
+    limit: String(window.assetRowsPerPage || state.rowsPerPage || 25),
+    searchBy: state.searchType || "all",
+    search: state.search || "",
+    sortKey: sort.key || "assetid",
+    sortDir: sort.direction || "desc",
+    archiveMode: state.archiveMode || "active"
+  })
+
+  const data = await fetchJsonOrDefault(`${API_BASE}/assets?${params.toString()}`, {
+    rows: [],
+    total: 0,
+    page: 1,
+    limit: Number(window.assetRowsPerPage || 25)
+  })
+
+  assets = data.rows || []
+  window.assetCurrentPage = Number(data.page || window.assetCurrentPage || 1)
+  window.assetRowsPerPage = Number(data.limit || window.assetRowsPerPage || 25)
+
+  renderAssetSetup(assets, {
+    serverPaged: true,
+    total: data.total || 0,
+    page: window.assetCurrentPage,
+    limit: window.assetRowsPerPage
+  })
+  restoreAssetListState()
+}
+
+window.filterAssets = async function (resetPage = false) {
   if (resetPage) {
     window.assetCurrentPage = 1
   }
 
-  const searchTypeInput = document.querySelector('#assetSearchType')
-  const searchInput = document.querySelector('#assetSearch')
-
-  if (!searchTypeInput || !searchInput) return
-
-  const searchType =
-    searchTypeInput.value
-
-  const search =
-    searchInput.value
-      .toLowerCase()
-      .trim()
-
-  const searchableFields = [
-    "assetid",
-    "assettagno",
-    "serialno",
-    "hoistserialno",
-    "clientname",
-    "sitename",
-    "sectionname",
-    "equipmenttype",
-    "description",
-    "qrcode"
-  ]
-
-  const filtered = assets.filter(asset => {
-    if (searchType === "all") {
-      return searchableFields.some(field =>
-        String(asset[field] || '').toLowerCase().includes(search)
-      )
-    }
-
-    const fieldValue = String(asset[searchType] || '')
-      .toLowerCase()
-    return fieldValue.includes(search)
-  })
-
-  const pageSize = window.assetRowsPerPage || 25
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize))
-  window.assetCurrentPage = Math.min(window.assetCurrentPage || 1, totalPages)
-
-  const currentPage = window.assetCurrentPage
-  const startIndex = (currentPage - 1) * pageSize
-  const visibleAssets = filtered.slice(startIndex, startIndex + pageSize)
-  const endIndex = filtered.length === 0 ? 0 : startIndex + visibleAssets.length
-
-  renderAssetPaginationControls(filtered.length, startIndex, endIndex, currentPage, totalPages, pageSize)
-
-  const tableBody = document.querySelector('#assetTableBody')
-
-  tableBody.innerHTML = visibleAssets.map(renderAssetRow).join('')
-  rememberAssetListState()
+  await loadAssetSetupPage()
 }
 
 function rememberAssetListState() {
@@ -2632,8 +2650,6 @@ function restoreAssetListState() {
   if (searchTypeInput) searchTypeInput.value = state.searchType || "all"
   if (searchInput) searchInput.value = state.search || ""
   if (rowsInput) rowsInput.value = String(window.assetRowsPerPage)
-
-  filterAssets(false)
 }
 
 function renderAssetPaginationControls(totalRows, startIndex, endIndex, currentPage, totalPages, pageSize) {
@@ -2754,7 +2770,7 @@ window.setAssetFilterKey = function (key) {
   filterAssets()
 }
 
-window.showMoveAssetForm = function (assetid) {
+window.showMoveAssetForm = async function (assetid) {
   if (!canManageAssetRecords()) {
     showAccessDenied()
     return
@@ -2762,10 +2778,12 @@ window.showMoveAssetForm = function (assetid) {
 
   rememberAssetListState()
 
-  const asset = assets.find(a => String(a.assetid) === String(assetid))
+  let asset
 
-  if (!asset) {
-    alert("Asset not found")
+  try {
+    asset = await getAssetForAction(assetid)
+  } catch (err) {
+    alert(err.message || "Asset not found")
     return
   }
 
@@ -3000,7 +3018,7 @@ window.refreshEditAssetDynamicFields = function () {
   }
 }
 
-window.editAsset = function (assetid) {
+window.editAsset = async function (assetid) {
   if (!canManageAssetRecords()) {
     showAccessDenied()
     return
@@ -3008,10 +3026,12 @@ window.editAsset = function (assetid) {
 
   rememberAssetListState()
 
-  const asset = assets.find(a => String(a.assetid) === String(assetid))
+  let asset
 
-  if (!asset) {
-    alert("Asset not found")
+  try {
+    asset = await getAssetForAction(assetid)
+  } catch (err) {
+    alert(err.message || "Asset not found")
     return
   }
 
@@ -3654,13 +3674,12 @@ window.deleteCriteria = async function (criteriaid) {
   showEquipmentTypeCriteria()
 }
 
-window.showInspections = function () {
+window.showInspections = async function () {
   if (!ensurePageAccess('inspections')) return
 
   localStorage.setItem("currentPage", "inspections")
 
-  renderInspections(assets)
-
+  await loadInspectionAssetPage()
 }
 
 window.showCertificateSearch = function () {
@@ -3675,12 +3694,12 @@ window.showCertificateSearch = function () {
   )
 }
 
-window.showCustomerDetailedReport = function () {
+window.showCustomerDetailedReport = function (options = {}) {
   if (!ensurePageAccess('customer-report')) return
 
   localStorage.setItem("currentPage", "customer-report")
 
-  renderCustomerDetailedReport(customers, equipmentTypes, sites, sections, responsiblePersons)
+  renderCustomerDetailedReport(customers, equipmentTypes, sites, sections, responsiblePersons, options)
 }
 
 window.handleCertificateEnter = function (event) {
@@ -3997,8 +4016,57 @@ window.quickFindAsset = async function () {
         quickOpenAsset(asset.assetid)
         return
       }
+
+      const broadResponse = await fetch(`${API_BASE}/inspections/assets/search?q=${encodeURIComponent(search)}`)
+
+      if (broadResponse.ok) {
+        const broadMatches = await broadResponse.json()
+
+        if (broadMatches.length === 1) {
+          quickOpenAsset(broadMatches[0].assetid)
+          return
+        }
+
+        if (broadMatches.length > 1) {
+          resultBox.innerHTML = `
+            <div class="filter-card">
+              <h3>Multiple Assets Found</h3>
+              <p>Please select the correct asset.</p>
+
+              <table>
+                <thead>
+                  <tr>
+                    <th>Asset ID</th>
+                    <th>Asset Tag</th>
+                    <th>Serial No</th>
+                    <th>Description</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  ${broadMatches.map(asset => `
+                    <tr>
+                      <td>${asset.assetid}</td>
+                      <td>${asset.assettagno || ''}</td>
+                      <td>${asset.serialno || asset.hoistserialno || asset.auxhoistserialno || ''}</td>
+                      <td>${asset.description || ''}</td>
+                      <td>
+                        <button onclick="quickOpenAsset(${asset.assetid})">
+                          Select
+                        </button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `
+          return
+        }
+      }
     } catch (err) {
-      console.error("QR lookup failed:", err)
+      console.error("Asset lookup failed:", err)
     }
 
     resultBox.innerHTML = `
@@ -4210,101 +4278,62 @@ window.startQuickInspection = function (assetid, inspectiontype) {
   startInspection(assetid, inspectiontype, "quick")
 }
 
-window.filterInspectionAssets = function (resetPage = false) {
-  if (resetPage) window.inspectionCurrentPage = 1
+function rememberInspectionAssetListState() {
+  window.inspectionAssetListState = {
+    searchType: document.querySelector('#inspectionSearchType')?.value || window.inspectionAssetListState?.searchType || "all",
+    search: document.querySelector('#inspectionAssetSearch')?.value || window.inspectionAssetListState?.search || "",
+    currentPage: window.inspectionCurrentPage || window.inspectionAssetListState?.currentPage || 1,
+    rowsPerPage: Number(window.inspectionRowsPerPage || window.inspectionAssetListState?.rowsPerPage || 25)
+  }
+}
 
-  const searchType =
-    document.querySelector('#inspectionSearchType')?.value || "all"
+function restoreInspectionAssetListState() {
+  const state = window.inspectionAssetListState || {}
+  const searchTypeInput = document.querySelector('#inspectionSearchType')
+  const searchInput = document.querySelector('#inspectionAssetSearch')
 
-  const search = document
-    .querySelector('#inspectionAssetSearch')
-    .value
-    .toLowerCase()
-    .trim()
+  if (searchTypeInput) searchTypeInput.value = state.searchType || "all"
+  if (searchInput) searchInput.value = state.search || ""
+}
 
-  const searchableFields = [
-    "assetid",
-    "assettagno",
-    "serialno",
-    "clientname",
-    "sitename",
-    "sectionname",
-    "equipmenttype",
-    "description",
-    "qrcode"
-  ]
+async function loadInspectionAssetPage() {
+  rememberInspectionAssetListState()
 
-  const filtered = assets.filter(asset => {
-    if (searchType === "all") {
-      return searchableFields.some(field =>
-        String(asset[field] || '').toLowerCase().includes(search)
-      )
-    }
-
-    return String(asset[searchType] || '')
-      .toLowerCase()
-      .includes(search)
+  const state = window.inspectionAssetListState || {}
+  const sort = getTableSortState('inspectionAssets', 'client_section_serial', 'asc')
+  const params = new URLSearchParams({
+    page: String(window.inspectionCurrentPage || state.currentPage || 1),
+    limit: String(window.inspectionRowsPerPage || state.rowsPerPage || 25),
+    searchBy: state.searchType || "all",
+    search: state.search || "",
+    sortKey: sort.key || "client_section_serial",
+    sortDir: sort.direction || "asc",
+    archiveMode: "active"
   })
 
-  const sortedFiltered = sortTableRows(filtered, 'inspectionAssets', {
-    client_section_serial: asset => `${asset.clientname || ''}\u0000${asset.sectionname || ''}\u0000${asset.serialno || ''}`,
-    assetid: asset => asset.assetid,
-    assettagno: asset => asset.assettagno,
-    serialno: asset => asset.serialno,
-    clientname: asset => asset.clientname,
-    sitename: asset => asset.sitename,
-    sectionname: asset => asset.sectionname,
-    description: asset => asset.description,
-    equipmenttype: asset => asset.equipmenttype
-  }, 'client_section_serial')
+  const data = await fetchJsonOrDefault(`${API_BASE}/inspections/assets?${params.toString()}`, {
+    rows: [],
+    total: 0,
+    page: 1,
+    limit: Number(window.inspectionRowsPerPage || 25)
+  })
 
-  const pagination = getPaginationState(sortedFiltered, "inspectionCurrentPage", "inspectionRowsPerPage")
-  const paginationBar = document.querySelector(".report-pagination-bar")
-  if (paginationBar) {
-    paginationBar.outerHTML = renderPaginationControls({
-      ...pagination,
-      label: "assets",
-      onPage: "goToInspectionPage",
-      onPageSize: "setInspectionRowsPerPage"
-    })
-  }
+  assets = data.rows || []
+  window.inspectionCurrentPage = Number(data.page || window.inspectionCurrentPage || 1)
+  window.inspectionRowsPerPage = Number(data.limit || window.inspectionRowsPerPage || 25)
 
-  const tableBody = document.querySelector('#inspectionAssetTableBody')
+  renderInspections(assets, {
+    serverPaged: true,
+    total: data.total || 0,
+    page: window.inspectionCurrentPage,
+    limit: window.inspectionRowsPerPage
+  })
+  restoreInspectionAssetListState()
+}
 
-  tableBody.innerHTML = pagination.rows.map(asset => `
-    <tr>
-      <td>${asset.assetid}</td>
-      <td>${asset.assettagno || ''}</td>
-      <td>${asset.serialno || ''}</td>
-      <td>${asset.clientname || ''}</td>
-      <td>${asset.sitename || ''}</td>
-      <td>${asset.sectionname || ''}</td>
-      <td>${asset.description || ''}</td>
-      <td>${asset.equipmenttype || ''}</td>
-      <td>
-        <div class="action-buttons">
-
-          <button onclick="startInspection(${asset.assetid}, 'VISUAL', 'inspections')">
-            New Inspection
-          </button>
-
-          ${
-            assetSupportsLoadTest(asset)
-            ? `
-              <button
-                class="load-test-btn"
-                onclick="startInspection(${asset.assetid}, 'LOADTEST', 'inspections')"
-              >
-                Load Test
-              </button>
-            `
-            : ''
-          }
-
-        </div>
-      </td>
-    </tr>
-  `).join('')
+window.filterInspectionAssets = async function (resetPage = false) {
+  if (resetPage) window.inspectionCurrentPage = 1
+  await loadInspectionAssetPage()
 }
 
 window.setInspectionFilterKey = function (key) {
@@ -5143,21 +5172,22 @@ window.startInspection = async function (assetid, inspectiontype = "VISUAL", ret
     rememberAssetListState()
   }
 
-  const asset = assets.find(
-    a => String(a.assetid) === String(assetid)
-  )
-const quickDetailsResponse = await fetch(
-  `${API_BASE}/assets/${assetid}/quick-details`
-)
-const defaultTestDate = dateInputValue()
-const defaultValidDate = calculateValidDateFromTestDate(defaultTestDate, inspectiontype)
+  let asset
 
-const quickDetails = await quickDetailsResponse.json()
-
-  if (!asset) {
-    alert("Asset not found")
+  try {
+    asset = await getAssetForAction(assetid)
+  } catch (err) {
+    alert(err.message || "Asset not found")
     return
   }
+
+  const quickDetailsResponse = await fetch(
+    `${API_BASE}/assets/${assetid}/quick-details`
+  )
+  const defaultTestDate = dateInputValue()
+  const defaultValidDate = calculateValidDateFromTestDate(defaultTestDate, inspectiontype)
+
+  const quickDetails = await quickDetailsResponse.json()
 
   window.scrollTo(0, 0)
 
@@ -5510,80 +5540,169 @@ window.handleDashboardSearchEnter = function (event) {
   }
 }
 
-window.dashboardFindAsset = function () {
-  const search = document
-    .querySelector("#dashboardAssetSearch")
-    .value
-    .toLowerCase()
-    .trim()
-
+window.dashboardFindAsset = async function () {
+  const searchInput = document.querySelector("#dashboardAssetSearch")
+  const normalizedSearch = normalizeQuickAssetScan(searchInput?.value || "")
+  const search = normalizedSearch.trim()
   const resultBox = document.querySelector("#dashboardAssetSearchResult")
 
+  if (searchInput && normalizedSearch !== searchInput.value.trim()) {
+    searchInput.value = normalizedSearch
+  }
+
   if (!search) {
-    resultBox.innerHTML = `<p>Please enter an asset number, tag, serial number or QR code.</p>`
+    resultBox.innerHTML = `<p>Please enter or scan an asset number, tag, serial number or QR code.</p>`
     return
   }
 
-  const matchedAssets = assets.filter(asset =>
-    String(asset.assetid || "").toLowerCase().includes(search) ||
-    String(asset.assettagno || "").toLowerCase().includes(search) ||
-    String(asset.serialno || "").toLowerCase().includes(search) ||
-    String(asset.hoistserialno || "").toLowerCase().includes(search) ||
-    String(asset.qrcode || "").toLowerCase().includes(search) ||
-    String(asset.description || "").toLowerCase().includes(search)
-  )
+  resultBox.innerHTML = `<p>Searching...</p>`
 
-  if (matchedAssets.length === 0) {
+  try {
+    const response = await fetch(`${API_BASE}/inspections/assets/search?q=${encodeURIComponent(search)}`)
+
+    if (!response.ok) {
+      throw new Error("Asset search failed")
+    }
+
+    const matchedAssets = await response.json()
+
+    if (!matchedAssets.length) {
+      resultBox.innerHTML = `
+        <p>No asset found for <strong>${search}</strong>.</p>
+      `
+      return
+    }
+
+    if (matchedAssets.length === 1) {
+      quickOpenAsset(matchedAssets[0].assetid)
+      return
+    }
+
     resultBox.innerHTML = `
-      <p>No asset found for <strong>${search}</strong>.</p>
+      <div class="dashboard-result-table">
+        <table class="dashboard-table">
+          <thead>
+            <tr>
+              <th>Asset ID</th>
+              <th>Tag No</th>
+              <th>Serial No</th>
+              <th>Hoist Serial No</th>
+              <th>Description</th>
+              <th>Equipment Type</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            ${matchedAssets.slice(0, 10).map(asset => `
+              <tr>
+                <td>${asset.assetid}</td>
+                <td>${asset.assettagno || "-"}</td>
+                <td>${asset.serialno || "-"}</td>
+                <td>${asset.hoistserialno || "-"}</td>
+                <td>${asset.description || ""}</td>
+                <td>${asset.equipmenttype || ""}</td>
+                <td class="dashboard-search-actions">
+                  <button onclick="startInspection(${asset.assetid}, 'VISUAL', 'quick')">Inspect</button>
+                  ${
+                    assetSupportsLoadTest(asset)
+                      ? `<button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'LOADTEST', 'quick')">Load Test</button>`
+                      : ""
+                  }
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
     `
+  } catch (err) {
+    console.error("Dashboard asset search error:", err)
+    resultBox.innerHTML = `<p>Unable to search assets. Please try again.</p>`
+  }
+}
+
+let dashboardScannerStream = null
+let dashboardScannerLoopActive = false
+
+window.startDashboardCameraScan = async function () {
+  const scanner = document.querySelector('#dashboardCameraScanner')
+  const video = document.querySelector('#dashboardCameraVideo')
+  const status = document.querySelector('#dashboardScanStatus')
+
+  if (!('BarcodeDetector' in window)) {
+    if (status) status.textContent = 'Camera scanning is not supported by this browser. Use the scan/type box above.'
+    scanner?.removeAttribute('hidden')
     return
   }
 
-  resultBox.innerHTML = `
-    <table>
-      <thead>
-        <tr>
-          <th>Asset ID</th>
-          <th>Tag No</th>
-          <th>Serial No</th>
-          <th>Description</th>
-          <th>Equipment Type</th>
-          <th>Action</th>
-        </tr>
-      </thead>
+  try {
+    const supportedFormats = await window.BarcodeDetector.getSupportedFormats()
+    const formats = ['qr_code', 'code_128', 'code_39', 'ean_13'].filter(format =>
+      supportedFormats.includes(format)
+    )
+    const detector = new window.BarcodeDetector({ formats })
 
-      <tbody>
-        ${matchedAssets.slice(0, 10).map(asset => `
-          <tr>
-            <td>${asset.assetid}</td>
-            <td>${asset.assettagno || "-"}</td>
-            <td>${asset.serialno || asset.hoistserialno || "-"}</td>
-            <td>${asset.description || ""}</td>
-            <td>${asset.equipmenttype || ""}</td>
-            <td>
-              <button onclick="startInspection(${asset.assetid}, 'VISUAL', 'quick')">
-                Inspect
-              </button>
+    dashboardScannerStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment' },
+      audio: false
+    })
 
-              ${
-                assetSupportsLoadTest(asset)
-                  ? `<button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'LOADTEST', 'quick')">Load Test</button>`
-                  : ""
-              }
-            </td>
-          </tr>
-        `).join("")}
-      </tbody>
-    </table>
-  `
+    video.srcObject = dashboardScannerStream
+    scanner?.removeAttribute('hidden')
+    await video.play()
+
+    dashboardScannerLoopActive = true
+    if (status) status.textContent = 'Scanning... point the camera at the QR label or barcode.'
+
+    const scanFrame = async () => {
+      if (!dashboardScannerLoopActive) return
+
+      try {
+        const codes = await detector.detect(video)
+        if (codes.length) {
+          const scannedValue = normalizeQuickAssetScan(codes[0].rawValue)
+          document.querySelector('#dashboardAssetSearch').value = scannedValue
+          stopDashboardCameraScan()
+          dashboardFindAsset()
+          return
+        }
+      } catch (err) {
+        console.error('Dashboard camera scan failed:', err)
+      }
+
+      requestAnimationFrame(scanFrame)
+    }
+
+    scanFrame()
+  } catch (err) {
+    console.error('Unable to start dashboard camera scanner:', err)
+    scanner?.removeAttribute('hidden')
+    if (status) status.textContent = 'Camera could not start. Please allow camera access or use the scan/type box.'
+  }
+}
+
+window.stopDashboardCameraScan = function () {
+  dashboardScannerLoopActive = false
+
+  if (dashboardScannerStream) {
+    dashboardScannerStream.getTracks().forEach(track => track.stop())
+    dashboardScannerStream = null
+  }
+
+  const video = document.querySelector('#dashboardCameraVideo')
+  if (video) video.srcObject = null
+
+  document.querySelector('#dashboardCameraScanner')?.setAttribute('hidden', '')
 }
 
 async function loadDashboardAlerts() {
   try {
-    const response = await fetch(
-      `${API_BASE}/dashboard/alerts`
-    )
+    const response = await fetch(`${API_BASE}/dashboard/alerts`)
+
+    if (!response.ok) {
+      throw new Error("Failed to load dashboard alerts")
+    }
 
     const data = await response.json()
 
@@ -5629,74 +5748,34 @@ async function loadDashboardAlerts() {
 
   } catch (err) {
     console.error("Failed to load dashboard alerts:", err)
-  }
-}
-
-async function loadDashboardAttention() {
-  try {
-    const response = await fetch(`${API_BASE}/dashboard/attention`);
-    const data = await response.json();
-
-    const tbody = document.getElementById("attentionTableBody");
-
-    if (!data.length) {
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="7" class="empty-row">No assets require attention</td>
-        </tr>
-      `;
-      return;
+    const alertBox = document.querySelector("#dashboardAlerts")
+    if (alertBox) {
+      alertBox.innerHTML = `
+        <div class="alert-card warning">
+          Unable to load dashboard alerts
+        </div>
+      `
     }
-
-    const sortedData = sortTableRows(data, 'dashboardAttention', {
-      assettagno: item => item.assettagno,
-      clientname: item => item.clientname,
-      sitename: item => item.sitename,
-      equipmenttype: item => item.equipmenttype,
-      reason: item => item.reason,
-      daysoverdue: item => item.daysoverdue
-    }, 'daysoverdue')
-
-    tbody.innerHTML = sortedData.map(item => `
-      <tr>
-        <td>
-          <strong>${item.assettagno || "No Tag"}</strong><br>
-          <small>${item.serialno || ""}</small>
-        </td>
-        <td>${item.clientname || ""}</td>
-        <td>${item.sitename || ""}</td>
-        <td>${item.equipmenttype || ""}</td>
-        <td><span class="status-badge warning">${item.reason}</span></td>
-        <td>${item.daysoverdue ?? "-"}</td>
-        <td>
-          <button class="small-btn" onclick="quickOpenAsset(${item.assetid})">
-            Open
-          </button>
-        </td>
-      </tr>
-    `).join("");
-
-  } catch (err) {
-    console.error("Failed to load dashboard attention:", err);
   }
 }
 
 async function loadDashboardFailedEquipment() {
+  const tbody = document.querySelector("#failedEquipmentTableBody")
+  if (!tbody) return
+
   try {
-    const response = await fetch(
-      `${API_BASE}/dashboard/failed-equipment`
-    )
+    const response = await fetch(`${API_BASE}/dashboard/failed-equipment-by-customer`)
+
+    if (!response.ok) {
+      throw new Error("Failed to load failed equipment")
+    }
 
     const data = await response.json()
 
-    const tbody = document.querySelector("#failedEquipmentTableBody")
-
-    if (!tbody) return
-
-    if (!data.length) {
+    if (!Array.isArray(data) || !data.length) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="7" class="empty-row">
+          <td colspan="4" class="empty-row">
             No failed equipment found
           </td>
         </tr>
@@ -5705,58 +5784,57 @@ async function loadDashboardFailedEquipment() {
     }
 
     const sortedData = sortTableRows(data, 'dashboardFailed', {
-      assettagno: item => item.assettagno,
       clientname: item => item.clientname,
-      sitename: item => item.sitename,
-      equipmenttype: item => item.equipmenttype,
-      testdate: item => item.testdate,
-      inspector: item => item.inspector
-    }, 'testdate')
+      failed_assets: item => item.failed_assets,
+      latest_failed_date: item => item.latest_failed_date
+    }, 'failed_assets')
 
-    tbody.innerHTML = sortedData.map(item => `
+    tbody.innerHTML = sortedData.map(item => {
+      const reportArgs = safeAttr(JSON.stringify({ clientid: item.clientid, autoLoad: true }))
+
+      return `
       <tr>
-        <td>
-          <strong>${item.assettagno || "No Tag"}</strong><br>
-          <small>Asset ID: ${item.assetid}</small><br>
-          <small>Serial: ${item.serialno || "-"}</small>
-        </td>
-        <td>${item.clientname || ""}</td>
-        <td>${item.sitename || ""}</td>
-        <td>${item.equipmenttype || ""}</td>
-        <td>${item.testdate ? item.testdate.split("T")[0] : ""}</td>
-        <td>${item.inspector || "-"}</td>
+        <td>${escapeHtml(item.clientname || "")}</td>
+        <td><strong>${escapeHtml(item.failed_assets || 0)}</strong></td>
+        <td>${escapeHtml(item.latest_failed_date ? item.latest_failed_date.split("T")[0] : "")}</td>
         <td>
           <button
             class="small-btn"
-            onclick="openCertificateModal(${item.testid})"
+            onclick="showCustomerDetailedReport(${reportArgs})"
           >
-            View
+            View Assets
           </button>
         </td>
       </tr>
-    `).join("")
+    `}).join("")
 
   } catch (err) {
     console.error("Failed to load failed equipment:", err)
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="4" class="empty-row">Unable to load failed equipment data</td>
+      </tr>
+    `
   }
 }
 
 async function loadDashboardUpcomingExpiries() {
+  const tbody = document.querySelector("#upcomingExpiriesTableBody")
+  if (!tbody) return
+
   try {
-    const response = await fetch(
-      `${API_BASE}/dashboard/upcoming-expiries`
-    )
+    const response = await fetch(`${API_BASE}/dashboard/upcoming-expiries-by-customer`)
+
+    if (!response.ok) {
+      throw new Error("Failed to load upcoming certificate expiries")
+    }
 
     const data = await response.json()
 
-    const tbody = document.querySelector("#upcomingExpiriesTableBody")
-
-    if (!tbody) return
-
-    if (!data.length) {
+    if (!Array.isArray(data) || !data.length) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="8" class="empty-row">
+          <td colspan="5" class="empty-row">
             No upcoming certificate expiries
           </td>
         </tr>
@@ -5765,41 +5843,127 @@ async function loadDashboardUpcomingExpiries() {
     }
 
     const sortedData = sortTableRows(data, 'dashboardExpiries', {
-      assettagno: item => item.assettagno,
       clientname: item => item.clientname,
-      sitename: item => item.sitename,
-      equipmenttype: item => item.equipmenttype,
-      inspectiontype: item => item.inspectiontype,
-      validdate: item => item.validdate,
-      daysremaining: item => item.daysremaining
-    }, 'daysremaining')
+      upcoming_assets: item => item.upcoming_assets,
+      next_expiry_date: item => item.next_expiry_date,
+      days_remaining: item => item.days_remaining
+    }, 'days_remaining')
 
-    tbody.innerHTML = sortedData.map(item => `
+    tbody.innerHTML = sortedData.map(item => {
+      const reportArgs = safeAttr(JSON.stringify({ clientid: item.clientid, autoLoad: true }))
+
+      return `
       <tr>
-        <td>
-          <strong>${item.assettagno || "No Tag"}</strong><br>
-          <small>Asset ID: ${item.assetid}</small><br>
-          <small>Serial: ${item.serialno || "-"}</small>
-        </td>
-        <td>${item.clientname || ""}</td>
-        <td>${item.sitename || ""}</td>
-        <td>${item.equipmenttype || ""}</td>
-        <td>${item.inspectiontype || ""}</td>
-        <td>${item.validdate ? item.validdate.split("T")[0] : ""}</td>
-        <td><strong>${item.daysremaining}</strong></td>
+        <td>${escapeHtml(item.clientname || "")}</td>
+        <td><strong>${escapeHtml(item.upcoming_assets || 0)}</strong></td>
+        <td>${escapeHtml(item.next_expiry_date ? item.next_expiry_date.split("T")[0] : "")}</td>
+        <td><strong>${escapeHtml(item.days_remaining ?? "")}</strong></td>
         <td>
           <button
             class="small-btn"
-            onclick="openCertificateModal(${item.testid})"
+            onclick="showCustomerDetailedReport(${reportArgs})"
           >
-            View
+            View Assets
           </button>
         </td>
       </tr>
-    `).join("")
+    `}).join("")
 
   } catch (err) {
     console.error("Failed to load upcoming expiries:", err)
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="5" class="empty-row">Unable to load upcoming certificate expiry data</td>
+      </tr>
+    `
+  }
+}
+
+async function loadDashboardTopCustomers() {
+  const tbody = document.querySelector("#dashboardTopCustomersBody")
+  if (!tbody) return
+
+  try {
+    const response = await fetch(`${API_BASE}/dashboard/top-customers`)
+
+    if (!response.ok) {
+      throw new Error("Failed to load top customers")
+    }
+
+    const data = await response.json()
+
+    if (!Array.isArray(data) || !data.length) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="3" class="empty-row">No customer asset data found</td>
+        </tr>
+      `
+      return
+    }
+
+    const sortedData = sortTableRows(data, 'dashboardCustomers', {
+      clientname: item => item.clientname,
+      sites: item => item.sites,
+      assets: item => item.assets
+    }, 'assets').slice(0, 10)
+
+    tbody.innerHTML = sortedData.map(item => `
+      <tr>
+        <td>${escapeHtml(item.clientname || "")}</td>
+        <td>${escapeHtml(item.sites || 0)}</td>
+        <td><strong>${escapeHtml(item.assets || 0)}</strong></td>
+      </tr>
+    `).join("")
+  } catch (err) {
+    console.error("Failed to load top customers:", err)
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="3" class="empty-row">Unable to load customer asset data</td>
+      </tr>
+    `
+  }
+}
+
+async function loadDashboardEquipmentTypes() {
+  const tbody = document.querySelector("#dashboardEquipmentTypeBody")
+  if (!tbody) return
+
+  try {
+    const response = await fetch(`${API_BASE}/dashboard/equipment-by-type`)
+
+    if (!response.ok) {
+      throw new Error("Failed to load equipment by type")
+    }
+
+    const data = await response.json()
+
+    if (!Array.isArray(data) || !data.length) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="2" class="empty-row">No equipment type data found</td>
+        </tr>
+      `
+      return
+    }
+
+    const sortedData = sortTableRows(data, 'dashboardEquipment', {
+      equipmenttype: item => item.equipmenttype,
+      total: item => item.total
+    }, 'total').slice(0, 10)
+
+    tbody.innerHTML = sortedData.map(item => `
+      <tr>
+        <td>${escapeHtml(item.equipmenttype || "Unknown")}</td>
+        <td><strong>${escapeHtml(item.total || 0)}</strong></td>
+      </tr>
+    `).join("")
+  } catch (err) {
+    console.error("Failed to load equipment by type:", err)
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="2" class="empty-row">Unable to load equipment type data</td>
+      </tr>
+    `
   }
 }
 
@@ -5811,12 +5975,12 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
   const testdate =
     document.querySelector("#inspectionTestDate")?.value || dateInputValue()
 
-  const asset = assets.find(
-    a => String(a.assetid) === String(assetid)
-  )
+  let asset
 
-  if (!asset) {
-    alert("Asset not found")
+  try {
+    asset = await getAssetForAction(assetid)
+  } catch (err) {
+    alert(err.message || "Asset not found")
     return
   }
 

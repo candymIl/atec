@@ -1,8 +1,47 @@
 import { getPaginationState, renderPaginationControls } from '../pagination.js'
 import { sortHeader, sortTableRows } from '../tableSort.js'
+import { escapeHtml } from '../utils/security.js'
 
-export function renderInspections(assets) {
-  const sortedAssets = sortTableRows(assets, 'inspectionAssets', {
+function assetSupportsLoadTest(asset) {
+  if (['100', '400', '500'].includes(String(asset.equipgroupid || ''))) {
+    return true
+  }
+
+  const criteria = window.atecCriteria || []
+
+  return criteria.some(row =>
+    String(row.equiptypeid) === String(asset.equiptypeid) &&
+    String(row.inspectioncategory || row.inspection_category || '').toUpperCase() === 'LOADTEST' &&
+    row.active !== false &&
+    row.active !== 'false'
+  )
+}
+
+function getServerPaginationState(rows, pageInfo, pageKey, pageSizeKey, defaultPageSize = 25) {
+  const pageSize = window[pageSizeKey] || defaultPageSize
+  const totalRows = Number(pageInfo.total || 0)
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize))
+  const currentPage = Math.min(window[pageKey] || 1, totalPages)
+  const startIndex = (currentPage - 1) * pageSize
+  const endIndex = totalRows === 0 ? 0 : startIndex + rows.length
+
+  window[pageKey] = currentPage
+  window[pageSizeKey] = pageSize
+
+  return {
+    currentPage,
+    endIndex,
+    pageSize,
+    rows,
+    startIndex,
+    totalPages,
+    totalRows
+  }
+}
+
+export function renderInspections(assets, pageInfo = {}) {
+  const serverPaged = pageInfo.serverPaged === true
+  const sortedAssets = serverPaged ? assets : sortTableRows(assets, 'inspectionAssets', {
     client_section_serial: asset => `${asset.clientname || ''}\u0000${asset.sectionname || ''}\u0000${asset.serialno || ''}`,
     assetid: asset => asset.assetid,
     assettagno: asset => asset.assettagno,
@@ -13,7 +52,9 @@ export function renderInspections(assets) {
     description: asset => asset.description,
     equipmenttype: asset => asset.equipmenttype
   }, 'client_section_serial')
-  const pagination = getPaginationState(sortedAssets, "inspectionCurrentPage", "inspectionRowsPerPage")
+  const pagination = serverPaged
+    ? getServerPaginationState(sortedAssets, pageInfo, "inspectionCurrentPage", "inspectionRowsPerPage")
+    : getPaginationState(sortedAssets, "inspectionCurrentPage", "inspectionRowsPerPage")
 
   document.querySelector('#page').innerHTML = `
     <h1>Inspections/Load Tests</h1>
@@ -93,16 +134,26 @@ export function renderInspections(assets) {
       </thead>
 
       <tbody id="inspectionAssetTableBody">
-        ${pagination.rows.map(asset => `
+        ${pagination.rows.map(asset => {
+          const assetId = escapeHtml(asset.assetid)
+          const assetTag = escapeHtml(asset.assettagno || '')
+          const serialNo = escapeHtml(asset.serialno || '')
+          const client = escapeHtml(asset.clientname || '')
+          const site = escapeHtml(asset.sitename || '')
+          const section = escapeHtml(asset.sectionname || '')
+          const description = escapeHtml(asset.description || '')
+          const equipmentType = escapeHtml(asset.equipmenttype || '')
+
+          return `
           <tr>
-            <td>${asset.assetid}</td>
-            <td>${asset.assettagno || ''}</td>
-            <td>${asset.serialno || ''}</td>
-            <td>${asset.clientname || ''}</td>
-            <td>${asset.sitename || ''}</td>
-            <td>${asset.sectionname || ''}</td>
-            <td>${asset.description || ''}</td>
-            <td>${asset.equipmenttype || ''}</td>
+            <td>${assetId}</td>
+            <td>${assetTag}</td>
+            <td>${serialNo}</td>
+            <td>${client}</td>
+            <td>${site}</td>
+            <td>${section}</td>
+            <td>${description}</td>
+            <td>${equipmentType}</td>
             <td>
   <div class="action-buttons">
 
@@ -126,7 +177,7 @@ export function renderInspections(assets) {
       </div>
     </td>
           </tr>
-        `).join('')}
+        `}).join('')}
       </tbody>
     </table>
 

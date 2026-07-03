@@ -1113,6 +1113,38 @@ tr:hover {
   grid-column: span 2;
 }
 
+.risk-form-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 2fr) minmax(180px, 1fr) minmax(180px, 1fr);
+  gap: 14px 18px;
+  align-items: end;
+  margin-top: 14px;
+}
+
+.risk-form-grid--top {
+  margin-top: 0;
+}
+
+.risk-form-grid .form-group {
+  min-width: 0;
+}
+
+.risk-form-grid input,
+.risk-form-grid select,
+.risk-form-grid textarea {
+  width: 100%;
+  max-width: none;
+}
+
+.risk-form-grid textarea {
+  min-height: 64px;
+  resize: vertical;
+}
+
+.risk-span-2 {
+  grid-column: span 2;
+}
+
 .slamm-section {
   border: 1px solid #d8e1ee;
   border-radius: 8px;
@@ -1189,6 +1221,16 @@ tr:hover {
   color: #12345a;
   font-weight: 800;
   text-align: center;
+}
+
+@media (max-width: 900px) {
+  .risk-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .risk-span-2 {
+    grid-column: auto;
+  }
 }
 
 .asset-photo-row {
@@ -2766,14 +2808,18 @@ tr:hover {
 
 .fb-cert-header {
   margin-bottom: 5px;
-  max-height: 145px;
-  object-fit: contain;
+  height: 145px;
+  max-height: none;
+  object-fit: fill;
+  object-position: center top;
 }
 
 .fb-cert-footer {
   margin-top: auto;
-  max-height: 105px;
-  object-fit: contain;
+  height: 105px;
+  max-height: none;
+  object-fit: fill;
+  object-position: center bottom;
 }
 
 .fb-cert-title h1 {
@@ -2847,12 +2893,12 @@ tr:hover {
   border: 1px solid #d9e1ec;
   padding: 3px;
   text-align: center;
-  min-height: 145px;
+  min-height: 185px;
 }
 
 .fb-cert-photo-grid img {
   max-width: 100%;
-  max-height: 185px;
+  max-height: 240px;
   object-fit: contain;
 }
 
@@ -3038,14 +3084,14 @@ tr:hover {
     margin: 0 auto !important;
     font-size: 9.5px;
     line-height: 1.08;
-    overflow: hidden;
+    overflow: visible;
     display: flex !important;
     flex-direction: column !important;
     transform: none !important;
     page-break-after: auto;
     page-break-before: auto;
-    page-break-inside: avoid;
-    break-inside: avoid;
+    page-break-inside: auto;
+    break-inside: auto;
   }
 
   .bulk-certificate-page {
@@ -3054,23 +3100,23 @@ tr:hover {
     width: 210mm !important;
     max-width: none !important;
     min-height: 297mm !important;
-    height: 297mm !important;
+    height: auto !important;
     margin: 0 auto !important;
     padding: 3mm !important;
     box-shadow: none !important;
-    overflow: hidden !important;
+    overflow: visible !important;
     break-after: page;
     page-break-after: always;
     break-before: auto;
     page-break-before: auto;
-    break-inside: avoid;
-    page-break-inside: avoid;
+    break-inside: auto;
+    page-break-inside: auto;
   }
 
   .bulk-certificate-page .fb-cert-page {
-    height: 100% !important;
-    min-height: 100% !important;
-    max-height: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
   }
 
   .bulk-certificate-page:last-child {
@@ -3079,12 +3125,13 @@ tr:hover {
   }
 
   .fb-cert-header {
-    width: calc(100% + 6mm) !important;
+    width: calc(100% + 16mm) !important;
     max-width: none !important;
-    margin-left: -3mm !important;
+    margin-left: -8mm !important;
     margin-bottom: 3px;
-    max-height: 32mm;
-    object-fit: contain;
+    height: 32mm;
+    max-height: none;
+    object-fit: fill;
   }
 
   .fb-cert-title h1 {
@@ -3121,12 +3168,12 @@ tr:hover {
   }
 
   .fb-cert-photo-grid div {
-    min-height: 95px;
+    min-height: 135px;
     padding: 2px;
   }
 
   .fb-cert-photo-grid img {
-    max-height: 105px;
+    max-height: 145px;
   }
 
   .fb-cert-photo-grid p {
@@ -3166,12 +3213,13 @@ tr:hover {
   }
 
   .fb-cert-footer {
-    width: calc(100% + 6mm) !important;
+    width: calc(100% + 16mm) !important;
     max-width: none !important;
-    margin-left: -3mm !important;
+    margin-left: -8mm !important;
     margin-top: auto;
-    max-height: 22mm;
-    object-fit: contain;
+    height: 22mm;
+    max-height: none;
+    object-fit: fill;
   }
 }
 
@@ -3838,5 +3886,122 @@ tr:hover {
 
   .quick-photo-card img {
     height: 130px;
+  }
+}
+
+/* Dashboard tidy-up and faster-search layout */
+.dashboard-quick-search {
+  margin-bottom: 14px;
+  padding: 14px;
+}
+
+.dashboard-search-row {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(280px, 1fr) auto auto;
+}
+
+.dashboard-search-row input {
+  height: 38px;
+}
+
+.dashboard-search-result {
+  margin-top: 10px;
+}
+
+.dashboard-result-table {
+  overflow-x: auto;
+}
+
+.dashboard-search-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dashboard-cards {
+  gap: 12px;
+  margin: 14px 0 16px;
+}
+
+.stat-card {
+  min-height: 82px;
+  padding: 14px 16px;
+}
+
+.stat-card p {
+  font-size: 32px;
+}
+
+.stat-icon {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.dashboard-section {
+  margin-bottom: 14px;
+  padding: 14px;
+}
+
+.dashboard-section h2,
+.dashboard-section h3,
+.dashboard-quick-search h3 {
+  margin: 0 0 10px;
+}
+
+.dashboard-table {
+  margin-top: 6px;
+}
+
+.dashboard-table th,
+.dashboard-table td {
+  padding: 8px 10px;
+}
+
+.dashboard-two-column {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.dashboard-top-row {
+  margin-top: 2px;
+}
+
+.dashboard-actions .dashboard-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dashboard-actions .dashboard-buttons button {
+  min-width: 140px;
+}
+
+.dashboard-camera-scanner {
+  max-width: 520px;
+}
+
+@media (max-width: 1100px) {
+  .dashboard-two-column {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .dashboard-search-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 430px) {
+  .stat-card {
+    min-height: 78px;
+    padding: 12px;
+  }
+
+  .stat-card p {
+    font-size: 26px;
   }
 }

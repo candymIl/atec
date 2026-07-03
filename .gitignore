@@ -7,5 +7,14 @@ tmp/
 backups/
 *.dump
 *.backup
+.env
+.env.*
+!.env.example
+!backend/.env.example
+!frontend/.env.example
+backend/.env
+frontend/.env
+backend/uploads/
+uploads/
 node_modules
 node_modules

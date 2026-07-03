@@ -1,6 +1,7 @@
 import { getPaginationState, renderPaginationControls } from '../pagination.js'
 import { getTableSortState, sortTableRows } from '../tableSort.js'
 import { API_BASE, assetUrl } from '../api.js'
+import { escapeHtml, safeAttr } from '../utils/security.js'
 
 async function readCertificateJson(response) {
   const text = await response.text()
@@ -59,7 +60,7 @@ export function renderCertificateSearch(customers = [], sites = [], sections = [
           <select id="certClient">
             <option value="">All Clients</option>
             ${customers.map(c => `
-              <option value="${c.clientid}">${c.clientname}</option>
+              <option value="${safeAttr(c.clientid)}">${escapeHtml(c.clientname)}</option>
             `).join("")}
           </select>
         </div>
@@ -391,52 +392,56 @@ function renderCertificateResults(certificates) {
       </thead>
 
       <tbody>
-        ${pagination.rows.map(cert => `
-          <tr data-testid="${cert.testid}">
-            <td>${cert.testid}</td>
-            <td>${cert.tagnumber || "-"}</td>
-            <td>${cert.clientname || ""}</td>
-            <td>${cert.sitename || ""}</td>
-            <td>${cert.description || ""}</td>
-            <td>${cert.serialno || ""}</td>
-            <td>${cert.inspectiontype || ""}</td>
-            <td>${formatDate(cert.testdate)}</td>
+        ${pagination.rows.map(cert => {
+          const testid = safeAttr(cert.testid)
+          const status = escapeHtml(cert.status || "")
+
+          return `
+          <tr data-testid="${testid}">
+            <td>${escapeHtml(cert.testid)}</td>
+            <td>${escapeHtml(cert.tagnumber || "-")}</td>
+            <td>${escapeHtml(cert.clientname || "")}</td>
+            <td>${escapeHtml(cert.sitename || "")}</td>
+            <td>${escapeHtml(cert.description || "")}</td>
+            <td>${escapeHtml(cert.serialno || "")}</td>
+            <td>${escapeHtml(cert.inspectiontype || "")}</td>
+            <td>${escapeHtml(formatDate(cert.testdate))}</td>
             <td>
               <strong class="${cert.status === "SAFE" ? "status-safe" : "status-unsafe"}">
-                ${cert.status || ""}
+                ${status}
               </strong>
             </td>
-            <td>${cert.inspector || "-"}</td>
+            <td>${escapeHtml(cert.inspector || "-")}</td>
             <td>
-              <button type="button" class="cert-preview-btn" data-testid="${cert.testid}">
+              <button type="button" class="cert-preview-btn" data-testid="${testid}">
                 Preview
               </button>
 
-              <button type="button" class="cert-view-btn" data-testid="${cert.testid}">
+              <button type="button" class="cert-view-btn" data-testid="${testid}">
                 View
               </button>
 
               <a
                 class="cert-action-link cert-download-btn"
-                href="${API_BASE}/inspections/${cert.testid}/certificate.pdf?t=${Date.now()}"
-                download="certificate-${cert.testid}.pdf"
+                href="${API_BASE}/inspections/${encodeURIComponent(cert.testid)}/certificate.pdf?t=${Date.now()}"
+                download="certificate-${testid}.pdf"
                 onclick="event.stopPropagation()"
               >
                 Download PDF
               </a>
 
-              <button type="button" class="cert-mail-btn" data-testid="${cert.testid}">
+              <button type="button" class="cert-mail-btn" data-testid="${testid}">
                 Mail
               </button>
 
               ${canDeleteCertificates ? `
-                <button type="button" class="cert-delete-btn" data-testid="${cert.testid}">
+                <button type="button" class="cert-delete-btn" data-testid="${testid}">
                   Delete
                 </button>
               ` : ""}
             </td>
           </tr>
-        `).join("")}
+        `}).join("")}
       </tbody>
     </table>
   `
@@ -547,25 +552,25 @@ function renderBulkCertificateResults(certificates) {
                   <input
                     type="checkbox"
                     class="bulk-cert-check"
-                    value="${inspection.testid}"
+                    value="${safeAttr(inspection.testid)}"
                     checked
-                    aria-label="Select certificate ${inspection.testid}"
+                    aria-label="Select certificate ${safeAttr(inspection.testid)}"
                   >
                 </td>
-                <td>${inspection.testid || ""}</td>
-                <td>${formatDate(inspection.testdate)}</td>
-                <td>${formatDate(inspection.validdate)}</td>
-                <td>${inspection.inspectiontype || ""}</td>
+                <td>${escapeHtml(inspection.testid || "")}</td>
+                <td>${escapeHtml(formatDate(inspection.testdate))}</td>
+                <td>${escapeHtml(formatDate(inspection.validdate))}</td>
+                <td>${escapeHtml(inspection.inspectiontype || "")}</td>
                 <td>
                   <strong class="${inspection.status === "SAFE" ? "status-safe" : "status-unsafe"}">
-                    ${inspection.status || ""}
+                    ${escapeHtml(inspection.status || "")}
                   </strong>
                 </td>
-                <td>${inspection.description || ""}</td>
-                <td>${inspection.assettagno || inspection.tagnumber || "-"}</td>
-                <td>${inspection.serialno || ""}</td>
-                <td>${inspection.sitename || ""}</td>
-                <td>${inspection.inspector || "-"}</td>
+                <td>${escapeHtml(inspection.description || "")}</td>
+                <td>${escapeHtml(inspection.assettagno || inspection.tagnumber || "-")}</td>
+                <td>${escapeHtml(inspection.serialno || "")}</td>
+                <td>${escapeHtml(inspection.sitename || "")}</td>
+                <td>${escapeHtml(inspection.inspector || "-")}</td>
               </tr>
             `
           }).join("")}
@@ -632,59 +637,13 @@ window.printSelectedBulkCertificates = function () {
     return
   }
 
-  const selectedCertificates = (window.bulkCertificateResults || [])
-    .filter(certificate => selectedTestIds.includes(String(certificate.inspection?.testid)))
+  const params = getBulkCertificateFilterParams()
+  if (!params) return
 
-  if (!selectedCertificates.length) {
-    alert("No selected certificates could be prepared for printing.")
-    return
-  }
+  params.set("testids", selectedTestIds.join(","))
+  params.set("inline", "1")
 
-  const existingView = document.querySelector("#bulkCertificatePrintView")
-  if (existingView) existingView.remove()
-
-  const printView = document.createElement("div")
-  printView.id = "bulkCertificatePrintView"
-  printView.className = "bulk-certificate-print-view"
-
-  printView.innerHTML = `
-    <div class="bulk-print-toolbar screen-only">
-      <h2>Bulk Certificate Print</h2>
-      <div class="form-actions">
-        <button type="button" id="bulkPrintNowBtn">Print</button>
-        <button type="button" id="bulkPrintCloseBtn">Close</button>
-      </div>
-    </div>
-
-    <div class="bulk-certificate-print-pages">
-      ${selectedCertificates.map(certificate => `
-        <section class="bulk-certificate-page">
-          ${renderCertificateDocument(certificate)}
-        </section>
-      `).join("")}
-    </div>
-  `
-
-  document.body.appendChild(printView)
-  document.body.classList.add("bulk-print-mode")
-
-  document
-    .querySelector('#bulkPrintCloseBtn')
-    .addEventListener('click', window.closeBulkCertificatePrintView)
-
-  document
-    .querySelector('#bulkPrintNowBtn')
-    .addEventListener('click', () => {
-      window.print()
-    })
-
-  setTimeout(() => window.print(), 250)
-}
-
-window.closeBulkCertificatePrintView = function () {
-  const printView = document.querySelector("#bulkCertificatePrintView")
-  if (printView) printView.remove()
-  document.body.classList.remove("bulk-print-mode")
+  window.open(`${API_BASE}/certificates/bulk-pdf?${params.toString()}`, "_blank")
 }
 
 function getBulkCertificateFilterParams() {
@@ -959,12 +918,8 @@ window.previewCertificate = async function (testid) {
 
   document
     .querySelector('#previewPrintCertificateBtn')
-    .addEventListener('click', async () => {
-      await window.openCertificateModal(inspection.testid)
-      setTimeout(() => {
-        prepareCertificatePrint()
-        window.print()
-      }, 250)
+    .addEventListener('click', () => {
+      window.printCertificatePdf(inspection.testid)
     })
 }
 
@@ -1492,13 +1447,6 @@ function getCertificateRegulationNotes(inspection) {
   return notes
 }
 
-function prepareCertificatePrint() {
-  const page = document.querySelector("#certificateModal .fb-cert-page")
-  if (!page) return
-
-  page.style.removeProperty("--cert-print-scale")
-}
-
 function formatDate(value) {
   if (!value) return "-"
   return String(value).split("T")[0]
@@ -1559,7 +1507,6 @@ const certificatePageActions = {
   mailCertificate: window.mailCertificate,
   searchBulkCertificates: window.searchBulkCertificates,
   printSelectedBulkCertificates: window.printSelectedBulkCertificates,
-  closeBulkCertificatePrintView: window.closeBulkCertificatePrintView,
   downloadSelectedBulkCertificatesPdf: window.downloadSelectedBulkCertificatesPdf,
   downloadAllBulkCertificatesPdf: window.downloadAllBulkCertificatesPdf,
   toggleBulkCertificateSelection: window.toggleBulkCertificateSelection,

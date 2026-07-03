@@ -1,4 +1,5 @@
 import { sortHeader, sortTableRows } from '../tableSort.js'
+import { escapeHtml } from '../utils/security.js'
 
 function assetSupportsLoadTest(asset) {
   if (['100', '400', '500'].includes(String(asset.equipgroupid || ''))) {
@@ -18,22 +19,31 @@ function assetSupportsLoadTest(asset) {
 export function renderAssetRow(asset) {
   const serialDisplay = asset.serialno || asset.hoistserialno || ''
   const canManageAssets = ['ADMIN', 'MANAGER', 'INSPECTOR'].includes(window.currentUser?.role)
+  const assetid = escapeHtml(asset.assetid)
+  const assetTag = escapeHtml(asset.assettagno || '')
+  const serial = escapeHtml(serialDisplay)
+  const hoistSerial = escapeHtml(asset.hoistserialno || '')
+  const client = escapeHtml(asset.clientname || '')
+  const site = escapeHtml(asset.sitename || '')
+  const section = escapeHtml(asset.sectionname || '')
+  const equipmentType = escapeHtml(asset.equipmenttype || '')
+  const description = escapeHtml(asset.description || '')
 
   return `
     <tr>
-      <td>${asset.assetid}</td>
-      <td>${asset.assettagno || ''}</td>
+      <td>${assetid}</td>
+      <td>${assetTag}</td>
       <td>
-        ${serialDisplay}
+        ${serial}
         ${asset.serialno && asset.hoistserialno && asset.serialno !== asset.hoistserialno ? `
-          <br><small>Hoist: ${asset.hoistserialno}</small>
+          <br><small>Hoist: ${hoistSerial}</small>
         ` : ''}
       </td>
-      <td>${asset.clientname || ''}</td>
-      <td>${asset.sitename || ''}</td>
-      <td>${asset.sectionname || ''}</td>
-      <td>${asset.equipmenttype || ''}</td>
-      <td>${asset.description || ''}</td>
+      <td>${client}</td>
+      <td>${site}</td>
+      <td>${section}</td>
+      <td>${equipmentType}</td>
+      <td>${description}</td>
       <td>
         <div class="action-buttons">
           ${canManageAssets ? `
@@ -78,8 +88,9 @@ export function renderAssetRow(asset) {
   `
 }
 
-export function renderAssetSetup(assets) {
-  const sortedAssets = sortTableRows(assets, 'assets', {
+export function renderAssetSetup(assets, pageInfo = {}) {
+  const serverPaged = pageInfo.serverPaged === true
+  const sortedAssets = serverPaged ? assets : sortTableRows(assets, 'assets', {
     assetid: asset => asset.assetid,
     assettagno: asset => asset.assettagno,
     serialno: asset => asset.serialno || asset.hoistserialno,
@@ -91,13 +102,14 @@ export function renderAssetSetup(assets) {
     qrcode: asset => asset.qrcode
   }, 'assetid')
   const pageSize = window.assetRowsPerPage || 25
-  const totalPages = Math.max(1, Math.ceil(sortedAssets.length / pageSize))
+  const totalRows = serverPaged ? Number(pageInfo.total || 0) : sortedAssets.length
+  const totalPages = Math.max(1, Math.ceil(totalRows / pageSize))
   const currentPage = Math.min(window.assetCurrentPage || 1, totalPages)
   const startIndex = (currentPage - 1) * pageSize
-  const visibleAssets = sortedAssets.slice(startIndex, startIndex + pageSize)
-  const endIndex = sortedAssets.length === 0 ? 0 : startIndex + visibleAssets.length
+  const visibleAssets = serverPaged ? sortedAssets : sortedAssets.slice(startIndex, startIndex + pageSize)
+  const endIndex = totalRows === 0 ? 0 : startIndex + visibleAssets.length
   const paginationBar = renderAssetPaginationBar(
-    sortedAssets.length,
+    totalRows,
     startIndex,
     endIndex,
     currentPage,
@@ -106,7 +118,7 @@ export function renderAssetSetup(assets) {
     true
   )
   const bottomPaginationBar = renderAssetPaginationBar(
-    sortedAssets.length,
+    totalRows,
     startIndex,
     endIndex,
     currentPage,
@@ -129,7 +141,7 @@ export function renderAssetSetup(assets) {
     <div class="filter-card">
       <p>
         Total Assets:
-        <strong>${sortedAssets.length}</strong>
+        <strong>${totalRows}</strong>
       </p>
 
       <h2>Search Assets</h2>

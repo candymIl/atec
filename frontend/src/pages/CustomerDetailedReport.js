@@ -5,7 +5,7 @@ let currentReport = null
 let currentReportPage = 1
 let currentReportPageSize = 25
 
-export function renderCustomerDetailedReport(customers = [], equipmentTypes = [], sites = [], sections = [], responsiblePersons = []) {
+export function renderCustomerDetailedReport(customers = [], equipmentTypes = [], sites = [], sections = [], responsiblePersons = [], options = {}) {
   const sortedCustomers = [...customers].sort((a, b) =>
     (a.clientname || "").localeCompare(b.clientname || "")
   )
@@ -138,8 +138,20 @@ export function renderCustomerDetailedReport(customers = [], equipmentTypes = []
     </div>
   `
 
-  updateCustomerReportLinks()
   bindCustomerReportEvents()
+
+  if (options?.clientid) {
+    const customerSelect = document.querySelector("#customerReportClient")
+    if (customerSelect) {
+      customerSelect.value = String(options.clientid)
+    }
+  }
+
+  updateCustomerReportLinks()
+
+  if (options?.autoLoad) {
+    loadCustomerDetailedReport()
+  }
 }
 
 function bindCustomerReportEvents() {

@@ -1,4 +1,4 @@
-import { sortHeader, sortTableRows } from '../tableSort.js'
+import { sortHeader } from '../tableSort.js'
 
 export function showDashboard(
     customers,
@@ -9,332 +9,218 @@ export function showDashboard(
 )
 
 {
-
-  // Calculate equipment totals
-  const equipmentTotals = {}
-
-  assets.forEach(asset => {
-    const type = asset.equipmenttype || "Unknown"
-
-    equipmentTotals[type] =
-      (equipmentTotals[type] || 0) + 1
-  })
-
-  const topEquipment =
-    Object.entries(equipmentTotals)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
-
-  const customerAssetRows = customers
-    .map(customer => {
-      const customerSites = sites.filter(site =>
-        String(site.clientid) === String(customer.clientid)
-      )
-
-      const customerSiteIds = customerSites.map(site =>
-        String(site.siteid)
-      )
-
-      const customerAssets = assets.filter(asset =>
-        customerSiteIds.includes(String(asset.siteid))
-      )
-
-      return {
-        clientname: customer.clientname || "",
-        sites: customerSites.length,
-        assets: customerAssets.length
-      }
-    })
-
-  const sortedCustomerAssetRows = sortTableRows(customerAssetRows, 'dashboardCustomers', {
-    clientname: row => row.clientname,
-    sites: row => row.sites,
-    assets: row => row.assets
-  }, 'assets').slice(0, 10)
-
-  const sortedTopEquipment = sortTableRows(topEquipment.map(item => ({
-    equipmenttype: item[0],
-    total: item[1]
-  })), 'dashboardEquipment', {
-    equipmenttype: row => row.equipmenttype,
-    total: row => row.total
-  }, 'total')
-
   document.querySelector('#page').innerHTML = `
 
     <h2>Dashboard</h2>
 
-    <div class="filter-card">
-  <h3>Quick Asset Search</h3>
+    <div class="filter-card dashboard-quick-search">
+      <div class="section-header">
+        <h3>Quick Asset Search</h3>
+      </div>
 
-  <div class="form-row">
-    <input
-      id="dashboardAssetSearch"
-      class="search-box"
-      type="text"
-      placeholder="Scan QR / Asset ID / Tag No / Serial No..."
-      onkeydown="handleDashboardSearchEnter(event)"
-    >
+      <div class="dashboard-search-row">
+        <input
+          id="dashboardAssetSearch"
+          class="search-box"
+          type="text"
+          placeholder="Scan QR / Asset ID / Tag No / Serial No..."
+          onkeydown="handleDashboardSearchEnter(event)"
+        >
 
-    <button onclick="dashboardFindAsset()">
-      Search
-    </button>
-  </div>
+        <button onclick="dashboardFindAsset()">Search</button>
+        <button type="button" class="secondary-btn" onclick="startDashboardCameraScan()">Scan QR / Barcode</button>
+      </div>
 
-  <div id="dashboardAssetSearchResult"></div>
-</div>
+      <div id="dashboardCameraScanner" class="quick-camera-scanner dashboard-camera-scanner" hidden>
+        <video id="dashboardCameraVideo" playsinline></video>
+        <p id="dashboardScanStatus">Scanning... point the camera at the QR label or barcode.</p>
+        <button type="button" class="secondary-btn" onclick="stopDashboardCameraScan()">Stop Scanning</button>
+      </div>
 
-<div class="dashboard-cards">
-
-  <div class="stat-card stat-blue">
-    <div class="stat-icon">👥</div>
-    <div>
-      <h3>Customers</h3>
-      <p>${stats.customers}</p>
+      <div id="dashboardAssetSearchResult" class="dashboard-search-result"></div>
     </div>
-  </div>
 
-  <div class="stat-card stat-blue">
-    <div class="stat-icon">🏭</div>
-    <div>
-      <h3>Sites</h3>
-      <p>${stats.sites}</p>
+    <div class="dashboard-cards">
+
+      <div class="stat-card stat-blue">
+        <div class="stat-icon">CU</div>
+        <div>
+          <h3>Customers</h3>
+          <p>${stats.customers || 0}</p>
+        </div>
+      </div>
+
+      <div class="stat-card stat-blue">
+        <div class="stat-icon">SI</div>
+        <div>
+          <h3>Sites</h3>
+          <p>${stats.sites || 0}</p>
+        </div>
+      </div>
+
+      <div class="stat-card stat-blue">
+        <div class="stat-icon">AS</div>
+        <div>
+          <h3>Assets</h3>
+          <p>${stats.assets || 0}</p>
+        </div>
+      </div>
+
+      <div class="stat-card stat-blue">
+        <div class="stat-icon">ET</div>
+        <div>
+          <h3>Equipment Types</h3>
+          <p>${stats.equipmenttypes || 0}</p>
+        </div>
+      </div>
+
+      <div class="stat-card stat-orange">
+        <div class="stat-icon">VI</div>
+        <div>
+          <h3>Visual Due</h3>
+          <p>${stats.visualdue || 0}</p>
+        </div>
+      </div>
+
+      <div class="stat-card stat-orange">
+        <div class="stat-icon">LT</div>
+        <div>
+          <h3>Load Tests Due</h3>
+          <p>${stats.loadtestdue || 0}</p>
+        </div>
+      </div>
+
+      <div class="stat-card stat-green">
+        <div class="stat-icon">CE</div>
+        <div>
+          <h3>Certificates</h3>
+          <p>${stats.certificates || 0}</p>
+        </div>
+      </div>
+
+      <div class="stat-card stat-red">
+        <div class="stat-icon">OD</div>
+        <div>
+          <h3>Overdue</h3>
+          <p>${stats.overdue || 0}</p>
+        </div>
+      </div>
+
     </div>
-  </div>
 
-  <div class="stat-card stat-blue">
-    <div class="stat-icon">📦</div>
-    <div>
-      <h3>Assets</h3>
-      <p>${stats.assets}</p>
+    <div class="dashboard-section dashboard-alerts">
+      <div class="section-header">
+        <h2>Operational Alerts</h2>
+      </div>
+
+      <div id="dashboardAlerts">Loading...</div>
     </div>
-  </div>
 
-  <div class="stat-card stat-blue">
-    <div class="stat-icon">🛠️</div>
-    <div>
-      <h3>Equipment Types</h3>
-      <p>${stats.equipmenttypes}</p>
-    </div>
-  </div>
-
-  <div class="stat-card stat-orange">
-    <div class="stat-icon">👁️</div>
-    <div>
-      <h3>Visual Due</h3>
-      <p>${stats.visualdue}</p>
-    </div>
-  </div>
-
-  <div class="stat-card stat-orange">
-    <div class="stat-icon">⚖️</div>
-    <div>
-      <h3>Load Tests Due</h3>
-      <p>${stats.loadtestdue}</p>
-    </div>
-  </div>
-
-  <div class="stat-card stat-green">
-    <div class="stat-icon">📄</div>
-    <div>
-      <h3>Certificates</h3>
-      <p>${stats.certificates}</p>
-    </div>
-  </div>
-
-  <div class="stat-card stat-red">
-    <div class="stat-icon">⚠️</div>
-    <div>
-      <h3>Overdue</h3>
-      <p>${stats.overdue}</p>
-    </div>
-  </div>
-
-</div>
-
-<div class="dashboard-section dashboard-alerts">
-
-  <div class="section-header">
-    <h2>Operational Alerts</h2>
-  </div>
-
-  <div id="dashboardAlerts">
-    Loading...
-  </div>
-
-</div>
-
-<div class="dashboard-section full-width">
-
-  <div class="section-header">
-    <h2>Assets Requiring Attention</h2>
-  </div>
-
-  <table class="dashboard-table">
-
-    <thead>
-      <tr>
-        <th>${sortHeader('Asset', 'dashboardAttention', 'assettagno', 'showDashboard')}</th>
-        <th>${sortHeader('Customer', 'dashboardAttention', 'clientname', 'showDashboard')}</th>
-        <th>${sortHeader('Site', 'dashboardAttention', 'sitename', 'showDashboard')}</th>
-        <th>${sortHeader('Equipment', 'dashboardAttention', 'equipmenttype', 'showDashboard')}</th>
-        <th>${sortHeader('Reason', 'dashboardAttention', 'reason', 'showDashboard')}</th>
-        <th>${sortHeader('Days Overdue', 'dashboardAttention', 'daysoverdue', 'showDashboard')}</th>
-        <th>Action</th>
-      </tr>
-    </thead>
-
-    <tbody id="attentionTableBody">
-      <tr>
-        <td colspan="7">Loading...</td>
-      </tr>
-    </tbody>
-
-  </table>
-
-</div>
-
-<div class="dashboard-section full-width">
-
-  <div class="section-header">
-    <h2>Failed Equipment</h2>
-  </div>
-
-  <table class="dashboard-table">
-
-    <thead>
-      <tr>
-        <th>${sortHeader('Asset', 'dashboardFailed', 'assettagno', 'showDashboard')}</th>
-        <th>${sortHeader('Customer', 'dashboardFailed', 'clientname', 'showDashboard')}</th>
-        <th>${sortHeader('Site', 'dashboardFailed', 'sitename', 'showDashboard')}</th>
-        <th>${sortHeader('Equipment', 'dashboardFailed', 'equipmenttype', 'showDashboard')}</th>
-        <th>${sortHeader('Failed Date', 'dashboardFailed', 'testdate', 'showDashboard')}</th>
-        <th>${sortHeader('Inspector', 'dashboardFailed', 'inspector', 'showDashboard')}</th>
-        <th>Action</th>
-      </tr>
-    </thead>
-
-    <tbody id="failedEquipmentTableBody">
-      <tr>
-        <td colspan="7">Loading...</td>
-      </tr>
-    </tbody>
-
-  </table>
-
-</div>
-
-<div class="dashboard-section full-width">
-  <div class="section-header">
-    <h2>Upcoming Certificate Expiries</h2>
-  </div>
-
-  <table class="dashboard-table">
-    <thead>
-      <tr>
-        <th>${sortHeader('Asset', 'dashboardExpiries', 'assettagno', 'showDashboard')}</th>
-        <th>${sortHeader('Customer', 'dashboardExpiries', 'clientname', 'showDashboard')}</th>
-        <th>${sortHeader('Site', 'dashboardExpiries', 'sitename', 'showDashboard')}</th>
-        <th>${sortHeader('Equipment', 'dashboardExpiries', 'equipmenttype', 'showDashboard')}</th>
-        <th>${sortHeader('Type', 'dashboardExpiries', 'inspectiontype', 'showDashboard')}</th>
-        <th>${sortHeader('Expiry Date', 'dashboardExpiries', 'validdate', 'showDashboard')}</th>
-        <th>${sortHeader('Days Left', 'dashboardExpiries', 'daysremaining', 'showDashboard')}</th>
-        <th>Action</th>
-      </tr>
-    </thead>
-
-    <tbody id="upcomingExpiriesTableBody">
-      <tr>
-        <td colspan="8">Loading...</td>
-      </tr>
-    </tbody>
-  </table>
-</div>
-
-<hr>
-
-<h2>Top Customers by Asset Count</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th>${sortHeader('Client', 'dashboardCustomers', 'clientname', 'showDashboard')}</th>
-      <th>${sortHeader('Sites', 'dashboardCustomers', 'sites', 'showDashboard')}</th>
-      <th>${sortHeader('Assets', 'dashboardCustomers', 'assets', 'showDashboard')}</th>
-    </tr>
-  </thead>
-
-<tbody>
-  ${sortedCustomerAssetRows.map(row => `
-      <tr>
-        <td>${row.clientname}</td>
-        <td>${row.sites}</td>
-        <td>${row.assets}</td>
-      </tr>
-    `).join("")}
-</tbody>
-
-  </table>
-
-    <br>
-
-<div class="dashboard-row">
-
-<div class="dashboard-panel">
-
-    <h2>Equipment by Type</h2>
-
-    <table>
-
-        <thead>
-            <tr>
-                <th>${sortHeader('Equipment Type', 'dashboardEquipment', 'equipmenttype', 'showDashboard')}</th>
-                <th>${sortHeader('Total', 'dashboardEquipment', 'total', 'showDashboard')}</th>
-            </tr>
-        </thead>
-
-        <tbody>
-
-            ${sortedTopEquipment.map(item => `
-                <tr>
-                    <td>${item.equipmenttype}</td>
-                    <td><strong>${item.total}</strong></td>
-                </tr>
-            `).join('')}
-
-        </tbody>
-
-    </table>
-
-</div>
-
-    <div class="dashboard-panel">
-
-        <h2>Quick Actions</h2>
-
-        <div class="dashboard-buttons">
-
-            <button onclick="showQuickInspection()">
-                New Inspection
-            </button>
-
-            <button onclick="showInspections()">
-                Load Test
-            </button>
-
-            <button onclick="showAssetSetup()">
-                Assets
-            </button>
-
-            <button onclick="showCertificateSearch()">
-                Certificates
-            </button>
-
+    <div class="dashboard-two-column">
+      <div class="dashboard-section">
+        <div class="section-header">
+          <h2>Failed Equipment</h2>
         </div>
 
-    </div>
-</div>
+        <table class="dashboard-table">
+          <thead>
+            <tr>
+              <th>${sortHeader('Customer', 'dashboardFailed', 'clientname', 'showDashboard')}</th>
+              <th>${sortHeader('Failed Assets', 'dashboardFailed', 'failed_assets', 'showDashboard')}</th>
+              <th>${sortHeader('Latest Failed Date', 'dashboardFailed', 'latest_failed_date', 'showDashboard')}</th>
+              <th>Action</th>
+            </tr>
+          </thead>
 
-  
+          <tbody id="failedEquipmentTableBody">
+            <tr>
+              <td colspan="4">Loading...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="dashboard-section">
+        <div class="section-header">
+          <h2>Upcoming Certificate Expiries</h2>
+        </div>
+
+        <table class="dashboard-table">
+          <thead>
+            <tr>
+              <th>${sortHeader('Customer', 'dashboardExpiries', 'clientname', 'showDashboard')}</th>
+              <th>${sortHeader('Upcoming Assets', 'dashboardExpiries', 'upcoming_assets', 'showDashboard')}</th>
+              <th>${sortHeader('Next Expiry Date', 'dashboardExpiries', 'next_expiry_date', 'showDashboard')}</th>
+              <th>${sortHeader('Days Left', 'dashboardExpiries', 'days_remaining', 'showDashboard')}</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+
+          <tbody id="upcomingExpiriesTableBody">
+            <tr>
+              <td colspan="5">Loading...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="dashboard-two-column dashboard-top-row">
+      <div class="dashboard-section">
+        <div class="section-header">
+          <h2>Top Customers by Asset Count</h2>
+        </div>
+
+        <table class="dashboard-table">
+          <thead>
+            <tr>
+              <th>${sortHeader('Client', 'dashboardCustomers', 'clientname', 'showDashboard')}</th>
+              <th>${sortHeader('Sites', 'dashboardCustomers', 'sites', 'showDashboard')}</th>
+              <th>${sortHeader('Assets', 'dashboardCustomers', 'assets', 'showDashboard')}</th>
+            </tr>
+          </thead>
+
+          <tbody id="dashboardTopCustomersBody">
+            <tr>
+              <td colspan="3">Loading...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="dashboard-section">
+        <div class="section-header">
+          <h2>Equipment by Type</h2>
+        </div>
+
+        <table class="dashboard-table">
+          <thead>
+            <tr>
+              <th>${sortHeader('Equipment Type', 'dashboardEquipment', 'equipmenttype', 'showDashboard')}</th>
+              <th>${sortHeader('Total', 'dashboardEquipment', 'total', 'showDashboard')}</th>
+            </tr>
+          </thead>
+
+          <tbody id="dashboardEquipmentTypeBody">
+            <tr>
+              <td colspan="2">Loading...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="dashboard-section dashboard-actions">
+      <div class="section-header">
+        <h2>Quick Actions</h2>
+      </div>
+
+      <div class="dashboard-buttons">
+        <button onclick="showQuickInspection()">New Inspection</button>
+        <button onclick="showInspections()">Load Test</button>
+        <button onclick="showAssetSetup()">Assets</button>
+        <button onclick="showCertificateSearch()">Certificates</button>
+      </div>
+    </div>
   `
 }
