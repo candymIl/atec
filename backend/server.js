@@ -18,6 +18,10 @@ const nodemailer = require("nodemailer");
 const puppeteer = require("puppeteer-core");
 const sharp = require("sharp");
 const {
+  createSingleCertificatePdfBuffer,
+  renderSingleCertificatePreviewHtml
+} = require("./services/certificateRenderer");
+const {
   asyncRoute,
   auditLogger,
   authCookieOptions,
@@ -4836,11 +4840,11 @@ function renderCertificatePdfHeaderTemplate() {
   const headerUrl = certificateBrandImageDataUrl("header.jpg")
 
   return `
-    <div style="width:100%;padding:0 8mm;margin:0;box-sizing:border-box;overflow:hidden;">
+    <div style="width:100%;height:40mm;padding:0 5mm;margin:0;box-sizing:border-box;overflow:hidden;font-size:0;">
       ${headerUrl ? `
         <img
           src="${headerUrl}"
-          style="display:block;width:100%;height:36mm;margin:0;object-fit:fill;object-position:center top;"
+          style="display:block;width:100%;height:40mm;margin:0;object-fit:fill;object-position:center top;"
         >
       ` : ""}
     </div>
@@ -5032,7 +5036,7 @@ function renderBulkCertificateHtml(certificate, imageDataUrlCache = null, option
         ${includeBranding ? renderCertificateHeaderHtml() : ""}
 
         <div class="fb-cert-title">
-          <h1 style="color:#1f2937 !important; -webkit-text-fill-color:#1f2937 !important;">${htmlEscape(getCertificateTitle(inspection))}</h1>
+          <h1>${htmlEscape(getCertificateTitle(inspection))}</h1>
         </div>
 
         <div class="fb-cert-meta">
@@ -5226,8 +5230,8 @@ function renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache = nu
             object-fit: fill;
           }
           .fb-cert-header {
-            margin-bottom: 3px;
-            height: 32mm;
+            margin-bottom: 14mm;
+            height: 40mm;
             max-height: none;
             object-position: center top;
           }
@@ -5237,13 +5241,19 @@ function renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache = nu
             max-height: none;
             object-position: center bottom;
           }
+          .fb-cert-title {
+            clear: both;
+            padding-top: 0;
+          }
           .fb-cert-title h1 {
             text-align: center;
             text-transform: uppercase;
             font-size: 18px;
+            font-weight: 800;
             letter-spacing: 0.5px;
-            margin: 2px 0 3px;
-            color: #1f2937;
+            margin: 0 0 4mm;
+            color: #0f172a;
+            -webkit-text-fill-color: #0f172a;
           }
           .fb-cert-meta {
             display: grid;
@@ -6097,6 +6107,37 @@ app.get("/inspections/:testid/certificate", async (req, res) => {
   }
 })
 
+app.get("/inspections/:testid/certificate.html", async (req, res) => {
+  try {
+    const { testid } = req.params
+    const certificate = await getCertificateData(testid)
+
+    if (!certificate) {
+      return res.status(404).send("Certificate not found")
+    }
+
+    if (!canViewCertificate(req.user, certificate)) {
+      return res.status(403).send("Access denied")
+    }
+
+    await req.logAudit("VIEW_HTML", "certificates", testid)
+
+    const html = await renderSingleCertificatePreviewHtml(certificate, {
+      projectRoot: path.join(__dirname, ".."),
+      uploadsRoot
+    })
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8")
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private")
+    res.setHeader("Pragma", "no-cache")
+    res.setHeader("Expires", "0")
+    res.send(html)
+  } catch (err) {
+    console.error(err)
+    res.status(500).send("An unexpected server error occurred")
+  }
+})
+
 app.get("/inspections/:testid/certificate.pdf", pdfLimiter, async (req, res) => {
   try {
     const { testid } = req.params
@@ -6117,7 +6158,10 @@ app.get("/inspections/:testid/certificate.pdf", pdfLimiter, async (req, res) => 
     const disposition =
       req.query.inline === "1" ? "inline" : "attachment"
 
-    const pdfBuffer = await createCertificatePdfBuffer(certificate)
+    const pdfBuffer = await runQueuedPdfJob(() => createSingleCertificatePdfBuffer(certificate, {
+      projectRoot: path.join(__dirname, ".."),
+      uploadsRoot
+    }))
 
     res.setHeader("Content-Type", "application/pdf")
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private")

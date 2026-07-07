@@ -1912,6 +1912,22 @@ tr:hover {
   font-size: 24px;
 }
 
+.certificate-preview-html-frame-wrap {
+  background: #f3f4f6;
+  border: 1px solid #d5dfec;
+  border-radius: 8px;
+  height: 620px;
+  overflow: hidden;
+}
+
+.certificate-preview-html-frame,
+.certificate-modal-html-frame {
+  background: #f3f4f6;
+  border: 0;
+  height: 100%;
+  width: 100%;
+}
+
 /* =======================================================
    14. CERTIFICATE FULL PAGE
 ======================================================= */
@@ -1994,6 +2010,12 @@ tr:hover {
 
 .certificate-modal-body {
   padding: 24px;
+}
+
+.certificate-modal-body:has(.certificate-modal-html-frame) {
+  background: #f3f4f6;
+  height: 80vh;
+  padding: 0;
 }
 
 .certificate-modal-body h1 {
@@ -2807,8 +2829,8 @@ tr:hover {
 }
 
 .fb-cert-header {
-  margin-bottom: 5px;
-  height: 145px;
+  margin-bottom: 20px;
+  height: 150px;
   max-height: none;
   object-fit: fill;
   object-position: center top;
@@ -2822,13 +2844,19 @@ tr:hover {
   object-position: center bottom;
 }
 
+.fb-cert-title {
+  clear: both;
+  padding-top: 0;
+}
+
 .fb-cert-title h1 {
   text-align: center;
   text-transform: uppercase;
-  font-size: 19px;
+  font-size: 20px;
+  font-weight: 800;
   letter-spacing: 0.5px;
-  margin: 4px 0 5px;
-  color: #1f2937;
+  margin: 0 0 8px;
+  color: #0f172a;
 }
 
 .fb-cert-meta {
@@ -3128,15 +3156,23 @@ tr:hover {
     width: 100% !important;
     max-width: 100% !important;
     margin-left: 0 !important;
-    margin-bottom: 3px;
-    height: 32mm;
+    margin-bottom: 14mm;
+    height: 40mm;
     max-height: none;
     object-fit: fill;
   }
 
+  .fb-cert-title {
+    clear: both !important;
+    padding-top: 0 !important;
+  }
+
   .fb-cert-title h1 {
+    color: #0f172a !important;
     font-size: 18px;
-    margin: 2px 0 3px;
+    font-weight: 800;
+    margin: 0 0 4mm;
+    -webkit-text-fill-color: #0f172a !important;
   }
 
   .fb-cert-meta {
@@ -3681,7 +3717,7 @@ tr:hover {
   .logo-container,
   .system-title,
   .user-panel {
-    width: 100%;
+    width: 80%;
   }
 
   .logo-container {

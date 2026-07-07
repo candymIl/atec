@@ -19,6 +19,26 @@ async function readCertificateJson(response) {
   }
 }
 
+async function readCertificateHtml(response) {
+  const text = await response.text()
+
+  if (!response.ok) {
+    return {
+      html: "",
+      error: text || "The server returned an unexpected error while loading the certificate."
+    }
+  }
+
+  return {
+    html: text,
+    error: ""
+  }
+}
+
+function certificateHtmlUrl(testid) {
+  return `${API_BASE}/inspections/${encodeURIComponent(testid)}/certificate.html?t=${Date.now()}`
+}
+
 export function renderCertificateSearch(customers = [], sites = [], sections = []) {
   document.querySelector('#page').innerHTML = `
     <h1>Certificates</h1>
@@ -801,110 +821,39 @@ window.selectCertificateRow = function (rowElement, testid) {
 }
 
 window.previewCertificate = async function (testid) {
-  const response = await fetch(
-    `${API_BASE}/inspections/${testid}/certificate`
-  )
+  const panel = document.querySelector('#certificatePreviewPanel')
 
-  const data = await readCertificateJson(response)
+  if (!panel) return
+
+  panel.innerHTML = `
+    <h2>Certificate Preview</h2>
+    <p>Loading certificate...</p>
+  `
+
+  const response = await fetch(certificateHtmlUrl(testid), {
+    credentials: "include"
+  })
+
+  const { html, error } = await readCertificateHtml(response)
 
   if (!response.ok) {
-    alert("Error loading certificate preview: " + data.error)
+    alert("Error loading certificate preview: " + error)
+    panel.innerHTML = `
+      <h2>Certificate Preview</h2>
+      <p>Unable to load certificate preview.</p>
+    `
     return
   }
 
-  const inspection = data.inspection
-  const results = data.results || []
-
-  const failCount = results.filter(r => r.result === "FAIL").length
-  const passCount = results.filter(r => r.result === "PASS").length
-  const certificateRegulationNotes = getCertificateRegulationNotes(inspection)
-
-  const statusClass =
-    inspection.status === "SAFE"
-      ? "status-safe"
-      : "status-unsafe"
-
-  document.querySelector('#certificatePreviewPanel').innerHTML = `
+  panel.innerHTML = `
     <h2>Certificate Preview</h2>
 
-    <div class="certificate-preview-status ${statusClass}">
-      ${inspection.status || "-"}
+    <div class="certificate-preview-html-frame-wrap">
+      <iframe
+        class="certificate-preview-html-frame"
+        title="Certificate ${escapeHtml(testid)} preview"
+      ></iframe>
     </div>
-
-    <div class="certificate-preview-row">
-      <span>Certificate No</span>
-      <strong>${inspection.testid}</strong>
-    </div>
-
-    <div class="certificate-preview-row">
-      <span>Tag No</span>
-      <strong>${inspection.tagnumber || "-"}</strong>
-    </div>
-
-    <hr>
-
-    <div class="certificate-preview-row">
-      <span>Client</span>
-      <strong>${inspection.clientname || "-"}</strong>
-    </div>
-
-    <div class="certificate-preview-row">
-      <span>Site</span>
-      <strong>${inspection.sitename || "-"}</strong>
-    </div>
-
-    <div class="certificate-preview-row">
-      <span>Section</span>
-      <strong>${inspection.sectionname || "-"}</strong>
-    </div>
-
-    <hr>
-
-    <p><strong>Asset</strong><br>${inspection.description || "-"}</p>
-    <p><strong>Equipment Type</strong><br>${inspection.equipmenttype || "-"}</p>
-    <p><strong>Serial No</strong><br>${inspection.serialno || "-"}</p>
-
-    <hr>
-
-    <div class="certificate-preview-row">
-      <span>Type</span>
-      <strong>${inspection.inspectiontype || "-"}</strong>
-    </div>
-
-    <div class="certificate-preview-row">
-      <span>Date</span>
-      <strong>${formatDate(inspection.testdate)}</strong>
-    </div>
-
-    <div class="certificate-preview-row">
-      <span>Certificate Expiry Date</span>
-      <strong>${formatDate(inspection.validdate)}</strong>
-    </div>
-
-    <div class="certificate-preview-row">
-      <span>Inspector</span>
-      <strong>${inspection.inspector || "-"}</strong>
-    </div>
-
-    <hr>
-
-    <div class="certificate-preview-summary">
-      <div>
-        <span>Passed</span>
-        <strong>${passCount}</strong>
-      </div>
-
-      <div>
-        <span>Failed</span>
-        <strong>${failCount}</strong>
-      </div>
-    </div>
-
-    ${certificateRegulationNotes.map(note => `
-      <p class="fb-cert-driven-note">
-        ${note}
-      </p>
-    `).join("")}
 
     <div class="form-actions">
       <button type="button" id="previewOpenCertificateBtn">Open</button>
@@ -912,30 +861,31 @@ window.previewCertificate = async function (testid) {
     </div>
   `
 
+  const iframe = panel.querySelector("iframe")
+  iframe.srcdoc = html
+
   document
     .querySelector('#previewOpenCertificateBtn')
-    .addEventListener('click', () => window.openCertificateModal(inspection.testid))
+    .addEventListener('click', () => window.openCertificateModal(testid))
 
   document
     .querySelector('#previewPrintCertificateBtn')
     .addEventListener('click', () => {
-      window.printCertificatePdf(inspection.testid)
+      window.printCertificatePdf(testid)
     })
 }
 
 window.openCertificateModal = async function (testid) {
-  const response = await fetch(
-    `${API_BASE}/inspections/${testid}/certificate`
-  )
+  const response = await fetch(certificateHtmlUrl(testid), {
+    credentials: "include"
+  })
 
-  const data = await readCertificateJson(response)
+  const { html, error } = await readCertificateHtml(response)
 
   if (!response.ok) {
-    alert("Error loading certificate: " + data.error)
+    alert("Error loading certificate: " + error)
     return
   }
-
-  const inspection = data.inspection
 
   const existingModal = document.querySelector("#certificateModal")
   if (existingModal) existingModal.remove()
@@ -948,12 +898,12 @@ window.openCertificateModal = async function (testid) {
     <div class="certificate-modal certificate-original-layout">
 
       <div class="certificate-modal-header screen-only">
-        <h2>Certificate ${inspection.testid}</h2>
+        <h2>Certificate ${escapeHtml(testid)}</h2>
         <div class="form-actions">
           <a
             id="certificatePrintBtn"
             class="cert-action-link"
-            href="${API_BASE}/inspections/${inspection.testid}/certificate.pdf?inline=1&t=${Date.now()}"
+            href="${API_BASE}/inspections/${encodeURIComponent(testid)}/certificate.pdf?inline=1&t=${Date.now()}"
             target="_blank"
           >
             Print
@@ -961,8 +911,8 @@ window.openCertificateModal = async function (testid) {
           <a
             id="certificateDownloadPdfBtn"
             class="cert-action-link"
-            href="${API_BASE}/inspections/${inspection.testid}/certificate.pdf?t=${Date.now()}"
-            download="certificate-${inspection.testid}.pdf"
+            href="${API_BASE}/inspections/${encodeURIComponent(testid)}/certificate.pdf?t=${Date.now()}"
+            download="certificate-${escapeHtml(testid)}.pdf"
           >
             Download PDF
           </a>
@@ -972,12 +922,16 @@ window.openCertificateModal = async function (testid) {
       </div>
 
       <div class="certificate-modal-body" id="certificatePrintArea">
-        ${renderCertificateDocument(data)}
+        <iframe
+          class="certificate-modal-html-frame"
+          title="Certificate ${escapeHtml(testid)}"
+        ></iframe>
       </div>
     </div>
   `
 
   document.body.appendChild(modal)
+  modal.querySelector("iframe").srcdoc = html
 
   document
     .querySelector('#certificateCloseBtn')
@@ -986,7 +940,7 @@ window.openCertificateModal = async function (testid) {
   document
     .querySelector('#certificateMailBtn')
     .addEventListener('click', () => {
-      window.mailCertificate(inspection.testid)
+      window.mailCertificate(testid)
     })
 }
 
