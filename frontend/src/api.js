@@ -2,8 +2,7 @@ export const APP_BASE = import.meta.env.BASE_URL || '/'
 
 function defaultApiBase() {
   if (import.meta.env.PROD) {
-    const appBase = APP_BASE.replace(/\/$/, '')
-    return `${window.location.origin}${appBase}/api`
+    return `${window.location.origin}/api`
   }
 
   return 'http://localhost:5000'

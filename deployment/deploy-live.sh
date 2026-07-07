@@ -9,7 +9,9 @@ set -euo pipefail
 PROJECT_DIR="${ATEC_PROJECT_DIR:-/var/www/atec/ATEC}"
 PM2_APP="${ATEC_PM2_APP:-atec-backend}"
 SITE_URL="${ATEC_SITE_URL:-https://www.atecinspections.co.za}"
-API_URL="${ATEC_API_URL:-https://www.atecinspections.co.za/api/}"
+API_HEALTH_URL="${ATEC_API_HEALTH_URL:-$SITE_URL/api/auth/me}"
+VITE_BASE_PATH="${VITE_BASE_PATH:-/}"
+VITE_API_URL="${VITE_API_URL:-$SITE_URL/api}"
 ENV_FILE="$PROJECT_DIR/backend/.env"
 ENV_BACKUP="$PROJECT_DIR/backend/.env.live.backup"
 
@@ -20,6 +22,13 @@ cd "$PROJECT_DIR"
 
 if [ ! -d ".git" ]; then
   echo "ERROR: $PROJECT_DIR is not a Git repository."
+  exit 1
+fi
+
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+  echo "ERROR: The live server has local code changes that would make this deploy unsafe."
+  echo "Commit or stash these files first, then rerun the deploy:"
+  git status --short --untracked-files=no
   exit 1
 fi
 
@@ -53,6 +62,10 @@ cd "$PROJECT_DIR/frontend"
 npm install
 
 echo "Building frontend..."
+export VITE_BASE_PATH
+export VITE_API_URL
+echo "Frontend base path: $VITE_BASE_PATH"
+echo "Frontend API URL: $VITE_API_URL"
 npm run build
 
 echo "Installing backend packages..."
@@ -75,7 +88,14 @@ curl -fsSI "$SITE_URL" >/dev/null
 echo "Website OK: $SITE_URL"
 
 echo "Checking API..."
-curl -fsSI "$API_URL" >/dev/null
-echo "API OK: $API_URL"
+API_STATUS="$(curl -ksS -o /tmp/atec-api-health.out -w "%{http_code}" "$API_HEALTH_URL" || true)"
+if [ "$API_STATUS" != "200" ] && [ "$API_STATUS" != "401" ]; then
+  echo "ERROR: API health check failed with HTTP $API_STATUS"
+  echo "Checked: $API_HEALTH_URL"
+  echo "Response:"
+  cat /tmp/atec-api-health.out || true
+  exit 1
+fi
+echo "API OK: $API_HEALTH_URL returned HTTP $API_STATUS"
 
 echo "ATEC deploy complete."
