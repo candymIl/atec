@@ -2,6 +2,7 @@ import { getPaginationState, renderPaginationControls } from '../pagination.js'
 import { sortHeader, sortTableRows } from '../tableSort.js'
 
 export function renderSites(sites, siteArchiveMode = 'active') {
+  const canArchiveSites = window.currentUser?.role === 'ADMIN'
   const visibleSites = sites.filter(site => {
     const isArchived = site.archived === true || site.archived === 'true'
     if (siteArchiveMode === 'active') return !isArchived
@@ -88,11 +89,13 @@ export function renderSites(sites, siteArchiveMode = 'active') {
             <button onclick="editSite(${site.siteid})">
               Edit
             </button>
+            ${canArchiveSites ? `
             ${
               site.archived
                 ? `<button onclick="unarchiveSite(${site.siteid})">Restore</button>`
                 : `<button onclick="archiveSite(${site.siteid})">Archive</button>`
             }
+            ` : ''}
           </td>
         </tr>
         `).join('')}

@@ -2,6 +2,7 @@ import { getPaginationState, renderPaginationControls } from '../pagination.js'
 import { sortHeader, sortTableRows } from '../tableSort.js'
 
 export function renderCustomerSetup(customers, customerArchiveMode = "active") {
+  const canArchiveCustomers = window.currentUser?.role === "ADMIN"
   const filteredCustomers = customers.filter(customer => {
   const isArchived = customer.archived === true || customer.archived === "true";
 
@@ -104,11 +105,13 @@ export function renderCustomerSetup(customers, customerArchiveMode = "active") {
             <td>
               <button onclick="editClient(${customer.clientid})">Edit</button>
 
+              ${canArchiveCustomers ? `
               ${
                 customer.archived
                   ? `<button onclick="unarchiveClient(${customer.clientid})">Unarchive</button>`
                   : `<button onclick="archiveClient(${customer.clientid})">Archive</button>`
               }
+              ` : ''}
             </td>
           </tr>
         `).join("")}

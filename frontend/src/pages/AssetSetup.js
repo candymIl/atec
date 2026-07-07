@@ -19,6 +19,7 @@ function assetSupportsLoadTest(asset) {
 export function renderAssetRow(asset) {
   const serialDisplay = asset.serialno || asset.hoistserialno || ''
   const canManageAssets = ['ADMIN', 'MANAGER', 'INSPECTOR'].includes(window.currentUser?.role)
+  const canArchiveOrMoveAssets = window.currentUser?.role === 'ADMIN'
   const assetid = escapeHtml(asset.assetid)
   const assetTag = escapeHtml(asset.assettagno || '')
   const serial = escapeHtml(serialDisplay)
@@ -73,7 +74,7 @@ export function renderAssetRow(asset) {
             QR Label
           </button>
 
-          ${canManageAssets ? `
+          ${canArchiveOrMoveAssets ? `
             <button class="move-btn" onclick="showMoveAssetForm(${asset.assetid})">
               Move
             </button>

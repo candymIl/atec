@@ -2,6 +2,7 @@ import { getPaginationState, renderPaginationControls } from '../pagination.js'
 import { sortHeader, sortTableRows } from '../tableSort.js'
 
 export function renderSections(sections, sectionArchiveMode = 'active') {
+  const canArchiveSections = window.currentUser?.role === 'ADMIN'
   const visibleSections = sections.filter(section => {
     const isArchived = section.archived === true || section.archived === 'true'
     if (sectionArchiveMode === 'active') return !isArchived
@@ -112,11 +113,13 @@ export function renderSections(sections, sectionArchiveMode = 'active') {
               <button onclick="editSection(${section.sectionid})">
                 Edit
               </button>
+              ${canArchiveSections ? `
               ${
                 section.archived
                   ? `<button onclick="unarchiveSection(${section.sectionid})">Restore</button>`
                   : `<button onclick="archiveSection(${section.sectionid})">Archive</button>`
               }
+              ` : ''}
             </td>
           </tr>
         `).join('')}

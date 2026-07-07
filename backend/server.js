@@ -652,6 +652,24 @@ app.get("/auth/me", requireAuth, (req, res) => {
   res.json({ user: req.user })
 })
 
+function isSetupMaintenanceRoute(method, routePath) {
+  if (!["POST", "PUT"].includes(method)) return false
+
+  return [
+    /^\/customers$/,
+    /^\/customers\/[^/]+$/,
+    /^\/sites$/,
+    /^\/sites\/[^/]+$/,
+    /^\/sections$/,
+    /^\/sections\/[^/]+$/,
+    /^\/responsible-persons$/,
+    /^\/responsible-persons\/[^/]+$/,
+    /^\/assets$/,
+    /^\/assets\/[^/]+$/,
+    /^\/assets\/[^/]+\/photos$/
+  ].some(pattern => pattern.test(routePath))
+}
+
 function authorizeRequest(req, res, next) {
   const role = req.user?.role
   const method = req.method
@@ -672,6 +690,10 @@ function authorizeRequest(req, res, next) {
   if (routePath.startsWith("/users/me/signature")) return next()
 
   if (role === "MANAGER") {
+    if (isSetupMaintenanceRoute(method, routePath)) {
+      return next()
+    }
+
     if (method === "POST" && /^\/certificates\/[^/]+\/email$/.test(routePath)) {
       return next()
     }
@@ -687,26 +709,6 @@ function authorizeRequest(req, res, next) {
         /^\/inspections\/[^/]+\/results$/.test(routePath) ||
         /^\/inspections\/[^/]+\/photos$/.test(routePath) ||
         routePath === "/inspection-results"
-      )
-    ) {
-      return next()
-    }
-
-    if (
-      (
-        method === "PUT" &&
-        (
-          /^\/assets\/[^/]+$/.test(routePath) ||
-          /^\/assets\/[^/]+\/move$/.test(routePath)
-        )
-      ) ||
-      (
-        method === "POST" &&
-        /^\/assets\/[^/]+\/photos$/.test(routePath)
-      ) ||
-      (
-        method === "DELETE" &&
-        /^\/assets\/[^/]+\/photos\/[12]$/.test(routePath)
       )
     ) {
       return next()
@@ -777,9 +779,17 @@ function authorizeRequest(req, res, next) {
   }
 
   if (role === "INSPECTOR") {
+    if (isSetupMaintenanceRoute(method, routePath)) {
+      return next()
+    }
+
     if (
       isRead &&
       (
+        routePath.startsWith("/customers") ||
+        routePath.startsWith("/sites") ||
+        routePath.startsWith("/sections") ||
+        routePath.startsWith("/responsible-persons") ||
         routePath.startsWith("/assets") ||
         routePath.startsWith("/equipment-types") ||
         routePath.startsWith("/equipment-type-criteria") ||
@@ -818,28 +828,6 @@ function authorizeRequest(req, res, next) {
       /^\/inspection-photos\/[^/]+$/.test(routePath)
     ) {
       return next()
-    }
-
-    if (
-      method === "POST" &&
-      /^\/assets\/[^/]+\/photos$/.test(routePath)
-    ) {
-      return next()
-    }
-
-    if (method === "PUT" && /^\/assets\/[^/]+$/.test(routePath)) {
-      const allowedAssetUpdateFields = new Set(["assettagno"])
-      const bodyKeys = Object.keys(req.body || {})
-      const updatesOnlyAssetTag = bodyKeys.length > 0 &&
-        bodyKeys.every(key => allowedAssetUpdateFields.has(key))
-
-      if (updatesOnlyAssetTag) {
-        return next()
-      }
-
-      return res.status(403).json({
-        error: "Inspectors may only update asset tag numbers and photos"
-      })
     }
 
     return res.status(403).json({ error: "Access denied" })

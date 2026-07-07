@@ -61,10 +61,10 @@ let assetSearchTimer = null
 
 const pageAccess = {
   dashboard: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER'],
-  customers: ['ADMIN', 'MANAGER'],
-  sites: ['ADMIN', 'MANAGER'],
-  responsible: ['ADMIN'],
-  sections: ['ADMIN', 'MANAGER'],
+  customers: ['ADMIN', 'MANAGER', 'INSPECTOR'],
+  sites: ['ADMIN', 'MANAGER', 'INSPECTOR'],
+  responsible: ['ADMIN', 'MANAGER', 'INSPECTOR'],
+  sections: ['ADMIN', 'MANAGER', 'INSPECTOR'],
   assets: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER'],
   inspections: ['ADMIN', 'MANAGER', 'INSPECTOR'],
   'quick-inspection': ['ADMIN', 'MANAGER', 'INSPECTOR'],
@@ -104,6 +104,14 @@ function menuButton(pageKey, label, action) {
 
 function canManageAssetRecords() {
   return ['ADMIN', 'MANAGER', 'INSPECTOR'].includes(currentUser?.role)
+}
+
+function canArchiveOrMoveAssetRecords() {
+  return currentUser?.role === 'ADMIN'
+}
+
+function canArchiveSetupRecords() {
+  return currentUser?.role === 'ADMIN'
 }
 
 function canPerformInspections() {
@@ -1064,11 +1072,13 @@ window.filterCustomers = function (resetPage = false) {
         <td>
           <button onclick="editClient(${customer.clientid})">Edit</button>
 
+          ${canArchiveSetupRecords() ? `
           ${
             isArchived
               ? `<button onclick="unarchiveClient(${customer.clientid})">Restore</button>`
               : `<button onclick="archiveClient(${customer.clientid})">Archive</button>`
           }
+          ` : ''}
         </td>
       </tr>
     `
@@ -1087,6 +1097,10 @@ window.goToCustomerPage = function (page) {
 }
 
 window.archiveClient = async function (clientid) {
+  if (!canArchiveSetupRecords()) {
+    alert("You do not have permission to archive customers.")
+    return
+  }
 
   if (!confirm("Archive this client and all linked data?"))
     return
@@ -1105,6 +1119,10 @@ window.archiveClient = async function (clientid) {
 }
 
 window.unarchiveClient = async function (clientid) {
+  if (!canArchiveSetupRecords()) {
+    alert("You do not have permission to restore customers.")
+    return
+  }
 
   await fetch(
     `${API_BASE}/customers/${clientid}/unarchive`,
@@ -1481,11 +1499,13 @@ window.filterSections = function (resetPage = false) {
           <button onclick="editSection(${section.sectionid})">
             Edit
           </button>
+          ${canArchiveSetupRecords() ? `
           ${
             section.archived
               ? `<button onclick="unarchiveSection(${section.sectionid})">Restore</button>`
               : `<button onclick="archiveSection(${section.sectionid})">Archive</button>`
           }
+          ` : ''}
         </td>
       </tr>
     `).join("")
@@ -1634,6 +1654,11 @@ window.saveSectionFromForm = async function () {
 }
 
 window.archiveSection = async function (sectionid) {
+  if (!canArchiveSetupRecords()) {
+    alert("You do not have permission to archive sections.")
+    return
+  }
+
   if (!confirm("Archive this section? Active assets must be moved or archived first.")) return
 
   const response = await fetch(`${API_BASE}/sections/${sectionid}/archive`, {
@@ -1652,6 +1677,11 @@ window.archiveSection = async function (sectionid) {
 }
 
 window.unarchiveSection = async function (sectionid) {
+  if (!canArchiveSetupRecords()) {
+    alert("You do not have permission to restore sections.")
+    return
+  }
+
   const response = await fetch(`${API_BASE}/sections/${sectionid}/unarchive`, {
     method: "PUT"
   })
@@ -1724,11 +1754,13 @@ window.filterSites = function (resetPage = false) {
           <button onclick="editSite(${site.siteid})">
             Edit
           </button>
+          ${canArchiveSetupRecords() ? `
           ${
             site.archived
               ? `<button onclick="unarchiveSite(${site.siteid})">Restore</button>`
               : `<button onclick="archiveSite(${site.siteid})">Archive</button>`
           }
+          ` : ''}
         </td>
       </tr>
     `).join('')
@@ -1821,6 +1853,11 @@ window.saveSiteChanges = async function (siteid) {
 }
 
 window.archiveSite = async function (siteid) {
+  if (!canArchiveSetupRecords()) {
+    alert("You do not have permission to archive sites.")
+    return
+  }
+
   if (!confirm("Archive this site? Active assets must be moved or archived first.")) return
 
   const response = await fetch(`${API_BASE}/sites/${siteid}/archive`, {
@@ -1839,6 +1876,11 @@ window.archiveSite = async function (siteid) {
 }
 
 window.unarchiveSite = async function (siteid) {
+  if (!canArchiveSetupRecords()) {
+    alert("You do not have permission to restore sites.")
+    return
+  }
+
   const response = await fetch(`${API_BASE}/sites/${siteid}/unarchive`, {
     method: "PUT"
   })
@@ -2791,7 +2833,7 @@ window.setAssetFilterKey = function (key) {
 }
 
 window.showMoveAssetForm = async function (assetid) {
-  if (!canManageAssetRecords()) {
+  if (!canArchiveOrMoveAssetRecords()) {
     showAccessDenied()
     return
   }
@@ -2893,7 +2935,7 @@ window.filterMoveAssetSections = function (selectedSectionId = "") {
 }
 
 window.saveAssetMove = async function (assetid) {
-  if (!canManageAssetRecords()) {
+  if (!canArchiveOrMoveAssetRecords()) {
     alert("You do not have permission to move assets.")
     return
   }
@@ -3138,9 +3180,11 @@ window.editAsset = async function (assetid) {
             Cancel
           </button>
 
-          <button class="danger-btn" onclick="archiveAsset(${asset.assetid})">
-            Archive
-          </button>
+          ${canArchiveOrMoveAssetRecords() ? `
+            <button class="danger-btn" onclick="archiveAsset(${asset.assetid})">
+              Archive
+            </button>
+          ` : ''}
         </div>
 
       </div>
@@ -3151,13 +3195,15 @@ window.editAsset = async function (assetid) {
         <div class="photo-card">
           <h3>Photo 1</h3>
           <img src="${API_BASE}${asset.media1}">
-          <button
-            type="button"
-            class="danger-btn photo-delete-btn"
-            onclick="deleteAssetPhoto(${asset.assetid}, 1)"
-          >
-            Delete Photo 1
-          </button>
+          ${canArchiveOrMoveAssetRecords() ? `
+            <button
+              type="button"
+              class="danger-btn photo-delete-btn"
+              onclick="deleteAssetPhoto(${asset.assetid}, 1)"
+            >
+              Delete Photo 1
+            </button>
+          ` : ''}
         </div>
       ` : ''}
 
@@ -3165,13 +3211,15 @@ window.editAsset = async function (assetid) {
         <div class="photo-card">
           <h3>Photo 2</h3>
           <img src="${API_BASE}${asset.media2}">
-          <button
-            type="button"
-            class="danger-btn photo-delete-btn"
-            onclick="deleteAssetPhoto(${asset.assetid}, 2)"
-          >
-            Delete Photo 2
-          </button>
+          ${canArchiveOrMoveAssetRecords() ? `
+            <button
+              type="button"
+              class="danger-btn photo-delete-btn"
+              onclick="deleteAssetPhoto(${asset.assetid}, 2)"
+            >
+              Delete Photo 2
+            </button>
+          ` : ''}
         </div>
       ` : ''}
     </div>
@@ -3239,7 +3287,7 @@ window.saveAssetChanges = async function (assetid) {
 }
 
 window.archiveAsset = async function (assetid) {
-  if (!canManageAssetRecords()) {
+  if (!canArchiveOrMoveAssetRecords()) {
     alert("You do not have permission to archive assets.")
     return
   }
@@ -3268,7 +3316,7 @@ window.archiveAsset = async function (assetid) {
 }
 
 window.unarchiveAsset = async function (assetid) {
-  if (!canManageAssetRecords()) {
+  if (!canArchiveOrMoveAssetRecords()) {
     alert("You do not have permission to restore assets.")
     return
   }
@@ -3343,7 +3391,7 @@ window.uploadAssetPhotos = async function (assetid) {
 }
 
 window.deleteAssetPhoto = async function (assetid, slot) {
-  if (!canManageAssetRecords()) {
+  if (!canArchiveOrMoveAssetRecords()) {
     alert("You do not have permission to delete asset photos.")
     return
   }
