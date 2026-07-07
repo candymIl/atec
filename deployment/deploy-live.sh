@@ -59,7 +59,11 @@ fi
 
 echo "Installing frontend packages..."
 cd "$PROJECT_DIR/frontend"
-npm install
+if [ -f package-lock.json ]; then
+  npm ci
+else
+  npm install
+fi
 
 echo "Building frontend..."
 export VITE_BASE_PATH
@@ -70,7 +74,11 @@ npm run build
 
 echo "Installing backend packages..."
 cd "$PROJECT_DIR/backend"
-npm install
+if [ -f package-lock.json ]; then
+  npm ci
+else
+  npm install
+fi
 
 echo "Restarting backend..."
 if pm2 describe "$PM2_APP" >/dev/null 2>&1; then
