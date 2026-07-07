@@ -14,6 +14,11 @@ VITE_BASE_PATH="${VITE_BASE_PATH:-/}"
 VITE_API_URL="${VITE_API_URL:-$SITE_URL/api}"
 ENV_FILE="$PROJECT_DIR/backend/.env"
 ENV_BACKUP="$PROJECT_DIR/backend/.env.live.backup"
+NPM_LOCK_DRIFT_FILES=(
+  "backend/node_modules/.package-lock.json"
+  "backend/package-lock.json"
+  "frontend/package-lock.json"
+)
 
 echo "ATEC deploy starting..."
 echo "Project: $PROJECT_DIR"
@@ -24,6 +29,8 @@ if [ ! -d ".git" ]; then
   echo "ERROR: $PROJECT_DIR is not a Git repository."
   exit 1
 fi
+
+git restore -- "${NPM_LOCK_DRIFT_FILES[@]}" >/dev/null 2>&1 || true
 
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   echo "ERROR: The live server has local code changes that would make this deploy unsafe."
@@ -79,6 +86,9 @@ if [ -f package-lock.json ]; then
 else
   npm install
 fi
+
+cd "$PROJECT_DIR"
+git restore -- "${NPM_LOCK_DRIFT_FILES[@]}" >/dev/null 2>&1 || true
 
 echo "Restarting backend..."
 if pm2 describe "$PM2_APP" >/dev/null 2>&1; then
