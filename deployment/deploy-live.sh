@@ -88,14 +88,26 @@ curl -fsSI "$SITE_URL" >/dev/null
 echo "Website OK: $SITE_URL"
 
 echo "Checking API..."
-API_STATUS="$(curl -ksS -o /tmp/atec-api-health.out -w "%{http_code}" "$API_HEALTH_URL" || true)"
+API_STATUS=""
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  API_STATUS="$(curl -ksS -o /tmp/atec-api-health.out -w "%{http_code}" "$API_HEALTH_URL" || true)"
+  if [ "$API_STATUS" = "200" ] || [ "$API_STATUS" = "401" ]; then
+    echo "API OK: $API_HEALTH_URL returned HTTP $API_STATUS"
+    break
+  fi
+
+  echo "API not ready yet, HTTP $API_STATUS. Retrying in 3 seconds... ($attempt/10)"
+  sleep 3
+done
+
 if [ "$API_STATUS" != "200" ] && [ "$API_STATUS" != "401" ]; then
   echo "ERROR: API health check failed with HTTP $API_STATUS"
   echo "Checked: $API_HEALTH_URL"
   echo "Response:"
   cat /tmp/atec-api-health.out || true
+  echo "PM2 status:"
+  pm2 status "$PM2_APP" || true
   exit 1
 fi
-echo "API OK: $API_HEALTH_URL returned HTTP $API_STATUS"
 
 echo "ATEC deploy complete."
