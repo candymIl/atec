@@ -18,6 +18,7 @@ const nodemailer = require("nodemailer");
 const puppeteer = require("puppeteer-core");
 const sharp = require("sharp");
 const {
+  createBulkCertificatesPdfBuffer: createRenderedBulkCertificatesPdfBuffer,
   createSingleCertificatePdfBuffer,
   renderSingleCertificatePreviewHtml
 } = require("./services/certificateRenderer");
@@ -4414,7 +4415,10 @@ app.get("/certificates/bulk-pdf", pdfLimiter, async (req, res) => {
       })
     }
 
-    const pdfBuffer = await createBulkCertificatesPdfBuffer(certificates)
+    const pdfBuffer = await runQueuedPdfJob(() => createRenderedBulkCertificatesPdfBuffer(certificates, {
+      projectRoot: path.join(__dirname, ".."),
+      uploadsRoot
+    }))
     const customerName = certificates[0]?.inspection?.clientname || "Customer"
     const filename = bulkCertificateFilename(customerName, filters.datefrom, filters.dateto)
 
@@ -6009,7 +6013,10 @@ function drawCertificatePdf(doc, inspection, results, photos = []) {
 }
 
 function createCertificatePdfBuffer(certificate) {
-  return createBulkCertificatesPdfBuffer([certificate])
+  return runQueuedPdfJob(() => createSingleCertificatePdfBuffer(certificate, {
+    projectRoot: path.join(__dirname, ".."),
+    uploadsRoot
+  }))
 }
 
 function getMailTransport() {

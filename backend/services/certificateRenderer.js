@@ -1,4 +1,5 @@
 const fs = require("fs")
+const os = require("os")
 const path = require("path")
 const puppeteer = require("puppeteer-core")
 const sharp = require("sharp")
@@ -740,6 +741,67 @@ function renderSingleCertificateHtmlDocument(certificate, imageDataUrlCache = nu
   `
 }
 
+function certificateDocumentStyles(includeInlineBranding = false) {
+  const html = renderSingleCertificateHtmlDocument({ inspection: {} }, null, {
+    includeInlineBranding
+  })
+  const match = html.match(/<style>([\s\S]*?)<\/style>/)
+
+  return match ? match[1] : ""
+}
+
+async function buildBulkCertificatePdfImageCache(certificates = [], options = {}) {
+  const imageDataUrlCache = new Map()
+
+  for (const certificate of certificates) {
+    for (const filePath of collectCertificatePhotoFilePaths(certificate, options)) {
+      if (imageDataUrlCache.has(filePath)) continue
+
+      try {
+        const compressedDataUrl = await compressImageForCertificatePdf(filePath)
+
+        if (compressedDataUrl) {
+          imageDataUrlCache.set(filePath, compressedDataUrl)
+        }
+      } catch (err) {
+        console.warn(`Could not compress certificate image ${filePath}: ${err.message}`)
+      }
+    }
+  }
+
+  return imageDataUrlCache
+}
+
+function renderBulkCertificatesHtmlDocument(certificates = [], imageDataUrlCache = null, options = {}) {
+  return `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <title>FB Certificates</title>
+        <style>
+          ${certificateDocumentStyles(false)}
+          .fb-cert-bulk-item {
+            break-after: page;
+            page-break-after: always;
+          }
+          .fb-cert-bulk-item:last-child {
+            break-after: auto;
+            page-break-after: auto;
+          }
+        </style>
+      </head>
+      <body>
+        ${certificates.map(certificate => `
+          <section class="fb-cert-bulk-item">
+            ${renderCertificateBodyHtml(certificate, imageDataUrlCache, options)}
+          </section>
+        `).join("")}
+      </body>
+    </html>
+  `
+}
+
 function findChromiumExecutable() {
   const configuredPath = process.env.PUPPETEER_EXECUTABLE_PATH
 
@@ -785,15 +847,18 @@ async function createSingleCertificatePdfBuffer(certificate, options = {}) {
     throw error
   }
 
-  const browser = await puppeteer.launch({
-    executablePath,
-    headless: "new",
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--allow-file-access-from-files"]
-  })
-
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "atec-pdf-"))
+  let browser
   let page
 
   try {
+    browser = await puppeteer.launch({
+      executablePath,
+      headless: "new",
+      userDataDir,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--allow-file-access-from-files"]
+    })
+
     const imageDataUrlCache = await buildCertificatePdfImageCache(certificate, options)
     page = await browser.newPage()
     page.setDefaultTimeout(120000)
@@ -811,7 +876,57 @@ async function createSingleCertificatePdfBuffer(certificate, options = {}) {
       await page.close().catch(() => {})
     }
 
-    await browser.close()
+    if (browser) {
+      await browser.close()
+    }
+
+    fs.rmSync(userDataDir, { recursive: true, force: true })
+  }
+}
+
+async function createBulkCertificatesPdfBuffer(certificates = [], options = {}) {
+  const executablePath = findChromiumExecutable()
+
+  if (!executablePath) {
+    const error = new Error("PDF browser engine not found. Set PUPPETEER_EXECUTABLE_PATH in backend/.env to Chrome or Edge.")
+    error.statusCode = 500
+    throw error
+  }
+
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "atec-pdf-"))
+  let browser
+  let page
+
+  try {
+    browser = await puppeteer.launch({
+      executablePath,
+      headless: "new",
+      userDataDir,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--allow-file-access-from-files"]
+    })
+
+    const imageDataUrlCache = await buildBulkCertificatePdfImageCache(certificates, options)
+    page = await browser.newPage()
+    page.setDefaultTimeout(120000)
+    page.setDefaultNavigationTimeout(120000)
+
+    await page.setContent(renderBulkCertificatesHtmlDocument(certificates, imageDataUrlCache, options), {
+      waitUntil: "load",
+      timeout: 120000
+    })
+    await page.emulateMediaType("print")
+
+    return await page.pdf(singleCertificatePdfOptions(options))
+  } finally {
+    if (page) {
+      await page.close().catch(() => {})
+    }
+
+    if (browser) {
+      await browser.close()
+    }
+
+    fs.rmSync(userDataDir, { recursive: true, force: true })
   }
 }
 
@@ -825,6 +940,7 @@ async function renderSingleCertificatePreviewHtml(certificate, options = {}) {
 }
 
 module.exports = {
+  createBulkCertificatesPdfBuffer,
   createSingleCertificatePdfBuffer,
   renderSingleCertificatePreviewHtml,
   renderSingleCertificateHtmlDocument
