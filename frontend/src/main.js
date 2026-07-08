@@ -4364,11 +4364,45 @@ function restoreInspectionAssetListState() {
   if (searchInput) searchInput.value = state.search || ""
 }
 
+function getInspectionSearchFocusState() {
+  const activeElement = document.activeElement
+  if (!activeElement || !["inspectionAssetSearch", "inspectionSearchType"].includes(activeElement.id)) {
+    return null
+  }
+
+  return {
+    id: activeElement.id,
+    selectionStart: typeof activeElement.selectionStart === "number" ? activeElement.selectionStart : null,
+    selectionEnd: typeof activeElement.selectionEnd === "number" ? activeElement.selectionEnd : null
+  }
+}
+
+function restoreInspectionSearchFocus(focusState) {
+  if (!focusState?.id) return
+
+  const element = document.getElementById(focusState.id)
+  if (!element) return
+
+  element.focus()
+
+  if (
+    typeof element.setSelectionRange === "function" &&
+    typeof focusState.selectionStart === "number" &&
+    typeof focusState.selectionEnd === "number"
+  ) {
+    element.setSelectionRange(focusState.selectionStart, focusState.selectionEnd)
+  }
+}
+
+let inspectionAssetRequestId = 0
+
 async function loadInspectionAssetPage() {
+  const focusState = getInspectionSearchFocusState()
   rememberInspectionAssetListState()
 
   const state = window.inspectionAssetListState || {}
   const sort = getTableSortState('inspectionAssets', 'client_section_serial', 'asc')
+  const requestId = ++inspectionAssetRequestId
   const params = new URLSearchParams({
     page: String(window.inspectionCurrentPage || state.currentPage || 1),
     limit: String(window.inspectionRowsPerPage || state.rowsPerPage || 25),
@@ -4386,6 +4420,8 @@ async function loadInspectionAssetPage() {
     limit: Number(window.inspectionRowsPerPage || 25)
   })
 
+  if (requestId !== inspectionAssetRequestId) return
+
   assets = data.rows || []
   window.inspectionCurrentPage = Number(data.page || window.inspectionCurrentPage || 1)
   window.inspectionRowsPerPage = Number(data.limit || window.inspectionRowsPerPage || 25)
@@ -4397,6 +4433,7 @@ async function loadInspectionAssetPage() {
     limit: window.inspectionRowsPerPage
   })
   restoreInspectionAssetListState()
+  restoreInspectionSearchFocus(focusState)
 }
 
 window.filterInspectionAssets = async function (resetPage = false) {
