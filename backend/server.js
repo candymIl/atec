@@ -483,6 +483,60 @@ function blankToNull(value) {
   return value === "" || value === undefined ? null : value
 }
 
+function normalizeAssetLookupValue(value) {
+  return String(value || "").trim().toLowerCase()
+}
+
+function isDuplicateActiveClientSerialError(err) {
+  return err?.code === "23505" &&
+    (
+      err.constraint === "uq_tblasset_active_client_serial" ||
+      String(err.message || "").includes("uq_tblasset_active_client_serial") ||
+      String(err.detail || "").includes("uq_tblasset_active_client_serial")
+    )
+}
+
+function isDuplicateActiveMasterDataError(err) {
+  if (err?.code !== "23505") return null
+
+  const text = `${err.constraint || ""} ${err.message || ""} ${err.detail || ""}`
+
+  if (text.includes("uq_tblsites_active_client_name")) return "site"
+  if (text.includes("uq_tblsection_active_client_site_name")) return "section"
+  if (text.includes("uq_tblsection_active_client_name")) return "section"
+  if (text.includes("uq_tblpeople_active_client_name")) return "responsiblePerson"
+
+  return null
+}
+
+function duplicateAssetResponse(res, duplicateType, duplicateAssetId) {
+  const message = duplicateType === "serial"
+    ? "Serial number already exists for this customer."
+    : duplicateType === "assetTag"
+      ? "Asset tag number already exists for this customer."
+      : "Duplicate asset found for this customer."
+
+  return res.status(409).json({
+    error: message,
+    duplicateAssetId: duplicateAssetId || null
+  })
+}
+
+function duplicateMasterDataResponse(res, duplicateType, duplicateId) {
+  const message = duplicateType === "site"
+    ? "Site name already exists for this customer."
+    : duplicateType === "section"
+      ? "Section name already exists for this customer."
+      : duplicateType === "responsiblePerson"
+        ? "Responsible person already exists for this customer."
+        : "Duplicate record already exists for this customer."
+
+  return res.status(409).json({
+    error: message,
+    duplicateId: duplicateId || null
+  })
+}
+
 function applyCriticalSafetyRule(results, criteriaRows) {
   const criteriaById = new Map(
     criteriaRows.map(row => [String(row.criteriaid), row])
@@ -1646,6 +1700,25 @@ app.get("/sites", async (req, res) => {
 app.post("/sites", async (req, res) => {
   try {
     const { clientid, sitename } = req.body;
+    const normalizedSiteName = normalizeAssetLookupValue(sitename)
+
+    if (normalizedSiteName) {
+      const duplicateCheck = await pool.query(
+        `
+        SELECT siteid
+        FROM atec.tblsites
+        WHERE clientid = $1
+          AND lower(trim(sitename)) = $2
+          AND COALESCE(archived, false) = false
+        LIMIT 1
+        `,
+        [clientid, normalizedSiteName]
+      )
+
+      if (duplicateCheck.rows.length > 0) {
+        return duplicateMasterDataResponse(res, "site", duplicateCheck.rows[0].siteid)
+      }
+    }
 
     const result = await pool.query(
       `INSERT INTO atec.tblsites (clientid, sitename)
@@ -1657,6 +1730,9 @@ app.post("/sites", async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
+    const duplicateType = isDuplicateActiveMasterDataError(err)
+    if (duplicateType) return duplicateMasterDataResponse(res, duplicateType)
+
     res.status(500).json({ error: "An unexpected server error occurred" });
   }
 });
@@ -1666,6 +1742,28 @@ app.put("/sites/:id", async (req, res) => {
 
     const { id } = req.params
     const { sitename } = req.body
+    const normalizedSiteName = normalizeAssetLookupValue(sitename)
+
+    if (normalizedSiteName) {
+      const duplicateCheck = await pool.query(
+        `
+        SELECT other.siteid
+        FROM atec.tblsites current_site
+        JOIN atec.tblsites other
+          ON other.clientid = current_site.clientid
+        WHERE current_site.siteid = $1
+          AND other.siteid <> $1
+          AND lower(trim(other.sitename)) = $2
+          AND COALESCE(other.archived, false) = false
+        LIMIT 1
+        `,
+        [id, normalizedSiteName]
+      )
+
+      if (duplicateCheck.rows.length > 0) {
+        return duplicateMasterDataResponse(res, "site", duplicateCheck.rows[0].siteid)
+      }
+    }
 
     const result = await pool.query(
       `
@@ -1719,6 +1817,8 @@ app.put("/sites/:id", async (req, res) => {
   } catch (err) {
 
     console.error(err)
+    const duplicateType = isDuplicateActiveMasterDataError(err)
+    if (duplicateType) return duplicateMasterDataResponse(res, duplicateType)
 
     res.status(500).json({
       error: "An unexpected server error occurred"
@@ -2517,29 +2617,40 @@ app.post("/assets", async (req, res) => {
       auxhoistropemm
     } = req.body;
 
+    const normalizedSerialNo = normalizeAssetLookupValue(serialno)
+    const normalizedAssetTagNo = normalizeAssetLookupValue(assettagno)
+
     const duplicateCheck = await pool.query(
         `
-        SELECT assetid, serialno, assettagno
+        SELECT
+          assetid,
+          CASE
+            WHEN $2 <> '' AND LOWER(TRIM(serialno)) = $2 THEN 'serial'
+            WHEN $3 <> '' AND LOWER(TRIM(assettagno)) = $3 THEN 'assetTag'
+            ELSE 'asset'
+          END AS duplicatetype
         FROM atec.tblasset
         WHERE clientid = $1
           AND COALESCE(archived, false) = false
           AND (
-            (NULLIF(TRIM($2), '') IS NOT NULL AND LOWER(serialno) = LOWER($2))
-            OR (NULLIF(TRIM($3), '') IS NOT NULL AND LOWER(assettagno) = LOWER($3))
+            ($2 <> '' AND LOWER(TRIM(serialno)) = $2)
+            OR ($3 <> '' AND LOWER(TRIM(assettagno)) = $3)
           )
         LIMIT 1
         `,
         [
           clientid,
-          serialno || '',
-          assettagno || ''
+          normalizedSerialNo,
+          normalizedAssetTagNo
         ]
       )
 
       if (duplicateCheck.rows.length > 0) {
-        return res.status(400).json({
-          error: "Duplicate asset found for this client. Serial No or Asset Tag No already exists."
-        })
+        return duplicateAssetResponse(
+          res,
+          duplicateCheck.rows[0].duplicatetype,
+          duplicateCheck.rows[0].assetid
+        )
       }
 
     const result = await pool.query(
@@ -2621,6 +2732,10 @@ app.post("/assets", async (req, res) => {
 
     res.json(qrResult.rows[0]);
   } catch (err) {
+    if (isDuplicateActiveClientSerialError(err)) {
+      return duplicateAssetResponse(res, "serial")
+    }
+
     console.error(err);
     res.status(500).json({ error: "An unexpected server error occurred" });
   }
@@ -2632,6 +2747,7 @@ app.put("/assets/:id", async (req, res) => {
 
     if (req.user.role === "INSPECTOR") {
       const assettagno = String(req.body.assettagno || "").trim()
+      const normalizedAssetTagNo = normalizeAssetLookupValue(assettagno)
 
       const duplicateCheck = await pool.query(
         `
@@ -2644,17 +2760,15 @@ app.put("/assets/:id", async (req, res) => {
         )
           AND assetid <> $1
           AND COALESCE(archived, false) = false
-          AND NULLIF(TRIM($2), '') IS NOT NULL
-          AND LOWER(assettagno) = LOWER($2)
+          AND $2 <> ''
+          AND LOWER(TRIM(assettagno)) = $2
         LIMIT 1
         `,
-        [id, assettagno]
+        [id, normalizedAssetTagNo]
       )
 
       if (duplicateCheck.rows.length > 0) {
-        return res.status(400).json({
-          error: "Duplicate asset found for this client. Asset Tag No already exists."
-        })
+        return duplicateAssetResponse(res, "assetTag", duplicateCheck.rows[0].assetid)
       }
 
       const result = await pool.query(
@@ -2701,9 +2815,18 @@ app.put("/assets/:id", async (req, res) => {
       auxhoistropemm
     } = req.body;
 
+    const normalizedSerialNo = normalizeAssetLookupValue(serialno)
+    const normalizedAssetTagNo = normalizeAssetLookupValue(assettagno)
+
     const duplicateCheck = await pool.query(
       `
-      SELECT assetid
+      SELECT
+        assetid,
+        CASE
+          WHEN $2 <> '' AND LOWER(TRIM(serialno)) = $2 THEN 'serial'
+          WHEN $3 <> '' AND LOWER(TRIM(assettagno)) = $3 THEN 'assetTag'
+          ELSE 'asset'
+        END AS duplicatetype
       FROM atec.tblasset
       WHERE clientid = (
         SELECT clientid
@@ -2713,22 +2836,24 @@ app.put("/assets/:id", async (req, res) => {
         AND assetid <> $1
         AND COALESCE(archived, false) = false
         AND (
-          (NULLIF(TRIM($2), '') IS NOT NULL AND LOWER(serialno) = LOWER($2))
-          OR (NULLIF(TRIM($3), '') IS NOT NULL AND LOWER(assettagno) = LOWER($3))
+          ($2 <> '' AND LOWER(TRIM(serialno)) = $2)
+          OR ($3 <> '' AND LOWER(TRIM(assettagno)) = $3)
         )
       LIMIT 1
       `,
       [
         id,
-        serialno || '',
-        assettagno || ''
+        normalizedSerialNo,
+        normalizedAssetTagNo
       ]
     );
 
     if (duplicateCheck.rows.length > 0) {
-      return res.status(400).json({
-        error: "Duplicate asset found for this client. Serial No or Asset Tag No already exists."
-      });
+      return duplicateAssetResponse(
+        res,
+        duplicateCheck.rows[0].duplicatetype,
+        duplicateCheck.rows[0].assetid
+      );
     }
 
     const result = await pool.query(
@@ -2791,6 +2916,10 @@ app.put("/assets/:id", async (req, res) => {
 
     res.json(result.rows[0]);
   } catch (err) {
+    if (isDuplicateActiveClientSerialError(err)) {
+      return duplicateAssetResponse(res, "serial")
+    }
+
     console.error(err);
     res.status(500).json({ error: "An unexpected server error occurred" });
   }
@@ -3297,6 +3426,25 @@ app.get("/responsible-persons", async (req, res) => {
 app.post("/responsible-persons", async (req, res) => {
   try {
     const { clientid, name } = req.body;
+    const normalizedPersonName = normalizeAssetLookupValue(name)
+
+    if (normalizedPersonName) {
+      const duplicateCheck = await pool.query(
+        `
+        SELECT personid
+        FROM atec.tblpeople
+        WHERE clientid = $1
+          AND lower(trim(name)) = $2
+          AND COALESCE(archived, false) = false
+        LIMIT 1
+        `,
+        [clientid, normalizedPersonName]
+      )
+
+      if (duplicateCheck.rows.length > 0) {
+        return duplicateMasterDataResponse(res, "responsiblePerson", duplicateCheck.rows[0].personid)
+      }
+    }
 
     const result = await pool.query(
       `
@@ -3316,6 +3464,8 @@ app.post("/responsible-persons", async (req, res) => {
 
   } catch (err) {
     console.error(err);
+    const duplicateType = isDuplicateActiveMasterDataError(err)
+    if (duplicateType) return duplicateMasterDataResponse(res, duplicateType)
 
     res.status(500).json({
       error: "An unexpected server error occurred"
@@ -3328,6 +3478,26 @@ app.put("/responsible-persons/:id", async (req, res) => {
 
     const { id } = req.params;
     const { clientid, name } = req.body;
+    const normalizedPersonName = normalizeAssetLookupValue(name)
+
+    if (normalizedPersonName) {
+      const duplicateCheck = await pool.query(
+        `
+        SELECT personid
+        FROM atec.tblpeople
+        WHERE clientid = $1
+          AND personid <> $2
+          AND lower(trim(name)) = $3
+          AND COALESCE(archived, false) = false
+        LIMIT 1
+        `,
+        [clientid, id, normalizedPersonName]
+      )
+
+      if (duplicateCheck.rows.length > 0) {
+        return duplicateMasterDataResponse(res, "responsiblePerson", duplicateCheck.rows[0].personid)
+      }
+    }
 
     const result = await pool.query(
       `
@@ -3349,6 +3519,8 @@ app.put("/responsible-persons/:id", async (req, res) => {
 
   } catch (err) {
     console.error(err);
+    const duplicateType = isDuplicateActiveMasterDataError(err)
+    if (duplicateType) return duplicateMasterDataResponse(res, duplicateType)
 
     res.status(500).json({
       error: "An unexpected server error occurred"
@@ -3393,6 +3565,26 @@ app.get("/sections", async (req, res) => {
 app.post("/sections", async (req, res) => {
   try {
     const { clientid, siteid, responsibleid, sectionname } = req.body;
+    const normalizedSectionName = normalizeAssetLookupValue(sectionname)
+
+    if (normalizedSectionName) {
+      const duplicateCheck = await pool.query(
+        `
+        SELECT sectionid
+        FROM atec.tblsection
+        WHERE clientid = $1
+          AND siteid = $2
+          AND lower(trim(sectionname)) = $3
+          AND COALESCE(archived, false) = false
+        LIMIT 1
+        `,
+        [clientid, siteid, normalizedSectionName]
+      )
+
+      if (duplicateCheck.rows.length > 0) {
+        return duplicateMasterDataResponse(res, "section", duplicateCheck.rows[0].sectionid)
+      }
+    }
 
     const result = await pool.query(
       `INSERT INTO atec.tblsection
@@ -3405,6 +3597,9 @@ app.post("/sections", async (req, res) => {
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
+    const duplicateType = isDuplicateActiveMasterDataError(err)
+    if (duplicateType) return duplicateMasterDataResponse(res, duplicateType)
+
     res.status(500).json({ error: "An unexpected server error occurred" });
   }
 });
@@ -3418,6 +3613,29 @@ app.put("/sections/:id", async (req, res) => {
       responsibleid,
       sectionname
     } = req.body
+    const normalizedSectionName = normalizeAssetLookupValue(sectionname)
+
+    if (normalizedSectionName) {
+      const duplicateCheck = await pool.query(
+        `
+        SELECT other.sectionid
+        FROM atec.tblsection current_section
+        JOIN atec.tblsection other
+          ON other.clientid = current_section.clientid
+          AND other.siteid = current_section.siteid
+        WHERE current_section.sectionid = $1
+          AND other.sectionid <> $1
+          AND lower(trim(other.sectionname)) = $2
+          AND COALESCE(other.archived, false) = false
+        LIMIT 1
+        `,
+        [id, normalizedSectionName]
+      )
+
+      if (duplicateCheck.rows.length > 0) {
+        return duplicateMasterDataResponse(res, "section", duplicateCheck.rows[0].sectionid)
+      }
+    }
 
     const result = await pool.query(
       `
@@ -3440,6 +3658,8 @@ app.put("/sections/:id", async (req, res) => {
   } catch (err) {
 
     console.error(err)
+    const duplicateType = isDuplicateActiveMasterDataError(err)
+    if (duplicateType) return duplicateMasterDataResponse(res, duplicateType)
 
     res.status(500).json({
       error: "An unexpected server error occurred"
