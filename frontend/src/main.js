@@ -1146,11 +1146,15 @@ window.unarchiveClient = async function (clientid) {
 
 }
 
-window.showResponsiblePersons = function () {
+let responsibleArchiveMode = localStorage.getItem("responsibleArchiveMode") || "active"
+
+window.showResponsiblePersons = function (mode = responsibleArchiveMode) {
   if (!ensurePageAccess('responsible')) return
 
+  responsibleArchiveMode = mode
   localStorage.setItem("currentPage", "responsible")
-  renderResponsiblePersons(responsiblePersons)
+  localStorage.setItem("responsibleArchiveMode", mode)
+  renderResponsiblePersons(responsiblePersons, responsibleArchiveMode)
 }
 
 window.showAddResponsiblePersonForm = function () {
@@ -1308,11 +1312,17 @@ window.filterResponsiblePersons = function (resetPage = false) {
     .toLowerCase()
     .trim()
 
-  const filtered = responsiblePersons.filter(person =>
-    String(person.personid || '').includes(search) ||
-    (person.clientname || '').toLowerCase().includes(search) ||
-    (person.name || '').toLowerCase().includes(search)
-  )
+  const filtered = responsiblePersons.filter(person => {
+    const isArchived = person.archived === true || person.archived === "true"
+    if (responsibleArchiveMode === "active" && isArchived) return false
+    if (responsibleArchiveMode === "archived" && !isArchived) return false
+
+    return (
+      String(person.personid || '').includes(search) ||
+      (person.clientname || '').toLowerCase().includes(search) ||
+      (person.name || '').toLowerCase().includes(search)
+    )
+  })
 
   const pagination = getPaginationState(filtered, "responsibleCurrentPage", "responsibleRowsPerPage")
   const paginationBar = document.querySelector(".report-pagination-bar")
@@ -1331,13 +1341,75 @@ window.filterResponsiblePersons = function (resetPage = false) {
         <td>${person.personid}</td>
         <td>${person.clientname || ''}</td>
         <td>${person.name || ''}</td>
+        <td>${person.archived ? 'Archived' : 'Active'}</td>
         <td>
           <button onclick="editResponsiblePerson(${person.personid})">
             Edit
           </button>
+          ${canArchiveSetupRecords() ? `
+          ${
+            person.archived
+              ? `<button onclick="unarchiveResponsiblePerson(${person.personid})">Restore</button>`
+              : `<button onclick="archiveResponsiblePerson(${person.personid})">Archive</button>`
+          }
+          ` : ''}
         </td>
       </tr>
     `).join('')
+}
+
+window.archiveResponsiblePerson = async function (personid) {
+  if (!canArchiveSetupRecords()) {
+    alert("You do not have permission to archive responsible persons.")
+    return
+  }
+
+  if (!confirm("Archive this responsible person? Active sections and assets must be moved first.")) return
+
+  const response = await fetch(
+    `${API_BASE}/responsible-persons/${personid}/archive`,
+    {
+      method: "PUT"
+    }
+  )
+
+  const result = await readApiResponse(response)
+
+  if (!response.ok) {
+    alert(result.error || "Unable to archive responsible person.")
+    return
+  }
+
+  alert("Responsible person archived")
+
+  await loadData()
+  showResponsiblePersons()
+}
+
+window.unarchiveResponsiblePerson = async function (personid) {
+  if (!canArchiveSetupRecords()) {
+    alert("You do not have permission to restore responsible persons.")
+    return
+  }
+
+  const response = await fetch(
+    `${API_BASE}/responsible-persons/${personid}/unarchive`,
+    {
+      method: "PUT"
+    }
+  )
+
+  const result = await readApiResponse(response)
+
+  if (!response.ok) {
+    alert(result.error || "Unable to restore responsible person.")
+    return
+  }
+
+  alert("Responsible person restored")
+
+  await loadData()
+  showResponsiblePersons()
 }
 
 window.setResponsibleRowsPerPage = function (value) {
@@ -1430,7 +1502,10 @@ window.filterSectionDropdowns = function () {
     .sort((a, b) => (a.sitename || '').localeCompare(b.sitename || ''))
 
   const filteredResponsiblePersons = responsiblePersons
-    .filter(person => String(person.clientid) === String(clientid))
+    .filter(person =>
+      String(person.clientid) === String(clientid) &&
+      !(person.archived === true || person.archived === "true")
+    )
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
 
   siteSelect.innerHTML = `
@@ -1542,7 +1617,13 @@ window.editSection = function (sectionid) {
   }
 
   const filteredResponsiblePersons = responsiblePersons
-    .filter(person => String(person.clientid) === String(section.clientid))
+    .filter(person =>
+      String(person.clientid) === String(section.clientid) &&
+      (
+        !(person.archived === true || person.archived === "true") ||
+        String(person.personid) === String(section.responsibleid)
+      )
+    )
     .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
 
   document.querySelector('#page').innerHTML = `
@@ -2702,8 +2783,8 @@ function rememberAssetListState() {
   const rowsInput = document.querySelector('#assetRowsPerPage')
 
   window.assetListState = {
-    searchType: searchTypeInput?.value || window.assetListState?.searchType || "all",
-    search: searchInput?.value || window.assetListState?.search || "",
+    searchType: searchTypeInput ? searchTypeInput.value : window.assetListState?.searchType || "all",
+    search: searchInput ? searchInput.value : window.assetListState?.search || "",
     currentPage: window.assetCurrentPage || window.assetListState?.currentPage || 1,
     rowsPerPage: Number(rowsInput?.value || window.assetRowsPerPage || window.assetListState?.rowsPerPage || 25)
   }
@@ -2767,7 +2848,7 @@ function renderAssetPaginationControls(totalRows, startIndex, endIndex, currentP
 function getAssetPageNumbers(currentPage, totalPages) {
   const pages = []
 
-  if (totalPages <= 7) {
+  if (totalPages <= 10) {
     for (let page = 1; page <= totalPages; page += 1) {
       pages.push(page)
     }
@@ -2775,24 +2856,32 @@ function getAssetPageNumbers(currentPage, totalPages) {
     return pages
   }
 
-  pages.push(1)
+  const visibleWindow = 9
+  const halfWindow = Math.floor(visibleWindow / 2)
+  let startPage = Math.max(1, currentPage - halfWindow)
+  let endPage = Math.min(totalPages, startPage + visibleWindow - 1)
 
-  if (currentPage > 4) {
-    pages.push("...")
+  if (endPage - startPage + 1 < visibleWindow) {
+    startPage = Math.max(1, endPage - visibleWindow + 1)
   }
 
-  const startPage = Math.max(2, currentPage - 1)
-  const endPage = Math.min(totalPages - 1, currentPage + 1)
+  if (startPage > 1) {
+    pages.push(1)
+    if (startPage > 2) {
+      pages.push("...")
+    }
+  }
 
   for (let page = startPage; page <= endPage; page += 1) {
     pages.push(page)
   }
 
-  if (currentPage < totalPages - 3) {
-    pages.push("...")
+  if (endPage < totalPages) {
+    if (endPage < totalPages - 1) {
+      pages.push("...")
+    }
+    pages.push(totalPages)
   }
-
-  pages.push(totalPages)
 
   return pages
 }
@@ -4356,9 +4445,12 @@ window.startQuickInspection = function (assetid, inspectiontype) {
 }
 
 function rememberInspectionAssetListState() {
+  const searchTypeInput = document.querySelector('#inspectionSearchType')
+  const searchInput = document.querySelector('#inspectionAssetSearch')
+
   window.inspectionAssetListState = {
-    searchType: document.querySelector('#inspectionSearchType')?.value || window.inspectionAssetListState?.searchType || "all",
-    search: document.querySelector('#inspectionAssetSearch')?.value || window.inspectionAssetListState?.search || "",
+    searchType: searchTypeInput ? searchTypeInput.value : window.inspectionAssetListState?.searchType || "all",
+    search: searchInput ? searchInput.value : window.inspectionAssetListState?.search || "",
     currentPage: window.inspectionCurrentPage || window.inspectionAssetListState?.currentPage || 1,
     rowsPerPage: Number(window.inspectionRowsPerPage || window.inspectionAssetListState?.rowsPerPage || 25)
   }

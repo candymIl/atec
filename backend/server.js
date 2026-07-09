@@ -3409,6 +3409,7 @@ app.get("/responsible-persons", async (req, res) => {
         p.personid,
         p.clientid,
         p.name,
+        COALESCE(p.archived, false) AS archived,
         c.clientname
       FROM atec.tblpeople p
       LEFT JOIN atec.tblclients c
@@ -3527,6 +3528,87 @@ app.put("/responsible-persons/:id", async (req, res) => {
     });
   }
 });
+
+app.put("/responsible-persons/:id/archive", async (req, res) => {
+  try {
+    const { id } = req.params
+
+    const activeLinks = await pool.query(
+      `
+      SELECT
+        (
+          SELECT COUNT(*)::int
+          FROM atec.tblasset
+          WHERE responsibleid = $1
+            AND COALESCE(archived, false) = false
+        ) AS active_assets,
+        (
+          SELECT COUNT(*)::int
+          FROM atec.tblsection
+          WHERE responsibleid = $1
+            AND COALESCE(archived, false) = false
+        ) AS active_sections
+      `,
+      [id]
+    )
+
+    const activeAssets = Number(activeLinks.rows[0]?.active_assets || 0)
+    const activeSections = Number(activeLinks.rows[0]?.active_sections || 0)
+
+    if (activeAssets > 0 || activeSections > 0) {
+      return res.status(400).json({
+        error: "This responsible person has active sections or assets. Move those records first."
+      })
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE atec.tblpeople
+      SET archived = true
+      WHERE personid = $1
+      RETURNING *
+      `,
+      [id]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Responsible person not found" })
+    }
+
+    res.json(result.rows[0])
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
+
+app.put("/responsible-persons/:id/unarchive", async (req, res) => {
+  try {
+    const { id } = req.params
+
+    const result = await pool.query(
+      `
+      UPDATE atec.tblpeople
+      SET archived = false
+      WHERE personid = $1
+      RETURNING *
+      `,
+      [id]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Responsible person not found" })
+    }
+
+    res.json(result.rows[0])
+  } catch (err) {
+    console.error(err)
+    const duplicateType = isDuplicateActiveMasterDataError(err)
+    if (duplicateType) return duplicateMasterDataResponse(res, duplicateType)
+
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
 
 app.get("/sections", async (req, res) => {
   try {

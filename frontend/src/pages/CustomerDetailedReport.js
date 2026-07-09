@@ -428,22 +428,32 @@ function bindReportPagination() {
 function getCustomerReportPageNumbers(currentPage, totalPages) {
   const pages = []
 
-  if (totalPages <= 7) {
+  if (totalPages <= 10) {
     for (let page = 1; page <= totalPages; page += 1) pages.push(page)
     return pages
   }
 
-  pages.push(1)
-  if (currentPage > 4) pages.push("...")
+  const visibleWindow = 9
+  const halfWindow = Math.floor(visibleWindow / 2)
+  let startPage = Math.max(1, currentPage - halfWindow)
+  let endPage = Math.min(totalPages, startPage + visibleWindow - 1)
 
-  const startPage = Math.max(2, currentPage - 1)
-  const endPage = Math.min(totalPages - 1, currentPage + 1)
+  if (endPage - startPage + 1 < visibleWindow) {
+    startPage = Math.max(1, endPage - visibleWindow + 1)
+  }
+
+  if (startPage > 1) {
+    pages.push(1)
+    if (startPage > 2) pages.push("...")
+  }
 
   for (let page = startPage; page <= endPage; page += 1) pages.push(page)
 
-  if (currentPage < totalPages - 3) pages.push("...")
+  if (endPage < totalPages) {
+    if (endPage < totalPages - 1) pages.push("...")
+    pages.push(totalPages)
+  }
 
-  pages.push(totalPages)
   return pages
 }
 
