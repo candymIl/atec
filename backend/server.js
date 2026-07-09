@@ -7139,6 +7139,17 @@ app.get("/dashboard/visual-due", async (req, res) => {
   }
 })
 
+function dashboardClientScope(req, tableAlias = "a", prefix = "AND") {
+  if (["CUSTOMER", "VIEWER"].includes(req.user?.role) && req.user?.clientid) {
+    return {
+      clause: `${prefix} ${tableAlias}.clientid = $1`,
+      values: [req.user.clientid]
+    }
+  }
+
+  return { clause: "", values: [] }
+}
+
 function reportDate(value) {
   if (!value) return "-"
 
@@ -7746,69 +7757,111 @@ app.get("/reports/customer-detailed.xlsx", searchLimiter, async (req, res) => {
 
 app.get("/dashboard/stats", async (req, res) => {
   try {
+    const scopedToClient = dashboardClientScope(req)
+    const clientWhere = scopedToClient.values.length ? "WHERE c.clientid = $1" : ""
+    const siteClientWhere = scopedToClient.values.length ? "WHERE s.clientid = $1" : ""
+
     const result = await pool.query(`
+      WITH active_assets AS (
+        SELECT
+          a.assetid,
+          a.clientid,
+          a.equiptypeid
+        FROM atec.tblasset a
+        WHERE COALESCE(a.archived, false) = false
+        ${scopedToClient.clause}
+      ),
+      latest_visual AS (
+        SELECT DISTINCT ON (i.assetid)
+          i.assetid,
+          i.testdate,
+          i.status
+        FROM atec.tblinspection i
+        JOIN active_assets a
+          ON a.assetid = i.assetid
+        WHERE i.inspectiontype = 'VISUAL'
+        ORDER BY i.assetid, i.testdate DESC NULLS LAST, i.testid DESC
+      ),
+      latest_load AS (
+        SELECT DISTINCT ON (i.assetid)
+          i.assetid,
+          i.testdate,
+          i.status
+        FROM atec.tblinspection i
+        JOIN active_assets a
+          ON a.assetid = i.assetid
+        WHERE i.inspectiontype = 'LOADTEST'
+        ORDER BY i.assetid, i.testdate DESC NULLS LAST, i.testid DESC
+      )
       SELECT
-        (SELECT COUNT(*) FROM atec.tblclients) AS customers,
-        (SELECT COUNT(*) FROM atec.tblsites) AS sites,
-        (SELECT COUNT(*) FROM atec.tblasset WHERE COALESCE(archived,false)=false) AS assets,
-        (SELECT COUNT(*) FROM atec.tblequiptype) AS equipmenttypes,
-        (SELECT COUNT(*) FROM atec.tblinspection) AS certificates,
-        (SELECT COUNT(*) FROM atec.tblinspection WHERE status = 'NOT SAFE') AS failedtotal,
+        (
+          SELECT COUNT(*)
+          FROM atec.tblclients c
+          ${clientWhere}
+        ) AS customers,
+        (
+          SELECT COUNT(*)
+          FROM atec.tblsites s
+          ${siteClientWhere}
+        ) AS sites,
+        (SELECT COUNT(*) FROM active_assets) AS assets,
+        (
+          SELECT COUNT(DISTINCT equiptypeid)
+          FROM active_assets
+          WHERE equiptypeid IS NOT NULL
+        ) AS equipmenttypes,
+        (
+          SELECT COUNT(*)
+          FROM atec.tblinspection i
+          JOIN active_assets a
+            ON a.assetid = i.assetid
+        ) AS certificates,
+        (
+          SELECT COUNT(DISTINCT a.assetid)
+          FROM active_assets a
+          LEFT JOIN latest_visual v
+            ON v.assetid = a.assetid
+          LEFT JOIN latest_load l
+            ON l.assetid = a.assetid
+          WHERE v.status = 'NOT SAFE'
+             OR l.status = 'NOT SAFE'
+        ) AS failedtotal,
 
         (
           SELECT COUNT(*)
-          FROM atec.tblasset a
-          LEFT JOIN (
-            SELECT assetid, MAX(testdate) AS lastvisual
-            FROM atec.tblinspection
-            WHERE inspectiontype = 'VISUAL'
-            GROUP BY assetid
-          ) i ON a.assetid = i.assetid
-          WHERE COALESCE(a.archived,false)=false
-          AND (
-            i.lastvisual IS NULL
-            OR i.lastvisual + INTERVAL '3 months' <= CURRENT_DATE + INTERVAL '30 days'
+          FROM active_assets a
+          LEFT JOIN latest_visual i
+            ON a.assetid = i.assetid
+          WHERE (
+            i.testdate IS NULL
+            OR i.testdate + INTERVAL '3 months' <= CURRENT_DATE + INTERVAL '30 days'
           )
         ) AS visualdue,
 
         (
           SELECT COUNT(*)
-          FROM atec.tblasset a
-          LEFT JOIN (
-            SELECT assetid, MAX(testdate) AS lastloadtest
-            FROM atec.tblinspection
-            WHERE inspectiontype = 'LOADTEST'
-            GROUP BY assetid
-          ) i ON a.assetid = i.assetid
-          WHERE COALESCE(a.archived,false)=false
-          AND (
-            i.lastloadtest IS NULL
-            OR i.lastloadtest + INTERVAL '12 months' <= CURRENT_DATE + INTERVAL '30 days'
+          FROM active_assets a
+          LEFT JOIN latest_load i
+            ON a.assetid = i.assetid
+          WHERE (
+            i.testdate IS NULL
+            OR i.testdate + INTERVAL '12 months' <= CURRENT_DATE + INTERVAL '30 days'
           )
         ) AS loadtestdue,
 
         (
           SELECT COUNT(*)
-          FROM atec.tblasset a
-          LEFT JOIN (
-            SELECT assetid, MAX(testdate) AS lastvisual
-            FROM atec.tblinspection
-            WHERE inspectiontype = 'VISUAL'
-            GROUP BY assetid
-          ) v ON a.assetid = v.assetid
-          LEFT JOIN (
-            SELECT assetid, MAX(testdate) AS lastloadtest
-            FROM atec.tblinspection
-            WHERE inspectiontype = 'LOADTEST'
-            GROUP BY assetid
-          ) l ON a.assetid = l.assetid
-          WHERE COALESCE(a.archived,false)=false
-          AND (
-            v.lastvisual + INTERVAL '3 months' < CURRENT_DATE
-            OR l.lastloadtest + INTERVAL '12 months' < CURRENT_DATE
+          FROM active_assets a
+          LEFT JOIN latest_visual v
+            ON a.assetid = v.assetid
+          LEFT JOIN latest_load l
+            ON a.assetid = l.assetid
+          WHERE (
+            v.testdate + INTERVAL '3 months' < CURRENT_DATE
+            OR l.testdate + INTERVAL '12 months' < CURRENT_DATE
           )
         ) AS overdue
-    `)
+    `, scopedToClient.values)
 
     res.json(result.rows[0])
 
@@ -7884,18 +7937,30 @@ app.get("/dashboard/equipment-by-type", async (req, res) => {
 
 app.get("/dashboard/attention", async (req, res) => {
   try {
+    const scopedToClient = dashboardClientScope(req)
+
     const result = await pool.query(`
-      WITH last_visual AS (
-        SELECT assetid, MAX(testdate) AS lastvisual
-        FROM atec.tblinspection
-        WHERE inspectiontype = 'VISUAL'
-        GROUP BY assetid
+      WITH active_assets AS (
+        SELECT *
+        FROM atec.tblasset a
+        WHERE COALESCE(a.archived, false) = false
+        ${scopedToClient.clause}
+      ),
+      last_visual AS (
+        SELECT i.assetid, MAX(i.testdate) AS lastvisual
+        FROM atec.tblinspection i
+        JOIN active_assets a
+          ON a.assetid = i.assetid
+        WHERE i.inspectiontype = 'VISUAL'
+        GROUP BY i.assetid
       ),
       last_load AS (
-        SELECT assetid, MAX(testdate) AS lastload
-        FROM atec.tblinspection
-        WHERE inspectiontype = 'LOADTEST'
-        GROUP BY assetid
+        SELECT i.assetid, MAX(i.testdate) AS lastload
+        FROM atec.tblinspection i
+        JOIN active_assets a
+          ON a.assetid = i.assetid
+        WHERE i.inspectiontype = 'LOADTEST'
+        GROUP BY i.assetid
       )
       SELECT
         a.assetid,
@@ -7925,14 +7990,13 @@ app.get("/dashboard/attention", async (req, res) => {
           ELSE 0
         END AS daysoverdue
 
-      FROM atec.tblasset a
+      FROM active_assets a
       LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
       LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
       LEFT JOIN atec.tblequiptype e ON a.equiptypeid = e.equiptypeid      
       LEFT JOIN last_visual lv ON a.assetid = lv.assetid
       LEFT JOIN last_load ll ON a.assetid = ll.assetid
-      WHERE COALESCE(a.archived,false)=false
-      AND (
+      WHERE (
         lv.lastvisual IS NULL
         OR lv.lastvisual < CURRENT_DATE - INTERVAL '3 months'
         OR ll.lastload IS NULL
@@ -7940,7 +8004,7 @@ app.get("/dashboard/attention", async (req, res) => {
       )
       ORDER BY daysoverdue DESC NULLS LAST, a.assetid DESC
       LIMIT 50
-    `);
+    `, scopedToClient.values);
 
     res.json(result.rows);
   } catch (err) {
@@ -7951,7 +8015,30 @@ app.get("/dashboard/attention", async (req, res) => {
 
 app.get("/dashboard/failed-equipment", async (req, res) => {
   try {
+    const scopedToClient = dashboardClientScope(req)
+
     const result = await pool.query(`
+      WITH active_assets AS (
+        SELECT *
+        FROM atec.tblasset a
+        WHERE COALESCE(a.archived, false) = false
+        ${scopedToClient.clause}
+      ),
+      latest_inspections AS (
+        SELECT DISTINCT ON (i.assetid, i.inspectiontype)
+          i.testid,
+          i.assetid,
+          i.inspectiontype,
+          i.testdate,
+          i.validdate,
+          i.inspector,
+          i.status
+        FROM atec.tblinspection i
+        JOIN active_assets a
+          ON a.assetid = i.assetid
+        WHERE i.inspectiontype IN ('VISUAL', 'LOADTEST')
+        ORDER BY i.assetid, i.inspectiontype, i.testdate DESC NULLS LAST, i.testid DESC
+      )
       SELECT
         i.testid,
         i.assetid,
@@ -7964,8 +8051,8 @@ app.get("/dashboard/failed-equipment", async (req, res) => {
         i.validdate,
         i.inspector,
         i.status
-      FROM atec.tblinspection i
-      JOIN atec.tblasset a
+      FROM latest_inspections i
+      JOIN active_assets a
         ON i.assetid = a.assetid
       LEFT JOIN atec.tblclients c
         ON a.clientid = c.clientid
@@ -7975,7 +8062,7 @@ app.get("/dashboard/failed-equipment", async (req, res) => {
       WHERE i.status = 'NOT SAFE'
       ORDER BY i.testdate DESC
       LIMIT 20
-    `)
+    `, scopedToClient.values)
 
     res.json(result.rows)
   } catch (err) {
@@ -7988,33 +8075,53 @@ app.get("/dashboard/failed-equipment", async (req, res) => {
 
 app.get("/dashboard/failed-equipment-by-customer", async (req, res) => {
   try {
-    const values = []
-    let clientScope = ""
-
-    if (["CUSTOMER", "VIEWER"].includes(req.user?.role) && req.user?.clientid) {
-      values.push(req.user.clientid)
-      clientScope = `AND a.clientid = $${values.length}`
-    }
+    const scopedToClient = dashboardClientScope(req)
 
     const result = await pool.query(`
+      WITH active_assets AS (
+        SELECT *
+        FROM atec.tblasset a
+        WHERE COALESCE(a.archived, false) = false
+        ${scopedToClient.clause}
+      ),
+      latest_inspections AS (
+        SELECT DISTINCT ON (i.assetid, i.inspectiontype)
+          i.testid,
+          i.assetid,
+          i.inspectiontype,
+          i.testdate,
+          i.status
+        FROM atec.tblinspection i
+        JOIN active_assets a
+          ON a.assetid = i.assetid
+        WHERE i.inspectiontype IN ('VISUAL', 'LOADTEST')
+        ORDER BY i.assetid, i.inspectiontype, i.testdate DESC NULLS LAST, i.testid DESC
+      ),
+      failed_assets AS (
+        SELECT
+          a.clientid,
+          a.assetid,
+          COUNT(i.testid)::int AS failed_certificates,
+          MAX(i.testdate) AS latest_failed_date
+        FROM active_assets a
+        JOIN latest_inspections i
+          ON i.assetid = a.assetid
+        WHERE i.status = 'NOT SAFE'
+        GROUP BY a.clientid, a.assetid
+      )
       SELECT
-        a.clientid,
+        fa.clientid,
         COALESCE(c.clientname, 'Unknown Customer') AS clientname,
-        COUNT(DISTINCT a.assetid)::int AS failed_assets,
-        COUNT(i.testid)::int AS failed_certificates,
-        MAX(i.testdate) AS latest_failed_date
-      FROM atec.tblinspection i
-      JOIN atec.tblasset a
-        ON i.assetid = a.assetid
+        COUNT(fa.assetid)::int AS failed_assets,
+        SUM(fa.failed_certificates)::int AS failed_certificates,
+        MAX(fa.latest_failed_date) AS latest_failed_date
+      FROM failed_assets fa
       LEFT JOIN atec.tblclients c
-        ON a.clientid = c.clientid
-      WHERE i.status = 'NOT SAFE'
-        AND COALESCE(a.archived, false) = false
-        ${clientScope}
-      GROUP BY a.clientid, c.clientname
+        ON fa.clientid = c.clientid
+      GROUP BY fa.clientid, c.clientname
       ORDER BY failed_assets DESC, clientname ASC
       LIMIT 50
-    `, values)
+    `, scopedToClient.values)
 
     res.json(result.rows)
   } catch (err) {
@@ -8027,8 +8134,29 @@ app.get("/dashboard/failed-equipment-by-customer", async (req, res) => {
 
 app.get("/dashboard/upcoming-expiries", async (req, res) => {
   try {
+    const scopedToClient = dashboardClientScope(req)
+
     const result = await pool.query(`
-      SELECT DISTINCT ON (a.assetid)
+      WITH active_assets AS (
+        SELECT *
+        FROM atec.tblasset a
+        WHERE COALESCE(a.archived, false) = false
+        ${scopedToClient.clause}
+      ),
+      latest_inspections AS (
+        SELECT DISTINCT ON (i.assetid, i.inspectiontype)
+          i.testid,
+          i.assetid,
+          i.inspectiontype,
+          i.testdate,
+          i.validdate
+        FROM atec.tblinspection i
+        JOIN active_assets a
+          ON a.assetid = i.assetid
+        WHERE i.inspectiontype IN ('VISUAL', 'LOADTEST')
+        ORDER BY i.assetid, i.inspectiontype, i.testdate DESC NULLS LAST, i.testid DESC
+      )
+      SELECT
         i.testid,
         a.assetid,
         a.assettagno,
@@ -8040,8 +8168,8 @@ app.get("/dashboard/upcoming-expiries", async (req, res) => {
         i.testdate,
         i.validdate,
         (i.validdate - CURRENT_DATE) AS daysremaining
-      FROM atec.tblinspection i
-      JOIN atec.tblasset a
+      FROM latest_inspections i
+      JOIN active_assets a
         ON i.assetid = a.assetid
       LEFT JOIN atec.tblclients c
         ON a.clientid = c.clientid
@@ -8051,11 +8179,13 @@ app.get("/dashboard/upcoming-expiries", async (req, res) => {
         ON a.equiptypeid = et.equiptypeid
       WHERE
         i.validdate IS NOT NULL
+        AND i.validdate >= CURRENT_DATE
         AND i.validdate <= CURRENT_DATE + INTERVAL '90 days'
       ORDER BY
-        a.assetid,
-        i.validdate DESC
-    `)
+        i.validdate ASC,
+        a.assetid ASC,
+        i.inspectiontype ASC
+    `, scopedToClient.values)
 
     res.json(result.rows)
 
@@ -8069,36 +8199,57 @@ app.get("/dashboard/upcoming-expiries", async (req, res) => {
 
 app.get("/dashboard/upcoming-expiries-by-customer", async (req, res) => {
   try {
-    const values = []
-    let clientScope = ""
-
-    if (["CUSTOMER", "VIEWER"].includes(req.user?.role) && req.user?.clientid) {
-      values.push(req.user.clientid)
-      clientScope = `AND a.clientid = $${values.length}`
-    }
+    const scopedToClient = dashboardClientScope(req)
 
     const result = await pool.query(`
+      WITH active_assets AS (
+        SELECT *
+        FROM atec.tblasset a
+        WHERE COALESCE(a.archived, false) = false
+        ${scopedToClient.clause}
+      ),
+      latest_inspections AS (
+        SELECT DISTINCT ON (i.assetid, i.inspectiontype)
+          i.testid,
+          i.assetid,
+          i.inspectiontype,
+          i.testdate,
+          i.validdate
+        FROM atec.tblinspection i
+        JOIN active_assets a
+          ON a.assetid = i.assetid
+        WHERE i.inspectiontype IN ('VISUAL', 'LOADTEST')
+        ORDER BY i.assetid, i.inspectiontype, i.testdate DESC NULLS LAST, i.testid DESC
+      ),
+      upcoming_assets AS (
+        SELECT
+          a.clientid,
+          a.assetid,
+          COUNT(i.testid)::int AS upcoming_certificates,
+          MIN(i.validdate) AS next_expiry_date,
+          MIN(i.validdate - CURRENT_DATE) AS days_remaining
+        FROM active_assets a
+        JOIN latest_inspections i
+          ON i.assetid = a.assetid
+        WHERE i.validdate IS NOT NULL
+          AND i.validdate >= CURRENT_DATE
+          AND i.validdate <= CURRENT_DATE + INTERVAL '90 days'
+        GROUP BY a.clientid, a.assetid
+      )
       SELECT
-        a.clientid,
+        ua.clientid,
         COALESCE(c.clientname, 'Unknown Customer') AS clientname,
-        COUNT(DISTINCT a.assetid)::int AS upcoming_assets,
-        COUNT(i.testid)::int AS upcoming_certificates,
-        MIN(i.validdate) AS next_expiry_date,
-        MIN(i.validdate - CURRENT_DATE) AS days_remaining
-      FROM atec.tblinspection i
-      JOIN atec.tblasset a
-        ON i.assetid = a.assetid
+        COUNT(ua.assetid)::int AS upcoming_assets,
+        SUM(ua.upcoming_certificates)::int AS upcoming_certificates,
+        MIN(ua.next_expiry_date) AS next_expiry_date,
+        MIN(ua.days_remaining) AS days_remaining
+      FROM upcoming_assets ua
       LEFT JOIN atec.tblclients c
-        ON a.clientid = c.clientid
-      WHERE i.validdate IS NOT NULL
-        AND i.validdate >= CURRENT_DATE
-        AND i.validdate <= CURRENT_DATE + INTERVAL '90 days'
-        AND COALESCE(a.archived, false) = false
-        ${clientScope}
-      GROUP BY a.clientid, c.clientname
+        ON ua.clientid = c.clientid
+      GROUP BY ua.clientid, c.clientname
       ORDER BY next_expiry_date ASC, upcoming_assets DESC, clientname ASC
       LIMIT 50
-    `, values)
+    `, scopedToClient.values)
 
     res.json(result.rows)
   } catch (err) {
@@ -8111,18 +8262,61 @@ app.get("/dashboard/upcoming-expiries-by-customer", async (req, res) => {
 
 app.get("/dashboard/alerts", async (req, res) => {
   try {
+    const scopedToClient = dashboardClientScope(req)
 
     const result = await pool.query(`
+      WITH active_assets AS (
+        SELECT
+          a.assetid,
+          a.clientid
+        FROM atec.tblasset a
+        WHERE COALESCE(a.archived, false) = false
+        ${scopedToClient.clause}
+      ),
+      latest_visual AS (
+        SELECT DISTINCT ON (i.assetid)
+          i.assetid,
+          i.testdate,
+          i.validdate,
+          i.status
+        FROM atec.tblinspection i
+        JOIN active_assets a
+          ON a.assetid = i.assetid
+        WHERE i.inspectiontype = 'VISUAL'
+        ORDER BY i.assetid, i.testdate DESC NULLS LAST, i.testid DESC
+      ),
+      latest_load AS (
+        SELECT DISTINCT ON (i.assetid)
+          i.assetid,
+          i.testdate,
+          i.validdate,
+          i.status
+        FROM atec.tblinspection i
+        JOIN active_assets a
+          ON a.assetid = i.assetid
+        WHERE i.inspectiontype = 'LOADTEST'
+        ORDER BY i.assetid, i.testdate DESC NULLS LAST, i.testid DESC
+      ),
+      latest_inspections AS (
+        SELECT * FROM latest_visual
+        UNION ALL
+        SELECT * FROM latest_load
+      )
       SELECT
       (
-        SELECT COUNT(*)
-        FROM atec.tblinspection
-        WHERE status='NOT SAFE'
+        SELECT COUNT(DISTINCT a.assetid)
+        FROM active_assets a
+        LEFT JOIN latest_visual v
+          ON v.assetid = a.assetid
+        LEFT JOIN latest_load l
+          ON l.assetid = a.assetid
+        WHERE v.status = 'NOT SAFE'
+           OR l.status = 'NOT SAFE'
       ) AS failed,
 
       (
         SELECT COUNT(*)
-        FROM atec.tblinspection
+        FROM latest_inspections
         WHERE validdate IS NOT NULL
         AND validdate BETWEEN CURRENT_DATE
         AND CURRENT_DATE + INTERVAL '30 days'
@@ -8130,23 +8324,17 @@ app.get("/dashboard/alerts", async (req, res) => {
 
       (
         SELECT COUNT(*)
-        FROM atec.tblasset a
-        LEFT JOIN (
-          SELECT
-            assetid,
-            MAX(validdate) AS validdate
-          FROM atec.tblinspection
-          GROUP BY assetid
-        ) i
-          ON a.assetid=i.assetid
-        WHERE
-          COALESCE(a.archived,false)=false
-          AND (
-            i.validdate IS NULL
-            OR i.validdate<CURRENT_DATE
-          )
+        FROM active_assets a
+        LEFT JOIN latest_visual v
+          ON v.assetid = a.assetid
+        LEFT JOIN latest_load l
+          ON l.assetid = a.assetid
+        WHERE (
+          v.testdate + INTERVAL '3 months' < CURRENT_DATE
+          OR l.testdate + INTERVAL '12 months' < CURRENT_DATE
+        )
       ) AS overdue
-    `)
+    `, scopedToClient.values)
 
     res.json(result.rows[0])
 

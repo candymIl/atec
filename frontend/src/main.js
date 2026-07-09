@@ -722,6 +722,15 @@ async function fetchJsonOrDefault(url, fallback) {
   return response.json()
 }
 
+async function fetchJsonBestEffort(url, fallback) {
+  try {
+    return await fetchJsonOrDefault(url, fallback)
+  } catch (err) {
+    console.error(`Unable to load optional data from ${url}:`, err)
+    return fallback
+  }
+}
+
 async function getAssetForAction(assetid) {
   const cachedAsset = assets.find(
     asset => String(asset.assetid) === String(assetid)
@@ -792,7 +801,7 @@ async function loadData() {
       fetchJsonOrDefault(`${API_BASE}/responsible-persons`, []),
       fetchJsonOrDefault(`${API_BASE}/sections`, []),
       fetchJsonOrDefault(`${API_BASE}/equipment-types`, []),
-      fetchJsonOrDefault(`${API_BASE}/dashboard/stats`, {}),
+      fetchJsonBestEffort(`${API_BASE}/dashboard/stats`, {}),
       fetchJsonOrDefault(`${API_BASE}/equipment-type-criteria`, [])
     ])
 
