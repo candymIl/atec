@@ -1,4 +1,8 @@
 {
+  "scripts": {
+    "media:scan": "node scripts/cleanup-orphaned-asset-images.js",
+    "media:archive": "node scripts/cleanup-orphaned-asset-images.js --archive"
+  },
   "dependencies": {
     "multer": "^2.1.1"
   }

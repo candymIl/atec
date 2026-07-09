@@ -6,6 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
+    "media:scan": "node ../scripts/cleanup-orphaned-asset-images.js",
+    "media:archive": "node ../scripts/cleanup-orphaned-asset-images.js --archive",
     "compress-uploads:check": "node ../scripts/compress-upload-images.js",
     "compress-uploads": "node ../scripts/compress-upload-images.js --apply"
   },

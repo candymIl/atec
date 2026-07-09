@@ -1,27 +1,26 @@
 /*
-  ATEC orphaned asset image cleanup
+  ATEC orphaned media cleanup
 
   What this script does:
-  - Reads atec.tblasset.media1 and atec.tblasset.media2.
-  - Scans the assets upload folder for image files.
-  - Finds image files that are not linked to any asset.
-  - Creates a report before moving anything.
-  - Moves orphaned images into _orphaned_cleanup only when DRY_RUN is false.
+  - Scans uploads/assets, uploads/inspections, and uploads/signatures.
+  - Reads all known and discovered upload/image path columns in the atec schema.
+  - Reports files that are confidently unused.
+  - Archives unused files only when --archive or --move is explicitly used.
 
   Safety:
-  - DRY_RUN is true by default.
+  - Dry run is the default.
   - Nothing is permanently deleted.
-  - The _orphaned_cleanup folder is never scanned or moved.
-  - Only image files are considered for moving.
+  - No database records are changed.
+  - Archive mode moves files into uploads/_media_archive and preserves folder structure.
+  - If reference collection is incomplete or a file is uncertain, the file is kept in place.
 
   Usage from the ATEC project folder:
     node scripts/cleanup-orphaned-asset-images.js
-    node scripts/cleanup-orphaned-asset-images.js --move
+    node scripts/cleanup-orphaned-asset-images.js --archive
 
-  Optional environment overrides:
-    DRY_RUN=true
-    DRY_RUN=false
-    ASSETS_UPLOAD_DIR=D:\Projects\ATEC\backend\uploads\assets
+  NPM usage:
+    npm run media:scan
+    npm run media:archive
 */
 
 const fs = require("fs")
@@ -44,26 +43,37 @@ const imageExtensions = new Set([
   ".gif",
   ".bmp",
   ".tif",
-  ".tiff"
+  ".tiff",
+  ".svg"
 ])
 
-const cliMoveRequested = process.argv.includes("--move")
-const dryRunFromEnv = String(process.env.DRY_RUN || "").trim().toLowerCase()
-const dryRun = cliMoveRequested
-  ? false
-  : dryRunFromEnv === "false"
-    ? false
-    : true
+const uploadColumnNamePattern = /(photo|media|image|signature|upload|file|path|url|uri)/i
+const forcedReferenceColumns = [
+  { table_schema: "atec", table_name: "tblasset", column_name: "media1" },
+  { table_schema: "atec", table_name: "tblasset", column_name: "media2" },
+  { table_schema: "atec", table_name: "tblinspection", column_name: "photo1" },
+  { table_schema: "atec", table_name: "tblinspection", column_name: "photo2" },
+  { table_schema: "atec", table_name: "tblinspection", column_name: "inspector_signature_image" },
+  { table_schema: "atec", table_name: "tblinspectionphoto", column_name: "photo_path" },
+  { table_schema: "atec", table_name: "tblusers", column_name: "usersignature" }
+]
+
+const archiveRequested =
+  process.argv.includes("--archive") ||
+  process.argv.includes("--move")
+const dryRun = !archiveRequested
+const helpRequested = process.argv.includes("--help") || process.argv.includes("-h")
 
 const uploadsRoot = path.resolve(
-  process.env.UPLOADS_PATH || path.join(projectRoot, "backend", "uploads")
+  process.env.UPLOADS_PATH ||
+    process.env.UPLOAD_ROOT ||
+    path.join(projectRoot, "backend", "uploads")
 )
-const assetsDir = path.resolve(
-  process.env.ASSETS_UPLOAD_DIR || path.join(uploadsRoot, "assets")
-)
-const orphanDir = path.join(assetsDir, "_orphaned_cleanup")
-const reportPath = path.join(assetsDir, "orphaned-images-report.txt")
-const movedLogPath = path.join(assetsDir, "orphaned-images-moved.log")
+const mediaFolders = ["assets", "inspections", "signatures"]
+const archiveRoot = path.join(uploadsRoot, "_media_archive")
+const legacyArchiveFolderNames = new Set(["_orphaned_cleanup", "_media_archive"])
+const reportPath = path.join(uploadsRoot, "media-cleanup-report.txt")
+const archiveLogPath = path.join(uploadsRoot, "media-cleanup-archive.log")
 
 const pool = new Pool({
   host: process.env.DB_HOST,
@@ -73,16 +83,22 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD
 })
 
-function normalizeLinkedPhotoName(value) {
-  if (!value) return ""
+function usage() {
+  return [
+    "ATEC orphaned media cleanup",
+    "",
+    "Dry run, no files moved:",
+    "  node scripts/cleanup-orphaned-asset-images.js",
+    "  npm run media:scan",
+    "",
+    "Archive confidently unused files:",
+    "  node scripts/cleanup-orphaned-asset-images.js --archive",
+    "  npm run media:archive"
+  ].join("\n")
+}
 
-  const cleaned = String(value)
-    .trim()
-    .replace(/\\/g, "/")
-    .split("?")[0]
-    .split("#")[0]
-
-  return path.posix.basename(cleaned).trim().toLowerCase()
+function quoteIdent(value) {
+  return `"${String(value).replace(/"/g, "\"\"")}"`
 }
 
 function formatBytes(bytes) {
@@ -102,134 +118,298 @@ function timestamp() {
   return new Date().toISOString().replace("T", " ").replace(/\.\d+Z$/, " UTC")
 }
 
-function uniqueDestinationPath(destinationFolder, filename) {
-  const parsed = path.parse(filename)
-  let candidate = path.join(destinationFolder, filename)
+function safeRelativePath(fullPath) {
+  return path.relative(uploadsRoot, fullPath).replace(/\\/g, "/")
+}
+
+function isImageFile(filename) {
+  return imageExtensions.has(path.extname(filename).toLowerCase())
+}
+
+function normalizeUploadValue(value) {
+  if (!value) return null
+
+  const raw = String(value).trim()
+  if (!raw) return null
+
+  let cleaned = raw.replace(/\\/g, "/").split("?")[0].split("#")[0].trim()
+
+  if (/^https?:\/\//i.test(cleaned)) {
+    try {
+      cleaned = new URL(cleaned).pathname
+    } catch {
+      return null
+    }
+  }
+
+  const uploadsIndex = cleaned.toLowerCase().indexOf("/uploads/")
+  if (uploadsIndex >= 0) {
+    cleaned = cleaned.slice(uploadsIndex)
+  } else if (cleaned.toLowerCase().startsWith("uploads/")) {
+    cleaned = `/${cleaned}`
+  } else {
+    return null
+  }
+
+  const normalized = path.posix.normalize(cleaned)
+  if (!normalized.startsWith("/uploads/") || normalized.includes("/../")) {
+    return null
+  }
+
+  return normalized.toLowerCase()
+}
+
+function referenceKeysFromValue(value) {
+  const normalized = normalizeUploadValue(value)
+  if (!normalized) return []
+
+  const keys = new Set([normalized])
+  const basename = path.posix.basename(normalized)
+  if (basename) keys.add(`basename:${basename}`)
+
+  return [...keys]
+}
+
+function fileReferenceKeys(file) {
+  const relativePath = safeRelativePath(file.fullPath).toLowerCase()
+  const uploadsPath = `/uploads/${relativePath}`.replace(/\/+/g, "/")
+  const keys = new Set([uploadsPath])
+  keys.add(`basename:${path.basename(relativePath)}`)
+  return keys
+}
+
+function uniqueDestinationPath(destinationPath) {
+  const parsed = path.parse(destinationPath)
+  let candidate = destinationPath
   let counter = 1
 
   while (fs.existsSync(candidate)) {
-    candidate = path.join(destinationFolder, `${parsed.name}-${counter}${parsed.ext}`)
+    candidate = path.join(parsed.dir, `${parsed.name}-${counter}${parsed.ext}`)
     counter += 1
   }
 
   return candidate
 }
 
-async function getLinkedAssetPhotoNames() {
-  const result = await pool.query(`
-    SELECT media1, media2
-    FROM atec.tblasset
-    WHERE COALESCE(media1, '') <> ''
-       OR COALESCE(media2, '') <> ''
-  `)
+function scanMediaFiles() {
+  const files = []
+  const skipped = []
 
-  const linked = new Set()
+  for (const folderName of mediaFolders) {
+    const folderPath = path.join(uploadsRoot, folderName)
 
-  for (const row of result.rows) {
-    const media1 = normalizeLinkedPhotoName(row.media1)
-    const media2 = normalizeLinkedPhotoName(row.media2)
+    if (!fs.existsSync(folderPath)) {
+      skipped.push({
+        path: `${folderName}/`,
+        reason: "folder does not exist"
+      })
+      continue
+    }
 
-    if (media1) linked.add(media1)
-    if (media2) linked.add(media2)
+    walkMediaFolder(folderPath, files, skipped)
   }
 
-  return linked
+  return { files, skipped }
 }
 
-function scanAssetImageFiles() {
-  if (!fs.existsSync(assetsDir)) {
-    throw new Error(`Assets upload folder does not exist: ${assetsDir}`)
-  }
+function walkMediaFolder(folderPath, files, skipped) {
+  for (const entry of fs.readdirSync(folderPath, { withFileTypes: true })) {
+    const fullPath = path.join(folderPath, entry.name)
+    const relativePath = safeRelativePath(fullPath)
 
-  const entries = fs.readdirSync(assetsDir, { withFileTypes: true })
-  const imageFiles = []
-  let totalFiles = 0
-  let skippedNonImage = 0
-  let skippedFolders = 0
+    if (entry.isDirectory()) {
+      if (legacyArchiveFolderNames.has(entry.name)) {
+        skipped.push({ path: `${relativePath}/`, reason: "archive folder skipped" })
+        continue
+      }
 
-  for (const entry of entries) {
-    if (entry.name === "_orphaned_cleanup") {
-      skippedFolders += 1
+      walkMediaFolder(fullPath, files, skipped)
       continue
     }
 
     if (!entry.isFile()) {
-      skippedFolders += 1
+      skipped.push({ path: relativePath, reason: "not a regular file" })
       continue
     }
 
-    totalFiles += 1
-    const extension = path.extname(entry.name).toLowerCase()
-
-    if (!imageExtensions.has(extension)) {
-      skippedNonImage += 1
+    if (!isImageFile(entry.name)) {
+      skipped.push({ path: relativePath, reason: "not an image file" })
       continue
     }
 
-    const fullPath = path.join(assetsDir, entry.name)
     const stat = fs.statSync(fullPath)
-
-    imageFiles.push({
-      filename: entry.name,
-      key: entry.name.toLowerCase(),
+    files.push({
       fullPath,
+      relativePath,
       size: stat.size
     })
   }
+}
 
-  return {
-    totalFiles,
-    imageFiles,
-    skippedNonImage,
-    skippedFolders
+function columnKey(column) {
+  return `${column.table_schema}.${column.table_name}.${column.column_name}`
+}
+
+async function discoverReferenceColumns() {
+  const discovered = await pool.query(`
+    SELECT table_schema, table_name, column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'atec'
+      AND data_type IN ('text', 'character varying', 'character')
+    ORDER BY table_schema, table_name, ordinal_position
+  `)
+
+  const forcedKeys = new Set(forcedReferenceColumns.map(column => columnKey(column)))
+  const columns = new Map()
+
+  for (const column of discovered.rows) {
+    if (forcedKeys.has(columnKey(column)) || uploadColumnNamePattern.test(column.column_name)) {
+      columns.set(columnKey(column), column)
+    }
   }
+
+  return [...columns.values()]
+}
+
+async function collectReferenceKeys(columns) {
+  const referenceKeys = new Set()
+  const scannedColumns = []
+  const uncertainColumns = []
+
+  for (const column of columns) {
+    try {
+      const tableRef = `${quoteIdent(column.table_schema)}.${quoteIdent(column.table_name)}`
+      const columnRef = quoteIdent(column.column_name)
+      const result = await pool.query(`
+        SELECT ${columnRef} AS value
+        FROM ${tableRef}
+        WHERE ${columnRef} IS NOT NULL
+          AND btrim(${columnRef}::text) <> ''
+      `)
+
+      let matchedValues = 0
+      for (const row of result.rows) {
+        const keys = referenceKeysFromValue(row.value)
+        if (keys.length) matchedValues += 1
+        for (const key of keys) referenceKeys.add(key)
+      }
+
+      scannedColumns.push({
+        ...column,
+        rows: result.rows.length,
+        matchedValues
+      })
+    } catch (err) {
+      uncertainColumns.push({
+        ...column,
+        error: err.message
+      })
+    }
+  }
+
+  return { referenceKeys, scannedColumns, uncertainColumns }
+}
+
+function classifyFiles(files, referenceKeys, referenceCollectionComplete) {
+  const linkedFiles = []
+  const orphanedFiles = []
+  const uncertainFiles = []
+
+  for (const file of files) {
+    const keys = fileReferenceKeys(file)
+    const matched = [...keys].some(key => referenceKeys.has(key))
+
+    if (matched) {
+      linkedFiles.push(file)
+    } else if (!referenceCollectionComplete) {
+      uncertainFiles.push({
+        ...file,
+        uncertaintyReason: "database reference scan was incomplete"
+      })
+    } else {
+      orphanedFiles.push(file)
+    }
+  }
+
+  return { linkedFiles, orphanedFiles, uncertainFiles }
 }
 
 function buildReport({
-  linkedPhotos,
-  totalFiles,
-  imageFiles,
+  scannedColumns,
+  uncertainColumns,
+  referenceKeys,
+  files,
+  skipped,
+  linkedFiles,
   orphanedFiles,
-  skippedLinked,
-  skippedNonImage,
-  skippedFolders,
-  movedCount,
-  diskSpaceMoved,
-  moveResults
+  uncertainFiles,
+  archiveResults,
+  diskSpaceMoved
 }) {
+  const orphanedDiskSpace = orphanedFiles.reduce((total, file) => total + file.size, 0)
   const lines = [
-    "ATEC Orphaned Asset Images Report",
+    "ATEC Orphaned Media Cleanup Report",
     "==================================",
     `Generated: ${timestamp()}`,
-    `Mode: ${dryRun ? "DRY RUN - no files moved" : "MOVE - orphaned files moved"}`,
+    `Mode: ${dryRun ? "DRY RUN - no files moved" : "ARCHIVE - unused files moved"}`,
     "",
-    `Assets folder: ${assetsDir}`,
-    `Orphan cleanup folder: ${orphanDir}`,
+    `Uploads folder: ${uploadsRoot}`,
+    `Archive folder: ${archiveRoot}`,
     "",
-    `Total files found in /uploads/assets/: ${totalFiles}`,
-    `Total image files found in /uploads/assets/: ${imageFiles.length}`,
-    `Total linked photos in database: ${linkedPhotos.size}`,
-    `Total orphaned photos found: ${orphanedFiles.length}`,
-    `Total photos moved: ${movedCount}`,
-    `Total photos skipped: ${skippedLinked + skippedNonImage + skippedFolders}`,
-    `Total disk space moved: ${formatBytes(diskSpaceMoved)}`,
+    "Safety:",
+    "- No files are permanently deleted.",
+    "- No database records are updated.",
+    "- Files are archived only when confidently unreferenced.",
+    "- Uncertain files are left in place.",
     "",
-    `Skipped linked photos: ${skippedLinked}`,
-    `Skipped non-image files: ${skippedNonImage}`,
-    `Skipped folders/excluded folders: ${skippedFolders}`,
+    "Summary:",
+    `- Media files scanned: ${files.length}`,
+    `- Linked files kept: ${linkedFiles.length}`,
+    `- Confidently unused files: ${orphanedFiles.length}`,
+    `- Uncertain files kept: ${uncertainFiles.length}`,
+    `- Skipped non-media/archive entries: ${skipped.length}`,
+    `- Database columns scanned: ${scannedColumns.length}`,
+    `- Database columns with scan errors: ${uncertainColumns.length}`,
+    `- Unique database reference keys: ${referenceKeys.size}`,
+    `- Disk space ${dryRun ? "that would be archived" : "archived"}: ${formatBytes(dryRun ? orphanedDiskSpace : diskSpaceMoved)}`,
     "",
-    "Orphaned photos:",
-    orphanedFiles.length ? "" : "None"
+    "Database Columns Scanned:"
   ]
 
-  for (const file of orphanedFiles) {
-    lines.push(`- ${file.filename} (${formatBytes(file.size)})`)
+  for (const column of scannedColumns) {
+    lines.push(`- ${columnKey(column)} (${column.rows} values, ${column.matchedValues} upload refs)`)
   }
 
-  if (moveResults.length) {
-    lines.push("", "Move results:")
+  if (uncertainColumns.length) {
+    lines.push("", "Database Columns Not Fully Scanned:")
+    for (const column of uncertainColumns) {
+      lines.push(`- ${columnKey(column)}: ${column.error}`)
+    }
+  }
 
-    for (const item of moveResults) {
+  lines.push("", "Confidently Unused Files:")
+  if (!orphanedFiles.length) lines.push("None")
+  for (const file of orphanedFiles) {
+    lines.push(`- ${file.relativePath} (${formatBytes(file.size)})`)
+  }
+
+  if (uncertainFiles.length) {
+    lines.push("", "Uncertain Files Kept In Place:")
+    for (const file of uncertainFiles) {
+      lines.push(`- ${file.relativePath} (${formatBytes(file.size)}): ${file.uncertaintyReason}`)
+    }
+  }
+
+  if (skipped.length) {
+    lines.push("", "Skipped Entries:")
+    for (const item of skipped) {
+      lines.push(`- ${item.path}: ${item.reason}`)
+    }
+  }
+
+  if (archiveResults.length) {
+    lines.push("", "Archive Results:")
+    for (const item of archiveResults) {
       lines.push(`- ${item.status}: ${item.from} -> ${item.to || "-"}`)
     }
   }
@@ -238,111 +418,132 @@ function buildReport({
 }
 
 function buildConsoleSummary({
-  linkedPhotos,
-  totalFiles,
-  imageFiles,
+  files,
+  linkedFiles,
   orphanedFiles,
-  skippedLinked,
-  skippedNonImage,
-  skippedFolders,
+  uncertainFiles,
+  uncertainColumns,
   movedCount,
   diskSpaceMoved
 }) {
   const orphanedDiskSpace = orphanedFiles.reduce((total, file) => total + file.size, 0)
 
   return [
-    "ATEC Orphaned Asset Images Cleanup",
-    "==================================",
-    `Mode: ${dryRun ? "DRY RUN - no files moved" : "MOVE - orphaned files moved"}`,
-    `Assets folder: ${assetsDir}`,
+    "ATEC Orphaned Media Cleanup",
+    "===========================",
+    `Mode: ${dryRun ? "DRY RUN - no files moved" : "ARCHIVE - unused files moved"}`,
+    `Uploads folder: ${uploadsRoot}`,
     "",
-    `Total files found in /uploads/assets/: ${totalFiles}`,
-    `Total image files found in /uploads/assets/: ${imageFiles.length}`,
-    `Total linked photos in database: ${linkedPhotos.size}`,
-    `Total orphaned photos found: ${orphanedFiles.length}`,
-    `Total photos moved: ${movedCount}`,
-    `Total photos skipped: ${skippedLinked + skippedNonImage + skippedFolders}`,
-    `Total disk space moved: ${formatBytes(diskSpaceMoved)}`,
-    dryRun ? `Total disk space that would move: ${formatBytes(orphanedDiskSpace)}` : "",
+    `Media files scanned: ${files.length}`,
+    `Linked files kept: ${linkedFiles.length}`,
+    `Confidently unused files: ${orphanedFiles.length}`,
+    `Uncertain files kept: ${uncertainFiles.length}`,
+    `Database columns with scan errors: ${uncertainColumns.length}`,
+    `Files archived: ${movedCount}`,
+    dryRun
+      ? `Disk space that would be archived: ${formatBytes(orphanedDiskSpace)}`
+      : `Disk space archived: ${formatBytes(diskSpaceMoved)}`,
     "",
-    `Full report: ${reportPath}`,
-    `Move log: ${movedLogPath}`
-  ].filter(Boolean).join("\n")
+    `Report: ${reportPath}`,
+    `Archive log: ${archiveLogPath}`
+  ].join("\n")
 }
 
-async function main() {
-  fs.mkdirSync(assetsDir, { recursive: true })
-  fs.mkdirSync(orphanDir, { recursive: true })
-
-  const linkedPhotos = await getLinkedAssetPhotoNames()
-  const { totalFiles, imageFiles, skippedNonImage, skippedFolders } = scanAssetImageFiles()
-  const orphanedFiles = imageFiles.filter(file => !linkedPhotos.has(file.key))
-  const skippedLinked = imageFiles.length - orphanedFiles.length
-  const moveResults = []
+function archiveUnusedFiles(orphanedFiles) {
+  const archiveResults = []
   let movedCount = 0
   let diskSpaceMoved = 0
 
-  const preMoveReport = buildReport({
-    linkedPhotos,
-    totalFiles,
-    imageFiles,
-    orphanedFiles,
-    skippedLinked,
-    skippedNonImage,
-    skippedFolders,
-    movedCount,
-    diskSpaceMoved,
-    moveResults
-  })
+  for (const file of orphanedFiles) {
+    const destinationPath = uniqueDestinationPath(path.join(archiveRoot, file.relativePath))
 
-  fs.writeFileSync(reportPath, preMoveReport, "utf8")
-
-  if (!dryRun) {
-    for (const file of orphanedFiles) {
-      const destinationPath = uniqueDestinationPath(orphanDir, file.filename)
-
-      try {
-        fs.renameSync(file.fullPath, destinationPath)
-        movedCount += 1
-        diskSpaceMoved += file.size
-        moveResults.push({
-          status: "MOVED",
-          from: file.fullPath,
-          to: destinationPath
-        })
-      } catch (err) {
-        moveResults.push({
-          status: `SKIPPED - ${err.message}`,
-          from: file.fullPath,
-          to: destinationPath
-        })
-      }
+    try {
+      fs.mkdirSync(path.dirname(destinationPath), { recursive: true })
+      fs.renameSync(file.fullPath, destinationPath)
+      movedCount += 1
+      diskSpaceMoved += file.size
+      archiveResults.push({
+        status: "ARCHIVED",
+        from: file.fullPath,
+        to: destinationPath
+      })
+    } catch (err) {
+      archiveResults.push({
+        status: `KEPT - ${err.message}`,
+        from: file.fullPath,
+        to: destinationPath
+      })
     }
   }
 
-  const movedLog = buildReport({
-    linkedPhotos,
-    totalFiles,
-    imageFiles,
+  return { archiveResults, movedCount, diskSpaceMoved }
+}
+
+async function main() {
+  if (helpRequested) {
+    console.log(usage())
+    return
+  }
+
+  fs.mkdirSync(uploadsRoot, { recursive: true })
+
+  const columns = await discoverReferenceColumns()
+  const { referenceKeys, scannedColumns, uncertainColumns } = await collectReferenceKeys(columns)
+  const referenceCollectionComplete = uncertainColumns.length === 0
+  const { files, skipped } = scanMediaFiles()
+  const { linkedFiles, orphanedFiles, uncertainFiles } = classifyFiles(
+    files,
+    referenceKeys,
+    referenceCollectionComplete
+  )
+
+  let archiveResults = []
+  let movedCount = 0
+  let diskSpaceMoved = 0
+
+  const preArchiveReport = buildReport({
+    scannedColumns,
+    uncertainColumns,
+    referenceKeys,
+    files,
+    skipped,
+    linkedFiles,
     orphanedFiles,
-    skippedLinked,
-    skippedNonImage,
-    skippedFolders,
-    movedCount,
-    diskSpaceMoved,
-    moveResults
+    uncertainFiles,
+    archiveResults,
+    diskSpaceMoved
   })
 
-  fs.writeFileSync(movedLogPath, movedLog, "utf8")
+  fs.writeFileSync(reportPath, preArchiveReport, "utf8")
+
+  if (!dryRun) {
+    const result = archiveUnusedFiles(orphanedFiles)
+    archiveResults = result.archiveResults
+    movedCount = result.movedCount
+    diskSpaceMoved = result.diskSpaceMoved
+  }
+
+  const finalReport = buildReport({
+    scannedColumns,
+    uncertainColumns,
+    referenceKeys,
+    files,
+    skipped,
+    linkedFiles,
+    orphanedFiles,
+    uncertainFiles,
+    archiveResults,
+    diskSpaceMoved
+  })
+
+  fs.writeFileSync(archiveLogPath, finalReport, "utf8")
 
   console.log(buildConsoleSummary({
-    linkedPhotos,
-    totalFiles,
-    imageFiles,
+    files,
+    linkedFiles,
     orphanedFiles,
-    skippedLinked,
-    skippedNonImage,
-    skippedFolders,
+    uncertainFiles,
+    uncertainColumns,
     movedCount,
     diskSpaceMoved
   }))
