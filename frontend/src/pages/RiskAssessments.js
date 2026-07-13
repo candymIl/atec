@@ -172,60 +172,64 @@ export async function renderRiskAssessments(assets = [], canWrite = true) {
         </div>
       </div>
 
-      <div class="risk-form-grid">
-        <div class="form-group risk-span-2">
+      <div class="risk-assessment-flow">
+        <div class="form-group risk-full">
           <label>LOOK / ASSESS - Hazards and Risks</label>
           <textarea id="riskHazard" rows="2"></textarea>
         </div>
 
-        <div class="form-group risk-span-2">
+        <div class="form-group risk-full">
           <label>Consequence</label>
           <textarea id="riskConsequence" rows="2"></textarea>
         </div>
 
-        <div class="form-group">
-          <label>Initial Severity</label>
-          <select id="riskInitialSeverity">${riskOptions(3)}</select>
+        <div class="risk-score-grid">
+          <div class="form-group">
+            <label>Initial Severity</label>
+            <select id="riskInitialSeverity">${riskOptions(3)}</select>
+          </div>
+
+          <div class="form-group">
+            <label>Initial Likelihood</label>
+            <select id="riskInitialLikelihood">${riskOptions(3)}</select>
+          </div>
+
+          <div class="form-group">
+            <label>Residual Severity</label>
+            <select id="riskResidualSeverity">${riskOptions(2)}</select>
+          </div>
+
+          <div class="form-group">
+            <label>Residual Likelihood</label>
+            <select id="riskResidualLikelihood">${riskOptions(2)}</select>
+          </div>
         </div>
 
-        <div class="form-group">
-          <label>Initial Likelihood</label>
-          <select id="riskInitialLikelihood">${riskOptions(3)}</select>
-        </div>
-
-        <div class="form-group risk-span-2">
+        <div class="form-group risk-full">
           <label>Controls to Manage the Hazards and Risks</label>
           <textarea id="riskControls" rows="2"></textarea>
         </div>
 
-        <div class="form-group">
-          <label>Residual Severity</label>
-          <select id="riskResidualSeverity">${riskOptions(2)}</select>
-        </div>
-
-        <div class="form-group">
-          <label>Residual Likelihood</label>
-          <select id="riskResidualLikelihood">${riskOptions(2)}</select>
-        </div>
-
-        <div class="form-group risk-span-2">
+        <div class="form-group risk-full">
           <label>MANAGE - Actions Required</label>
           <textarea id="riskActionRequired" rows="2"></textarea>
         </div>
 
-        <div class="form-group risk-span-2">
+        <div class="form-group risk-full">
           <label>Manage Plan</label>
           <textarea id="riskManagePlan" rows="2"></textarea>
         </div>
 
-        <div class="form-group risk-span-2">
+        <div class="form-group risk-full">
           <label>MONITOR - New Hazards / Changes During Task</label>
           <textarea id="riskMonitorNotes" rows="2"></textarea>
         </div>
 
-        <div class="form-group">
-          <label>Due Date</label>
-          <input id="riskDueDate" type="date">
+        <div class="risk-due-row">
+          <div class="form-group risk-due-field">
+            <label>Due Date</label>
+            <input id="riskDueDate" type="date">
+          </div>
         </div>
       </div>
 

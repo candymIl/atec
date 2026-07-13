@@ -1145,6 +1145,49 @@ tr:hover {
   grid-column: span 2;
 }
 
+.risk-assessment-flow {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.risk-assessment-flow .form-group {
+  min-width: 0;
+}
+
+.risk-assessment-flow input,
+.risk-assessment-flow select,
+.risk-assessment-flow textarea {
+  width: 100%;
+  max-width: none;
+}
+
+.risk-assessment-flow textarea {
+  min-height: 74px;
+  resize: vertical;
+}
+
+.risk-full {
+  width: 100%;
+}
+
+.risk-score-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 14px 18px;
+  align-items: end;
+}
+
+.risk-due-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 360px);
+  justify-content: end;
+}
+
+.risk-due-field {
+  width: 100%;
+}
+
 .slamm-section {
   border: 1px solid #d8e1ee;
   border-radius: 8px;
@@ -1230,6 +1273,15 @@ tr:hover {
 
   .risk-span-2 {
     grid-column: auto;
+  }
+
+  .risk-score-grid,
+  .risk-due-row {
+    grid-template-columns: 1fr;
+  }
+
+  .risk-due-row {
+    justify-content: stretch;
   }
 }
 
