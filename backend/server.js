@@ -1,6 +1,7 @@
 const fs = require("fs")
 const express = require("express");
 const cors = require("cors");
+const compression = require("compression");
 const cookieParser = require("cookie-parser")
 const helmet = require("helmet")
 const rateLimit = require("express-rate-limit")
@@ -49,6 +50,15 @@ const pdfConcurrency = Math.max(1, Number(process.env.PDF_CONCURRENCY || 1))
 const bulkPdfMaxCertificates = Math.max(1, Number(process.env.BULK_PDF_MAX_CERTIFICATES || 50))
 const reportExportMaxRows = Math.max(1, Number(process.env.REPORT_EXPORT_MAX_ROWS || 10000))
 const uploadCompressionConcurrency = Math.max(1, Number(process.env.UPLOAD_COMPRESSION_CONCURRENCY || 2))
+const requestTimeoutMs = parsePositiveInteger(process.env.REQUEST_TIMEOUT_MS, 180000, 900000)
+const headersTimeoutMs = Math.max(
+  parsePositiveInteger(process.env.HEADERS_TIMEOUT_MS, Math.max(requestTimeoutMs + 5000, 65000), 905000),
+  requestTimeoutMs + 1000
+)
+const keepAliveTimeoutMs = Math.min(
+  parsePositiveInteger(process.env.KEEP_ALIVE_TIMEOUT_MS, 65000, 300000),
+  headersTimeoutMs - 1000
+)
 const allowedOrigins = (process.env.FRONTEND_ORIGIN || defaultFrontendOrigin)
   .split(",")
   .map(origin => origin.trim())
@@ -129,6 +139,15 @@ app.use((req, res, next) => {
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
+app.use(compression({
+  filter: (req, res) => {
+    if (req.path.endsWith(".pdf") || req.path.endsWith(".xlsx") || req.path.startsWith("/uploads")) {
+      return false
+    }
+
+    return compression.filter(req, res)
+  }
+}))
 app.use(cors({
   origin: function (origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) {
@@ -4464,6 +4483,19 @@ app.get("/inspections/assets/search", searchLimiter, async (req, res) => {
   }
 })
 
+const certificateSearchSortColumns = {
+  testid: "i.testid",
+  tagnumber: "i.tagnumber",
+  clientname: "c.clientname",
+  sitename: "s.sitename",
+  description: "a.description",
+  serialno: "a.serialno",
+  inspectiontype: "i.inspectiontype",
+  testdate: "i.testdate",
+  status: "i.status",
+  inspector: "COALESCE(i.inspector_name, i.inspector)"
+}
+
 app.get("/certificates/search", async (req, res) => {
   try {
     const {
@@ -4477,6 +4509,11 @@ app.get("/certificates/search", async (req, res) => {
       dateto = ""
     } = req.query
 
+    const requestedPage = parsePositiveInteger(req.query.page, 1, 100000)
+    const limit = parsePositiveInteger(req.query.limit, 25, 250)
+    const sortKey = certificateSearchSortColumns[req.query.sortKey] ? req.query.sortKey : "testid"
+    const sortDirection = String(req.query.sortDir || "desc").toLowerCase() === "asc" ? "ASC" : "DESC"
+    const orderSql = `${certificateSearchSortColumns[sortKey]} ${sortDirection} NULLS LAST, i.testid DESC`
     const values = []
     let where = `WHERE 1 = 1`
 
@@ -4513,7 +4550,19 @@ app.get("/certificates/search", async (req, res) => {
         : clientid
 
     if (req.user.role === "CUSTOMER" && !effectiveClientId) {
-      return res.json([])
+      return res.json({
+        rows: [],
+        total: 0,
+        page: 1,
+        limit,
+        totalPages: 1,
+        summary: {
+          safe: 0,
+          notSafe: 0,
+          visual: 0,
+          loadTest: 0
+        }
+      })
     }
 
     if (effectiveClientId) {
@@ -4541,6 +4590,33 @@ app.get("/certificates/search", async (req, res) => {
       where += ` AND i.testdate <= $${values.length}`
     }
 
+    const countResult = await pool.query(
+      `
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE i.status = 'SAFE')::int AS safe,
+        COUNT(*) FILTER (WHERE i.status = 'NOT SAFE')::int AS not_safe,
+        COUNT(*) FILTER (WHERE i.inspectiontype = 'VISUAL')::int AS visual,
+        COUNT(*) FILTER (WHERE i.inspectiontype = 'LOADTEST')::int AS load_test
+      FROM atec.tblinspection i
+      LEFT JOIN atec.tblasset a ON i.assetid = a.assetid
+      LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
+      LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
+      LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
+      LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
+      ${where}
+      `,
+      values
+    )
+
+    const total = countResult.rows[0]?.total || 0
+    const totalPages = Math.max(1, Math.ceil(total / limit))
+    const page = Math.min(requestedPage, totalPages)
+    const offset = (page - 1) * limit
+    const pagedValues = [...values, limit, offset]
+    const limitParam = `$${pagedValues.length - 1}`
+    const offsetParam = `$${pagedValues.length}`
+
     const result = await pool.query(
       `
       SELECT
@@ -4567,13 +4643,27 @@ app.get("/certificates/search", async (req, res) => {
       LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
       LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
       ${where}
-      ORDER BY i.testid DESC
-      LIMIT 200
+      ORDER BY ${orderSql}
+      LIMIT ${limitParam}
+      OFFSET ${offsetParam}
       `,
-      values
+      pagedValues
     )
 
-    res.json(result.rows)
+    res.json({
+      rows: result.rows,
+      total,
+      page,
+      limit,
+      totalPages,
+      summary: {
+        total,
+        safe: countResult.rows[0]?.safe || 0,
+        notSafe: countResult.rows[0]?.not_safe || 0,
+        visual: countResult.rows[0]?.visual || 0,
+        loadTest: countResult.rows[0]?.load_test || 0
+      }
+    })
 
   } catch (err) {
     console.error(err)
@@ -4661,15 +4751,10 @@ async function getBulkCertificateMatches(req, includeTestIds = false) {
     values
   )
 
-  const certificates = []
-
-  for (const row of result.rows) {
-    const certificate = await getCertificateData(row.testid)
-
-    if (certificate && canViewCertificate(req.user, certificate)) {
-      certificates.push(certificate)
-    }
-  }
+  const certificatesByTestId = await getCertificatesData(result.rows.map(row => row.testid))
+  const certificates = result.rows
+    .map(row => certificatesByTestId.get(Number(row.testid)))
+    .filter(certificate => certificate && canViewCertificate(req.user, certificate))
 
   return {
     filters: {
@@ -4837,7 +4922,16 @@ app.put("/sections/:id/unarchive", async (req, res) => {
   }
 })
 
-async function getCertificateData(testid) {
+async function getCertificatesData(testids = []) {
+  const normalizedTestIds = [...new Set(
+    testids
+      .map(value => Number(value))
+      .filter(value => Number.isInteger(value) && value > 0)
+  )]
+
+  const certificates = new Map()
+  if (!normalizedTestIds.length) return certificates
+
   const inspectionResult = await pool.query(
     `
     SELECT
@@ -4887,19 +4981,24 @@ async function getCertificateData(testid) {
       ON a.sectionid = sec.sectionid
     LEFT JOIN atec.tblequiptype et
       ON a.equiptypeid = et.equiptypeid
-    WHERE i.testid = $1
+    WHERE i.testid = ANY($1::int[])
     `,
-    [testid]
+    [normalizedTestIds]
   )
 
-  if (inspectionResult.rows.length === 0) {
-    return null
+  for (const inspection of inspectionResult.rows) {
+    certificates.set(Number(inspection.testid), {
+      inspection,
+      results: [],
+      photos: []
+    })
   }
 
   const resultsResult = await pool.query(
     `
     SELECT
       r.resultid,
+      r.testid,
       r.criteriaid,
       COALESCE(c.criteriadescription, c.criterianame, 'Criteria ' || r.criteriaid) AS criterianame,
       c.fieldtype,
@@ -4915,8 +5014,9 @@ async function getCertificateData(testid) {
     FROM atec.tblinspectionresult r
     LEFT JOIN atec.tblequiptypecriteria c
       ON r.criteriaid = c.criteriaid
-    WHERE r.testid = $1
+    WHERE r.testid = ANY($1::int[])
     ORDER BY
+      r.testid,
       CASE
         WHEN LOWER(COALESCE(c.criterianame, '')) = 'safe for service' THEN 1
         ELSE 0
@@ -4924,7 +5024,7 @@ async function getCertificateData(testid) {
       c.sortorder,
       c.criteriaid
     `,
-    [testid]
+    [normalizedTestIds]
   )
 
   const photosResult = await pool.query(
@@ -4940,17 +5040,27 @@ async function getCertificateData(testid) {
       photo_type,
       uploaded_at
     FROM atec.tblinspectionphoto
-    WHERE testid = $1
-    ORDER BY photoid
+    WHERE testid = ANY($1::int[])
+    ORDER BY testid, photoid
     `,
-    [testid]
+    [normalizedTestIds]
   )
 
-  return {
-    inspection: inspectionResult.rows[0],
-    results: resultsResult.rows,
-    photos: photosResult.rows
+  for (const row of resultsResult.rows) {
+    const certificate = certificates.get(Number(row.testid))
+    if (certificate) certificate.results.push(row)
   }
+
+  for (const row of photosResult.rows) {
+    const certificate = certificates.get(Number(row.testid))
+    if (certificate) certificate.photos.push(row)
+  }
+
+  return certificates
+}
+
+async function getCertificateData(testid) {
+  return (await getCertificatesData([testid])).get(Number(testid)) || null
 }
 
 function formatPdfDate(value) {
@@ -7282,7 +7392,25 @@ function customerScopedReportFilters(req) {
   return filters
 }
 
-async function getCustomerDetailedReport(filters = {}) {
+const customerReportSortColumns = {
+  clientname: "clientname",
+  assetid: "assetid",
+  assettagno: "assettagno",
+  serialno: "serialno",
+  sitename: "sitename",
+  sectionname: "sectionname",
+  responsiblename: "responsiblename",
+  equipmenttype: "equipmenttype",
+  description: "description",
+  latestinspectiondate: "latestinspectiondate",
+  visualtestdate: "visualtestdate",
+  visualstatus: "visualstatus",
+  loadtestdate: "loadtestdate",
+  loadstatus: "loadstatus",
+  reportstatus: "reportstatus"
+}
+
+async function getCustomerDetailedReport(filters = {}, options = {}) {
   const {
     clientid = "",
     siteid = "",
@@ -7298,6 +7426,11 @@ async function getCustomerDetailedReport(filters = {}) {
   let customerWhere = "WHERE 1 = 1"
   let assetWhere = "WHERE 1 = 1"
   const inspectionWhere = []
+  const paged = options.paginated === true
+  const requestedPage = parsePositiveInteger(options.page, 1, 100000)
+  const limit = parsePositiveInteger(options.limit, 25, 250)
+  const sortKey = customerReportSortColumns[options.sortKey] ? options.sortKey : "latestinspectiondate"
+  const sortDirection = String(options.sortDir || "desc").toLowerCase() === "asc" ? "ASC" : "DESC"
 
   if (clientid) {
     customerValues.push(clientid)
@@ -7398,8 +7531,7 @@ async function getCustomerDetailedReport(filters = {}) {
     customerValues
   )
 
-  const assetResult = await pool.query(
-    `
+  const assetBaseSql = `
     WITH latest_visual AS (
       SELECT DISTINCT ON (assetid)
         assetid,
@@ -7485,17 +7617,71 @@ async function getCustomerDetailedReport(filters = {}) {
     LEFT JOIN latest_load ll
       ON a.assetid = ll.assetid
     ${assetWhere}
-    ORDER BY latestinspectiondate DESC NULLS LAST, c.clientname, s.sitename, sec.sectionname, a.assetid
+  `
+
+  let summary = null
+  let totalAssets = null
+
+  if (paged) {
+    const summaryResult = await pool.query(
+      `
+      WITH report_assets AS (
+        ${assetBaseSql}
+      )
+      SELECT
+        COUNT(*)::int AS assets,
+        COUNT(*) FILTER (WHERE archived IS NOT TRUE)::int AS active_assets,
+        COUNT(*) FILTER (WHERE archived IS TRUE)::int AS archived_assets,
+        COUNT(*) FILTER (WHERE archived IS NOT TRUE AND reportstatus = 'OK')::int AS safe_assets,
+        COUNT(*) FILTER (WHERE archived IS NOT TRUE AND reportstatus = 'NOT SAFE')::int AS not_safe_assets,
+        COUNT(*) FILTER (WHERE archived IS NOT TRUE AND reportstatus = 'VISUAL OVERDUE')::int AS visual_overdue_assets,
+        COUNT(*) FILTER (WHERE archived IS NOT TRUE AND reportstatus = 'LOAD TEST OVERDUE')::int AS load_overdue_assets,
+        COUNT(*) FILTER (WHERE archived IS NOT TRUE AND reportstatus = 'NO VISUAL')::int AS no_visual_assets,
+        COUNT(*) FILTER (WHERE archived IS NOT TRUE AND reportstatus = 'NO LOAD TEST')::int AS no_load_assets
+      FROM report_assets
+      `,
+      values
+    )
+
+    totalAssets = summaryResult.rows[0]?.assets || 0
+    summary = summaryResult.rows[0] || {}
+  }
+
+  const page = paged ? Math.min(requestedPage, Math.max(1, Math.ceil((totalAssets || 0) / limit))) : requestedPage
+  const offset = (page - 1) * limit
+  const orderColumn = customerReportSortColumns[sortKey] || customerReportSortColumns.latestinspectiondate
+  const orderSql = paged
+    ? `${orderColumn} ${sortDirection} NULLS LAST, assetid DESC`
+    : "latestinspectiondate DESC NULLS LAST, clientname, sitename, sectionname, assetid"
+  const pagedValues = paged ? [...values, limit, offset] : values
+  const limitSql = paged
+    ? `LIMIT $${pagedValues.length - 1} OFFSET $${pagedValues.length}`
+    : ""
+
+  const assetResult = await pool.query(
+    `
+    ${assetBaseSql}
+    ORDER BY ${orderSql}
+    ${limitSql}
     `,
-    values
+    pagedValues
   )
 
   const assets = assetResult.rows
-  const activeAssets = assets.filter(row => row.archived !== true)
-  const statusCounts = activeAssets.reduce((counts, row) => {
-    counts[row.reportstatus] = (counts[row.reportstatus] || 0) + 1
-    return counts
-  }, {})
+  const activeAssets = paged ? [] : assets.filter(row => row.archived !== true)
+  const statusCounts = paged
+    ? {
+        OK: summary.safe_assets || 0,
+        "NOT SAFE": summary.not_safe_assets || 0,
+        "VISUAL OVERDUE": summary.visual_overdue_assets || 0,
+        "LOAD TEST OVERDUE": summary.load_overdue_assets || 0,
+        "NO VISUAL": summary.no_visual_assets || 0,
+        "NO LOAD TEST": summary.no_load_assets || 0
+      }
+    : activeAssets.reduce((counts, row) => {
+        counts[row.reportstatus] = (counts[row.reportstatus] || 0) + 1
+        return counts
+      }, {})
 
   return {
     generatedAt: new Date().toISOString(),
@@ -7512,17 +7698,25 @@ async function getCustomerDetailedReport(filters = {}) {
     assets,
     summary: {
       customers: customerResult.rows.length,
-      assets: assets.length,
-      activeAssets: activeAssets.length,
-      archivedAssets: assets.length - activeAssets.length,
-      safeAssets: activeAssets.filter(row => row.reportstatus === "OK").length,
-      notSafeAssets: activeAssets.filter(row => row.reportstatus === "NOT SAFE").length,
-      visualOverdueAssets: activeAssets.filter(row => row.reportstatus === "VISUAL OVERDUE").length,
-      loadOverdueAssets: activeAssets.filter(row => row.reportstatus === "LOAD TEST OVERDUE").length,
-      noVisualAssets: activeAssets.filter(row => row.reportstatus === "NO VISUAL").length,
-      noLoadAssets: activeAssets.filter(row => row.reportstatus === "NO LOAD TEST").length,
+      assets: paged ? totalAssets : assets.length,
+      activeAssets: paged ? summary.active_assets || 0 : activeAssets.length,
+      archivedAssets: paged ? summary.archived_assets || 0 : assets.length - activeAssets.length,
+      safeAssets: paged ? summary.safe_assets || 0 : activeAssets.filter(row => row.reportstatus === "OK").length,
+      notSafeAssets: paged ? summary.not_safe_assets || 0 : activeAssets.filter(row => row.reportstatus === "NOT SAFE").length,
+      visualOverdueAssets: paged ? summary.visual_overdue_assets || 0 : activeAssets.filter(row => row.reportstatus === "VISUAL OVERDUE").length,
+      loadOverdueAssets: paged ? summary.load_overdue_assets || 0 : activeAssets.filter(row => row.reportstatus === "LOAD TEST OVERDUE").length,
+      noVisualAssets: paged ? summary.no_visual_assets || 0 : activeAssets.filter(row => row.reportstatus === "NO VISUAL").length,
+      noLoadAssets: paged ? summary.no_load_assets || 0 : activeAssets.filter(row => row.reportstatus === "NO LOAD TEST").length,
       statusCounts
-    }
+    },
+    pagination: paged
+      ? {
+          page,
+          limit,
+          total: totalAssets,
+          totalPages: Math.max(1, Math.ceil((totalAssets || 0) / limit))
+        }
+      : null
   }
 }
 
@@ -7771,7 +7965,13 @@ async function buildCustomerReportWorkbook(report) {
 
 app.get("/reports/customer-detailed", searchLimiter, async (req, res) => {
   try {
-    const report = await getCustomerDetailedReport(customerScopedReportFilters(req))
+    const report = await getCustomerDetailedReport(customerScopedReportFilters(req), {
+      paginated: true,
+      page: req.query.page,
+      limit: req.query.limit,
+      sortKey: req.query.sortKey,
+      sortDir: req.query.sortDir
+    })
     res.json(report)
   } catch (err) {
     console.error("Customer detailed report error:", err)
@@ -8342,6 +8542,230 @@ app.get("/dashboard/upcoming-expiries-by-customer", async (req, res) => {
   }
 })
 
+const dashboardSummaryCache = new Map()
+const dashboardSummaryCacheTtlMs = Number(process.env.DASHBOARD_SUMMARY_CACHE_TTL_MS || 15000)
+
+function dashboardSummaryCacheKey(req) {
+  return `${req.user?.role || ""}:${req.user?.clientid || ""}`
+}
+
+async function getCachedDashboardSummary(req) {
+  const key = dashboardSummaryCacheKey(req)
+  const cached = dashboardSummaryCache.get(key)
+
+  if (cached && Date.now() - cached.createdAt < dashboardSummaryCacheTtlMs) {
+    return cached.data
+  }
+
+  const scopedToClient = dashboardClientScope(req)
+  const scopedCustomer =
+    ["CUSTOMER", "VIEWER"].includes(req.user?.role) &&
+    req.user?.clientid
+  const customerWhere = scopedCustomer ? "WHERE c.clientid = $1" : ""
+  const customerValues = scopedCustomer ? [req.user.clientid] : []
+  const equipmentClientFilter = scopedCustomer ? "AND a.clientid = $1" : ""
+
+  const dashboardResults = await Promise.allSettled([
+    pool.query(`
+      WITH active_assets AS (
+        SELECT a.assetid, a.clientid
+        FROM atec.tblasset a
+        WHERE COALESCE(a.archived, false) = false
+        ${scopedToClient.clause}
+      ),
+      latest_visual AS (
+        SELECT DISTINCT ON (i.assetid) i.assetid, i.testdate, i.validdate, i.status
+        FROM atec.tblinspection i
+        JOIN active_assets a ON a.assetid = i.assetid
+        WHERE i.inspectiontype = 'VISUAL'
+        ORDER BY i.assetid, i.testdate DESC NULLS LAST, i.testid DESC
+      ),
+      latest_load AS (
+        SELECT DISTINCT ON (i.assetid) i.assetid, i.testdate, i.validdate, i.status
+        FROM atec.tblinspection i
+        JOIN active_assets a ON a.assetid = i.assetid
+        WHERE i.inspectiontype = 'LOADTEST'
+        ORDER BY i.assetid, i.testdate DESC NULLS LAST, i.testid DESC
+      ),
+      latest_inspections AS (
+        SELECT * FROM latest_visual
+        UNION ALL
+        SELECT * FROM latest_load
+      )
+      SELECT
+        (
+          SELECT COUNT(DISTINCT a.assetid)
+          FROM active_assets a
+          LEFT JOIN latest_visual v ON v.assetid = a.assetid
+          LEFT JOIN latest_load l ON l.assetid = a.assetid
+          WHERE v.status = 'NOT SAFE' OR l.status = 'NOT SAFE'
+        ) AS failed,
+        (
+          SELECT COUNT(*)
+          FROM latest_inspections
+          WHERE validdate IS NOT NULL
+            AND validdate BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
+        ) AS expiring,
+        (
+          SELECT COUNT(*)
+          FROM active_assets a
+          LEFT JOIN latest_visual v ON v.assetid = a.assetid
+          LEFT JOIN latest_load l ON l.assetid = a.assetid
+          WHERE (
+            v.testdate + INTERVAL '3 months' < CURRENT_DATE
+            OR l.testdate + INTERVAL '12 months' < CURRENT_DATE
+          )
+        ) AS overdue
+    `, scopedToClient.values),
+    pool.query(`
+      WITH active_assets AS (
+        SELECT *
+        FROM atec.tblasset a
+        WHERE COALESCE(a.archived, false) = false
+        ${scopedToClient.clause}
+      ),
+      latest_inspections AS (
+        SELECT DISTINCT ON (i.assetid, i.inspectiontype)
+          i.testid, i.assetid, i.inspectiontype, i.testdate, i.status
+        FROM atec.tblinspection i
+        JOIN active_assets a ON a.assetid = i.assetid
+        WHERE i.inspectiontype IN ('VISUAL', 'LOADTEST')
+        ORDER BY i.assetid, i.inspectiontype, i.testdate DESC NULLS LAST, i.testid DESC
+      ),
+      failed_assets AS (
+        SELECT
+          a.clientid,
+          a.assetid,
+          COUNT(i.testid)::int AS failed_certificates,
+          MAX(i.testdate) AS latest_failed_date
+        FROM active_assets a
+        JOIN latest_inspections i ON i.assetid = a.assetid
+        WHERE i.status = 'NOT SAFE'
+        GROUP BY a.clientid, a.assetid
+      )
+      SELECT
+        fa.clientid,
+        COALESCE(c.clientname, 'Unknown Customer') AS clientname,
+        COUNT(fa.assetid)::int AS failed_assets,
+        SUM(fa.failed_certificates)::int AS failed_certificates,
+        MAX(fa.latest_failed_date) AS latest_failed_date
+      FROM failed_assets fa
+      LEFT JOIN atec.tblclients c ON fa.clientid = c.clientid
+      GROUP BY fa.clientid, c.clientname
+      ORDER BY failed_assets DESC, clientname ASC
+      LIMIT 50
+    `, scopedToClient.values),
+    pool.query(`
+      WITH active_assets AS (
+        SELECT *
+        FROM atec.tblasset a
+        WHERE COALESCE(a.archived, false) = false
+        ${scopedToClient.clause}
+      ),
+      latest_inspections AS (
+        SELECT DISTINCT ON (i.assetid, i.inspectiontype)
+          i.testid, i.assetid, i.inspectiontype, i.testdate, i.validdate
+        FROM atec.tblinspection i
+        JOIN active_assets a ON a.assetid = i.assetid
+        WHERE i.inspectiontype IN ('VISUAL', 'LOADTEST')
+        ORDER BY i.assetid, i.inspectiontype, i.testdate DESC NULLS LAST, i.testid DESC
+      ),
+      upcoming_assets AS (
+        SELECT
+          a.clientid,
+          a.assetid,
+          COUNT(i.testid)::int AS upcoming_certificates,
+          MIN(i.validdate) AS next_expiry_date,
+          MIN(i.validdate - CURRENT_DATE) AS days_remaining
+        FROM active_assets a
+        JOIN latest_inspections i ON i.assetid = a.assetid
+        WHERE i.validdate IS NOT NULL
+          AND i.validdate >= CURRENT_DATE
+          AND i.validdate <= CURRENT_DATE + INTERVAL '90 days'
+        GROUP BY a.clientid, a.assetid
+      )
+      SELECT
+        ua.clientid,
+        COALESCE(c.clientname, 'Unknown Customer') AS clientname,
+        COUNT(ua.assetid)::int AS upcoming_assets,
+        SUM(ua.upcoming_certificates)::int AS upcoming_certificates,
+        MIN(ua.next_expiry_date) AS next_expiry_date,
+        MIN(ua.days_remaining) AS days_remaining
+      FROM upcoming_assets ua
+      LEFT JOIN atec.tblclients c ON ua.clientid = c.clientid
+      GROUP BY ua.clientid, c.clientname
+      ORDER BY next_expiry_date ASC, upcoming_assets DESC, clientname ASC
+      LIMIT 50
+    `, scopedToClient.values),
+    pool.query(`
+      SELECT
+        c.clientid,
+        c.clientname,
+        COUNT(DISTINCT s.siteid)::int AS sites,
+        COUNT(DISTINCT a.assetid)::int AS assets
+      FROM atec.tblclients c
+      LEFT JOIN atec.tblsites s ON c.clientid = s.clientid
+      LEFT JOIN atec.tblasset a
+        ON c.clientid = a.clientid
+        AND COALESCE(a.archived, false) = false
+      ${customerWhere}
+      GROUP BY c.clientid, c.clientname
+      ORDER BY COUNT(DISTINCT a.assetid) DESC, c.clientname ASC
+      LIMIT 10
+    `, customerValues),
+    pool.query(`
+      SELECT
+        COALESCE(et.description, 'Unknown') AS equipmenttype,
+        COUNT(a.assetid)::int AS total
+      FROM atec.tblasset a
+      LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
+      WHERE COALESCE(a.archived, false) = false
+      ${equipmentClientFilter}
+      GROUP BY COALESCE(et.description, 'Unknown')
+      ORDER BY COUNT(a.assetid) DESC, COALESCE(et.description, 'Unknown') ASC
+      LIMIT 10
+    `, customerValues)
+  ])
+
+  const dashboardResultValue = (index, fallback, label) => {
+    const result = dashboardResults[index]
+    if (result?.status === "fulfilled") return result.value
+
+    console.error(`Dashboard summary ${label} query failed:`, result?.reason)
+    return fallback
+  }
+
+  const alertsResult = dashboardResultValue(0, { rows: [{}] }, "alerts")
+  const failedResult = dashboardResultValue(1, { rows: [] }, "failed equipment")
+  const upcomingResult = dashboardResultValue(2, { rows: [] }, "upcoming expiries")
+  const topCustomersResult = dashboardResultValue(3, { rows: [] }, "top customers")
+  const equipmentResult = dashboardResultValue(4, { rows: [] }, "equipment by type")
+
+  const data = {
+    alerts: alertsResult.rows[0] || {},
+    failedEquipmentByCustomer: failedResult.rows,
+    upcomingExpiriesByCustomer: upcomingResult.rows,
+    topCustomers: topCustomersResult.rows,
+    equipmentByType: equipmentResult.rows
+  }
+
+  dashboardSummaryCache.set(key, {
+    createdAt: Date.now(),
+    data
+  })
+
+  return data
+}
+
+app.get("/dashboard/summary", async (req, res) => {
+  try {
+    res.json(await getCachedDashboardSummary(req))
+  } catch (err) {
+    console.error("Dashboard summary error:", err)
+    res.status(500).json({ error: "Failed to load dashboard summary" })
+  }
+})
+
 app.get("/dashboard/alerts", async (req, res) => {
   try {
     const scopedToClient = dashboardClientScope(req)
@@ -8433,7 +8857,11 @@ app.get("/dashboard/alerts", async (req, res) => {
 
 app.use(errorHandler)
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`ATEC server running on port ${PORT}`);
 });
+
+server.requestTimeout = requestTimeoutMs
+server.headersTimeout = headersTimeoutMs
+server.keepAliveTimeout = keepAliveTimeoutMs
 

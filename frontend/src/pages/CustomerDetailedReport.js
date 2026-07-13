@@ -1,4 +1,4 @@
-import { sortHeader, sortTableRows } from '../tableSort.js'
+import { getTableSortState, sortHeader } from '../tableSort.js'
 import { API_BASE } from '../api.js'
 import { escapeHtml, safeAttr } from '../utils/security.js'
 
@@ -159,12 +159,18 @@ function bindCustomerReportEvents() {
   document
     .querySelectorAll("#customerReportClient, #customerReportSite, #customerReportSection, #customerReportResponsible, #customerReportEquipment, #customerReportDateFrom, #customerReportDateTo")
     .forEach(input => {
-      input.addEventListener("change", updateCustomerReportLinks)
+      input.addEventListener("change", () => {
+        currentReportPage = 1
+        updateCustomerReportLinks()
+      })
     })
 
   document
     .querySelector("#customerReportPreviewBtn")
-    ?.addEventListener("click", loadCustomerDetailedReport)
+    ?.addEventListener("click", () => {
+      currentReportPage = 1
+      loadCustomerDetailedReport()
+    })
 }
 
 function updateCustomerReportLinks() {
@@ -185,7 +191,7 @@ function updateCustomerReportLinks() {
 async function loadCustomerDetailedReport() {
   updateCustomerReportLinks()
 
-  const query = getCustomerReportQuery()
+  const query = getCustomerReportQuery({ includePagination: true })
   const preview = document.querySelector("#customerReportPreview")
 
   preview.className = "report-preview-empty"
@@ -204,8 +210,6 @@ async function loadCustomerDetailedReport() {
   }
 
   currentReport = null
-  currentReportPage = 1
-  currentReportPageSize = 25
   preview.className = "report-preview-loaded"
   currentReport = report
   renderCustomerReportPage()
@@ -214,7 +218,7 @@ async function loadCustomerDetailedReport() {
 window.updateCustomerReportLinks = updateCustomerReportLinks
 window.loadCustomerDetailedReport = loadCustomerDetailedReport
 
-function getCustomerReportQuery() {
+function getCustomerReportQuery(options = {}) {
   const params = new URLSearchParams()
   const clientid = document.querySelector("#customerReportClient")?.value || ""
   const siteid = document.querySelector("#customerReportSite")?.value || ""
@@ -232,6 +236,14 @@ function getCustomerReportQuery() {
   if (datefrom) params.append("datefrom", datefrom)
   if (dateto) params.append("dateto", dateto)
 
+  if (options.includePagination) {
+    const sort = getTableSortState('customerReport', 'latestinspectiondate', 'desc')
+    params.append("page", String(currentReportPage || 1))
+    params.append("limit", String(currentReportPageSize || 25))
+    params.append("sortKey", sort.key || "latestinspectiondate")
+    params.append("sortDir", sort.direction || "desc")
+  }
+
   const query = params.toString()
   return query ? `?${query}` : ""
 }
@@ -243,30 +255,18 @@ function renderCustomerReportPreview(report) {
       : "All Customers"
 
   const pageSize = getReportPageSize()
-  const sortedAssets = sortTableRows(report.assets, 'customerReport', {
-    clientname: row => row.clientname,
-    assetid: row => row.assetid,
-    assettagno: row => row.assettagno,
-    serialno: row => row.serialno,
-    sitename: row => row.sitename,
-    sectionname: row => row.sectionname,
-    responsiblename: row => row.responsiblename,
-    equipmenttype: row => row.equipmenttype,
-    description: row => row.description,
-    latestinspectiondate: row => row.latestinspectiondate,
-    visualtestdate: row => row.visualtestdate,
-    visualstatus: row => row.visualstatus,
-    loadtestdate: row => row.loadtestdate,
-    loadstatus: row => row.loadstatus,
-    reportstatus: row => row.reportstatus
-  }, 'latestinspectiondate')
-  const totalPages = Math.max(1, Math.ceil(sortedAssets.length / pageSize))
-  const currentPage = Math.min(currentReportPage, totalPages)
-  const startIndex = (currentPage - 1) * pageSize
-  const rows = sortedAssets.slice(startIndex, startIndex + pageSize)
-  const endIndex = sortedAssets.length === 0
-    ? 0
-    : startIndex + rows.length
+  const pagination = report.pagination || {
+    page: currentReportPage,
+    limit: pageSize,
+    total: report.assets.length,
+    totalPages: Math.max(1, Math.ceil(report.assets.length / pageSize))
+  }
+  const totalPages = Math.max(1, Number(pagination.totalPages || 1))
+  const currentPage = Math.min(Number(pagination.page || currentReportPage || 1), totalPages)
+  const totalRows = Number(pagination.total || report.assets.length)
+  const startIndex = (currentPage - 1) * Number(pagination.limit || pageSize)
+  const rows = report.assets || []
+  const endIndex = totalRows === 0 ? 0 : startIndex + rows.length
 
   return `
     <div class="report-summary-card">
@@ -277,7 +277,7 @@ function renderCustomerReportPreview(report) {
         </div>
 
         <div class="report-count-note">
-          ${report.assets.length} assets in report
+          ${totalRows} assets in report
         </div>
       </div>
 
@@ -298,7 +298,7 @@ function renderCustomerReportPreview(report) {
       <div class="report-detail-heading">
         <div>
           <h2>Asset Detail Preview</h2>
-          <p>Showing ${report.assets.length === 0 ? 0 : startIndex + 1} to ${endIndex} of ${report.assets.length} assets. Use PDF or Excel for the full detailed report.</p>
+          <p>Showing ${totalRows === 0 ? 0 : startIndex + 1} to ${endIndex} of ${totalRows} assets. Use PDF or Excel for the full detailed report.</p>
         </div>
       </div>
 
@@ -404,25 +404,23 @@ function bindReportPagination() {
     ?.addEventListener("change", event => {
       currentReportPageSize = Number(event.target.value) || 25
       currentReportPage = 1
-      renderCustomerReportPage()
+      loadCustomerDetailedReport()
     })
 
   document
     .querySelector("#reportPrevPageBtn")
     ?.addEventListener("click", () => {
       currentReportPage = Math.max(1, currentReportPage - 1)
-      renderCustomerReportPage()
+      loadCustomerDetailedReport()
     })
 
   document
     .querySelector("#reportNextPageBtn")
     ?.addEventListener("click", () => {
-      const totalPages = currentReport
-        ? Math.max(1, Math.ceil(currentReport.assets.length / getReportPageSize()))
-        : 1
+      const totalPages = currentReport?.pagination?.totalPages || 1
 
       currentReportPage = Math.min(totalPages, currentReportPage + 1)
-      renderCustomerReportPage()
+      loadCustomerDetailedReport()
     })
 }
 
@@ -477,12 +475,12 @@ function renderCustomerReportPageButtons(currentPage, totalPages) {
 
 window.goToCustomerReportPage = function (page) {
   currentReportPage = Math.max(1, Number(page) || 1)
-  renderCustomerReportPage()
+  loadCustomerDetailedReport()
 }
 
 window.rerenderCustomerReport = function () {
   currentReportPage = 1
-  renderCustomerReportPage()
+  loadCustomerDetailedReport()
 }
 
 function getReportPageSize() {

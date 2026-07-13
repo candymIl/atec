@@ -900,11 +900,7 @@ window.showDashboard = function () {
     dashboardStats
   )
 
-  loadDashboardAlerts()
-  loadDashboardFailedEquipment()
-  loadDashboardUpcomingExpiries()
-  loadDashboardTopCustomers()
-  loadDashboardEquipmentTypes()
+  loadDashboardSummary()
 }
 
 let customerArchiveMode = localStorage.getItem("customerArchiveMode") || "active"
@@ -3936,25 +3932,47 @@ window.searchCertificates = async function (resetPage = true) {
   params.append("sectionid", document.querySelector('#certSection')?.value || "")
   params.append("datefrom", document.querySelector('#certDateFrom')?.value || "")
   params.append("dateto", document.querySelector('#certDateTo')?.value || "")
+  params.append("page", String(window.certCurrentPage || 1))
+  params.append("limit", String(window.certRowsPerPage || 25))
+
+  const sort = getTableSortState('certificates', 'testid', 'desc')
+  params.append("sortKey", sort.key || "testid")
+  params.append("sortDir", sort.direction || "desc")
 
   const response = await fetch(
     `${API_BASE}/certificates/search?${params.toString()}`
   )
 
-  const certificates = await response.json()
+  const payload = await response.json()
 
   if (!response.ok) {
-    alert("Error searching certificates: " + certificates.error)
+    alert("Error searching certificates: " + payload.error)
     return
   }
 
-  const safeCount = certificates.filter(c => c.status === "SAFE").length
-  const notSafeCount = certificates.filter(c => c.status === "NOT SAFE").length
-  const loadTestCount = certificates.filter(c => c.inspectiontype === "LOADTEST").length
-  const visualCount = certificates.filter(c => c.inspectiontype === "VISUAL").length
+  const certificates = Array.isArray(payload) ? payload : payload.rows || []
+  window.currentCertificatePageInfo = Array.isArray(payload)
+    ? null
+    : {
+        currentPage: Number(payload.page || 1),
+        pageSize: Number(payload.limit || window.certRowsPerPage || 25),
+        totalRows: Number(payload.total || certificates.length),
+        totalPages: Number(payload.totalPages || 1),
+        startIndex: ((Number(payload.page || 1) - 1) * Number(payload.limit || window.certRowsPerPage || 25)),
+        endIndex: ((Number(payload.page || 1) - 1) * Number(payload.limit || window.certRowsPerPage || 25)) + certificates.length
+      }
+
+  const summary = payload.summary || null
+  const safeCount = summary ? summary.safe : certificates.filter(c => c.status === "SAFE").length
+  const notSafeCount = summary ? summary.notSafe : certificates.filter(c => c.status === "NOT SAFE").length
+  const loadTestCount = summary ? summary.loadTest : certificates.filter(c => c.inspectiontype === "LOADTEST").length
+  const visualCount = summary ? summary.visual : certificates.filter(c => c.inspectiontype === "VISUAL").length
+  const totalCount = summary
+    ? Number(summary.total || window.currentCertificatePageInfo?.totalRows || certificates.length)
+    : certificates.length
 
   document.querySelector('#certificateStats').innerHTML = `
-    <p><strong>Total:</strong> ${certificates.length}</p>
+    <p><strong>Total:</strong> ${totalCount || window.currentCertificatePageInfo?.totalRows || certificates.length}</p>
     <p><strong>Safe:</strong> ${safeCount}</p>
     <p><strong>Not Safe:</strong> ${notSafeCount}</p>
     <p><strong>Visual:</strong> ${visualCount}</p>
@@ -3994,11 +4012,12 @@ function activeCertificateSortHeader(label, key) {
 }
 
 window.rerenderCertificateResults = function () {
-  renderCertificateResultRows(window.currentCertificateResults || [])
+  window.certCurrentPage = 1
+  searchCertificates(false)
 }
 
 function renderCertificateResultRows(certificates) {
-  const sortedCertificates = sortTableRows(certificates, 'certificates', {
+  const sortedCertificates = window.currentCertificatePageInfo ? certificates : sortTableRows(certificates, 'certificates', {
     testid: cert => cert.testid,
     tagnumber: cert => cert.tagnumber,
     clientname: cert => cert.clientname,
@@ -4011,7 +4030,12 @@ function renderCertificateResultRows(certificates) {
     inspector: cert => cert.inspector
   }, 'testid', 'desc')
 
-  const pagination = getPaginationState(sortedCertificates, "certCurrentPage", "certRowsPerPage")
+  const pagination = window.currentCertificatePageInfo
+    ? {
+        ...window.currentCertificatePageInfo,
+        rows: sortedCertificates
+      }
+    : getPaginationState(sortedCertificates, "certCurrentPage", "certRowsPerPage")
 
   document.querySelector('#certificateResults').innerHTML = `
     ${renderPaginationControls({
@@ -4081,12 +4105,12 @@ function renderCertificateResultRows(certificates) {
 window.setCertificateRowsPerPage = function (value) {
   window.certRowsPerPage = Number(value) || 25
   window.certCurrentPage = 1
-  renderCertificateResultRows(window.currentCertificateResults || [])
+  searchCertificates(false)
 }
 
 window.goToCertificatePage = function (page) {
   window.certCurrentPage = Math.max(1, Number(page) || 1)
-  renderCertificateResultRows(window.currentCertificateResults || [])
+  searchCertificates(false)
 }
 
 window.openCertificateFromSearch = function () {
@@ -5898,15 +5922,43 @@ window.stopDashboardCameraScan = function () {
   document.querySelector('#dashboardCameraScanner')?.setAttribute('hidden', '')
 }
 
-async function loadDashboardAlerts() {
+async function loadDashboardSummary() {
   try {
-    const response = await fetch(`${API_BASE}/dashboard/alerts`)
+    const response = await fetch(`${API_BASE}/dashboard/summary`)
 
     if (!response.ok) {
-      throw new Error("Failed to load dashboard alerts")
+      throw new Error("Failed to load dashboard summary")
     }
 
     const data = await response.json()
+    loadDashboardAlerts(data.alerts || {})
+    loadDashboardFailedEquipment(data.failedEquipmentByCustomer || [])
+    loadDashboardUpcomingExpiries(data.upcomingExpiriesByCustomer || [])
+    loadDashboardTopCustomers(data.topCustomers || [])
+    loadDashboardEquipmentTypes(data.equipmentByType || [])
+  } catch (err) {
+    console.error("Failed to load dashboard summary:", err)
+    loadDashboardAlerts()
+    loadDashboardFailedEquipment()
+    loadDashboardUpcomingExpiries()
+    loadDashboardTopCustomers()
+    loadDashboardEquipmentTypes()
+  }
+}
+
+async function loadDashboardAlerts(preloadedData = null) {
+  try {
+    let data = preloadedData
+
+    if (!data) {
+      const response = await fetch(`${API_BASE}/dashboard/alerts`)
+
+      if (!response.ok) {
+        throw new Error("Failed to load dashboard alerts")
+      }
+
+      data = await response.json()
+    }
 
     const alertBox = document.querySelector("#dashboardAlerts")
 
@@ -5961,18 +6013,22 @@ async function loadDashboardAlerts() {
   }
 }
 
-async function loadDashboardFailedEquipment() {
+async function loadDashboardFailedEquipment(preloadedData = null) {
   const tbody = document.querySelector("#failedEquipmentTableBody")
   if (!tbody) return
 
   try {
-    const response = await fetch(`${API_BASE}/dashboard/failed-equipment-by-customer`)
+    let data = preloadedData
 
-    if (!response.ok) {
-      throw new Error("Failed to load failed equipment")
+    if (!data) {
+      const response = await fetch(`${API_BASE}/dashboard/failed-equipment-by-customer`)
+
+      if (!response.ok) {
+        throw new Error("Failed to load failed equipment")
+      }
+
+      data = await response.json()
     }
-
-    const data = await response.json()
 
     if (!Array.isArray(data) || !data.length) {
       tbody.innerHTML = `
@@ -6020,18 +6076,22 @@ async function loadDashboardFailedEquipment() {
   }
 }
 
-async function loadDashboardUpcomingExpiries() {
+async function loadDashboardUpcomingExpiries(preloadedData = null) {
   const tbody = document.querySelector("#upcomingExpiriesTableBody")
   if (!tbody) return
 
   try {
-    const response = await fetch(`${API_BASE}/dashboard/upcoming-expiries-by-customer`)
+    let data = preloadedData
 
-    if (!response.ok) {
-      throw new Error("Failed to load upcoming certificate expiries")
+    if (!data) {
+      const response = await fetch(`${API_BASE}/dashboard/upcoming-expiries-by-customer`)
+
+      if (!response.ok) {
+        throw new Error("Failed to load upcoming certificate expiries")
+      }
+
+      data = await response.json()
     }
-
-    const data = await response.json()
 
     if (!Array.isArray(data) || !data.length) {
       tbody.innerHTML = `
@@ -6081,18 +6141,22 @@ async function loadDashboardUpcomingExpiries() {
   }
 }
 
-async function loadDashboardTopCustomers() {
+async function loadDashboardTopCustomers(preloadedData = null) {
   const tbody = document.querySelector("#dashboardTopCustomersBody")
   if (!tbody) return
 
   try {
-    const response = await fetch(`${API_BASE}/dashboard/top-customers`)
+    let data = preloadedData
 
-    if (!response.ok) {
-      throw new Error("Failed to load top customers")
+    if (!data) {
+      const response = await fetch(`${API_BASE}/dashboard/top-customers`)
+
+      if (!response.ok) {
+        throw new Error("Failed to load top customers")
+      }
+
+      data = await response.json()
     }
-
-    const data = await response.json()
 
     if (!Array.isArray(data) || !data.length) {
       tbody.innerHTML = `
@@ -6126,18 +6190,22 @@ async function loadDashboardTopCustomers() {
   }
 }
 
-async function loadDashboardEquipmentTypes() {
+async function loadDashboardEquipmentTypes(preloadedData = null) {
   const tbody = document.querySelector("#dashboardEquipmentTypeBody")
   if (!tbody) return
 
   try {
-    const response = await fetch(`${API_BASE}/dashboard/equipment-by-type`)
+    let data = preloadedData
 
-    if (!response.ok) {
-      throw new Error("Failed to load equipment by type")
+    if (!data) {
+      const response = await fetch(`${API_BASE}/dashboard/equipment-by-type`)
+
+      if (!response.ok) {
+        throw new Error("Failed to load equipment by type")
+      }
+
+      data = await response.json()
     }
-
-    const data = await response.json()
 
     if (!Array.isArray(data) || !data.length) {
       tbody.innerHTML = `

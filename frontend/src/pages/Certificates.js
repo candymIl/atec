@@ -311,31 +311,52 @@ window.searchCertificates = async function (resetPage = true) {
   params.append("sectionid", document.querySelector('#certSection')?.value || "")
   params.append("datefrom", document.querySelector('#certDateFrom')?.value || "")
   params.append("dateto", document.querySelector('#certDateTo')?.value || "")
+  params.append("page", String(window.certCurrentPage || 1))
+  params.append("limit", String(window.certRowsPerPage || 25))
+
+  const sort = getTableSortState('certificates', 'testid', 'desc')
+  params.append("sortKey", sort.key || "testid")
+  params.append("sortDir", sort.direction || "desc")
 
   const response = await fetch(
     `${API_BASE}/certificates/search?${params.toString()}`
   )
 
-  const certificates = await response.json()
+  const payload = await response.json()
 
   if (!response.ok) {
-    alert("Error searching certificates: " + certificates.error)
+    alert("Error searching certificates: " + payload.error)
     return
   }
 
-  renderCertificateStats(certificates)
+  const certificates = Array.isArray(payload) ? payload : payload.rows || []
   window.currentCertificateResults = certificates
+  window.currentCertificatePageInfo = Array.isArray(payload)
+    ? null
+    : {
+        currentPage: Number(payload.page || 1),
+        pageSize: Number(payload.limit || window.certRowsPerPage || 25),
+        totalRows: Number(payload.total || certificates.length),
+        totalPages: Number(payload.totalPages || 1),
+        startIndex: ((Number(payload.page || 1) - 1) * Number(payload.limit || window.certRowsPerPage || 25)),
+        endIndex: ((Number(payload.page || 1) - 1) * Number(payload.limit || window.certRowsPerPage || 25)) + certificates.length
+      }
+
+  renderCertificateStats(certificates, payload.summary)
   renderCertificateResults(certificates)
 }
 
-function renderCertificateStats(certificates) {
-  const safeCount = certificates.filter(c => c.status === "SAFE").length
-  const notSafeCount = certificates.filter(c => c.status === "NOT SAFE").length
-  const loadTestCount = certificates.filter(c => c.inspectiontype === "LOADTEST").length
-  const visualCount = certificates.filter(c => c.inspectiontype === "VISUAL").length
+function renderCertificateStats(certificates, summary = null) {
+  const safeCount = summary ? summary.safe : certificates.filter(c => c.status === "SAFE").length
+  const notSafeCount = summary ? summary.notSafe : certificates.filter(c => c.status === "NOT SAFE").length
+  const loadTestCount = summary ? summary.loadTest : certificates.filter(c => c.inspectiontype === "LOADTEST").length
+  const visualCount = summary ? summary.visual : certificates.filter(c => c.inspectiontype === "VISUAL").length
+  const totalCount = summary
+    ? Number(summary.total || window.currentCertificatePageInfo?.totalRows || certificates.length)
+    : certificates.length
 
   document.querySelector('#certificateStats').innerHTML = `
-    <p><strong>Total:</strong> ${certificates.length}</p>
+    <p><strong>Total:</strong> ${totalCount || window.currentCertificatePageInfo?.totalRows || certificates.length}</p>
     <p><strong>Safe:</strong> ${safeCount}</p>
     <p><strong>Not Safe:</strong> ${notSafeCount}</p>
     <p><strong>Visual:</strong> ${visualCount}</p>
@@ -372,7 +393,7 @@ function renderCertificateResults(certificates) {
 
   const canDeleteCertificates = window.currentUser?.role === "ADMIN"
 
-  const sortedCertificates = sortTableRows(certificates, 'certificates', {
+  const sortedCertificates = window.currentCertificatePageInfo ? certificates : sortTableRows(certificates, 'certificates', {
     testid: cert => cert.testid,
     tagnumber: cert => cert.tagnumber,
     clientname: cert => cert.clientname,
@@ -384,7 +405,12 @@ function renderCertificateResults(certificates) {
     status: cert => cert.status,
     inspector: cert => cert.inspector
   }, 'testid', 'desc')
-  const pagination = getPaginationState(sortedCertificates, "certCurrentPage", "certRowsPerPage")
+  const pagination = window.currentCertificatePageInfo
+    ? {
+        ...window.currentCertificatePageInfo,
+        rows: sortedCertificates
+      }
+    : getPaginationState(sortedCertificates, "certCurrentPage", "certRowsPerPage")
 
   document.querySelector('#certificateResults').innerHTML = `
     ${renderPaginationControls({
@@ -757,17 +783,17 @@ function getDownloadFilename(contentDisposition, fallback) {
 window.setCertificateRowsPerPage = function (value) {
   window.certRowsPerPage = Number(value) || 25
   window.certCurrentPage = 1
-  renderCertificateResults(window.currentCertificateResults || [])
+  window.searchCertificates(false)
 }
 
 window.rerenderCertificateResults = function () {
   window.certCurrentPage = 1
-  renderCertificateResults(window.currentCertificateResults || [])
+  window.searchCertificates(false)
 }
 
 window.goToCertificatePage = function (page) {
   window.certCurrentPage = Math.max(1, Number(page) || 1)
-  renderCertificateResults(window.currentCertificateResults || [])
+  window.searchCertificates(false)
 }
 
 function bindCertificateResultEvents() {
