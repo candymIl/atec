@@ -1,5 +1,6 @@
 import { getPaginationState, renderPaginationControls } from '../pagination.js'
 import { sortHeader, sortTableRows } from '../tableSort.js'
+import { escapeHtml, safeAttr } from '../utils/security.js'
 
 export function renderEquipmentTypeCriteria(equipmentTypes, criteria) {
   const sortedEquipmentTypes = [...equipmentTypes].sort((a, b) =>
@@ -34,10 +35,10 @@ export function renderEquipmentTypeCriteria(equipmentTypes, criteria) {
             <option value="">All Equipment Types</option>
             ${sortedEquipmentTypes.map(type => `
               <option
-                value="${type.equiptypeid}"
+                value="${safeAttr(type.equiptypeid)}"
                 ${String(type.equiptypeid) === String(selectedFilter) ? "selected" : ""}
               >
-                ${type.description}
+                ${escapeHtml(type.description)}
               </option>
             `).join('')}
           </select>
@@ -75,12 +76,12 @@ export function renderEquipmentTypeCriteria(equipmentTypes, criteria) {
       <tbody>
         ${pagination.rows.map(row => `
           <tr>
-            <td>${row.equipmenttype || ''}</td>
-            <td>${row.inspectioncategory || ''}</td>
-            <td>${formatCriteriaLabel(row.inspection_category)}</td>
-            <td>${formatCriteriaLabel(row.severity)}</td>
-            <td>${row.criteriadescription || row.criterianame || ''}</td>
-            <td>${formatCriteriaLabel(row.resulttype || row.fieldtype)}</td>
+            <td>${escapeHtml(row.equipmenttype || '')}</td>
+            <td>${escapeHtml(row.inspectioncategory || '')}</td>
+            <td>${escapeHtml(formatCriteriaLabel(row.inspection_category))}</td>
+            <td>${escapeHtml(formatCriteriaLabel(row.severity))}</td>
+            <td>${escapeHtml(row.criteriadescription || row.criterianame || '')}</td>
+            <td>${escapeHtml(formatCriteriaLabel(row.resulttype || row.fieldtype))}</td>
             <td>${row.active === false ? 'Inactive' : 'Active'}</td>
             <td class="criteria-row-actions">
               <button type="button" onclick="editCriteria(${row.criteriaid})">

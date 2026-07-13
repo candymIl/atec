@@ -210,10 +210,10 @@ function getUserSectionName(sectionid) {
 
 function renderUserLookupOptions(items, idKey, nameKey, selectedId, emptyLabel) {
   return `
-    <option value="">${emptyLabel}</option>
+    <option value="">${escapeHtml(emptyLabel)}</option>
     ${items.map(item => `
-      <option value="${item[idKey]}" ${String(item[idKey]) === String(selectedId || "") ? "selected" : ""}>
-        ${item[nameKey] || `${emptyLabel} ${item[idKey]}`}
+      <option value="${safeAttr(item[idKey])}" ${String(item[idKey]) === String(selectedId || "") ? "selected" : ""}>
+        ${escapeHtml(item[nameKey] || `${emptyLabel} ${item[idKey]}`)}
       </option>
     `).join("")}
   `
@@ -397,9 +397,9 @@ window.showUserManagement = async function () {
       <tbody>
         ${sortedUsers.map(user => `
           <tr class="${user.is_active ? '' : 'inactive-user-row'}">
-            <td class="user-name-cell">${user.username}</td>
-            <td><input id="user-email-${user.user_id}" value="${user.email || ''}"></td>
-            <td><input id="user-name-${user.user_id}" value="${user.full_name || ''}"></td>
+            <td class="user-name-cell">${escapeHtml(user.username)}</td>
+            <td><input id="user-email-${safeAttr(user.user_id)}" value="${safeAttr(user.email || '')}"></td>
+            <td><input id="user-name-${safeAttr(user.user_id)}" value="${safeAttr(user.full_name || '')}"></td>
             <td>
               <select id="user-role-${user.user_id}">
                 ${['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER'].map(role => `
@@ -407,7 +407,7 @@ window.showUserManagement = async function () {
                 `).join('')}
               </select>
             </td>
-            <td><input id="user-lmi-${user.user_id}" value="${user.lmi_number || ''}"></td>
+            <td><input id="user-lmi-${safeAttr(user.user_id)}" value="${safeAttr(user.lmi_number || '')}"></td>
             <td>
               <select id="user-client-${user.user_id}">
                 ${renderUserLookupOptions(userCustomers, "clientid", "clientname", user.clientid, "No customer selected")}
@@ -652,23 +652,23 @@ window.showMyProfile = async function () {
       <div class="asset-form-grid">
         <div class="form-group">
           <label>Username</label>
-          <input value="${currentUser.username || ''}" disabled>
+          <input value="${safeAttr(currentUser.username || '')}" disabled>
         </div>
         <div class="form-group">
           <label>Role</label>
-          <input value="${currentUser.role || ''}" disabled>
+          <input value="${safeAttr(currentUser.role || '')}" disabled>
         </div>
         <div class="form-group">
           <label>Full Name</label>
-          <input id="myProfileFullName" type="text" value="${currentUser.full_name || ''}">
+          <input id="myProfileFullName" type="text" value="${safeAttr(currentUser.full_name || '')}">
         </div>
         <div class="form-group">
           <label>Email</label>
-          <input id="myProfileEmail" type="email" value="${currentUser.email || ''}">
+          <input id="myProfileEmail" type="email" value="${safeAttr(currentUser.email || '')}">
         </div>
         <div class="form-group">
           <label>LMI Number</label>
-          <input id="myProfileLmi" type="text" value="${currentUser.lmi_number || ''}">
+          <input id="myProfileLmi" type="text" value="${safeAttr(currentUser.lmi_number || '')}">
         </div>
       </div>
       <button onclick="saveMyProfile()">Save Profile</button>
@@ -834,8 +834,8 @@ async function loadData() {
           </div>
 
     <div class="user-panel">
-      <strong>${currentUser.full_name}</strong>
-      <span>${currentUser.role}${currentUser.lmi_number ? ` | LMI ${currentUser.lmi_number}` : ''}</span>
+      <strong>${escapeHtml(currentUser.full_name)}</strong>
+      <span>${escapeHtml(currentUser.role)}${currentUser.lmi_number ? ` | LMI ${escapeHtml(currentUser.lmi_number)}` : ''}</span>
     </div>
 
     <button class="mobile-menu-toggle" onclick="toggleMobileMenu()" aria-expanded="false">
@@ -970,14 +970,14 @@ window.editClient = function (clientid) {
     <input
       id="editClientName"
       type="text"
-      value="${customer.clientname || ''}"
+      value="${safeAttr(customer.clientname || '')}"
     >
 
     <label>Address</label>
     <input
       id="editClientAddress"
       type="text"
-      value="${customer.clientaddr || ''}"
+      value="${safeAttr(customer.clientaddr || '')}"
     >
 
     <button onclick="saveClientChanges(${customer.clientid})">
@@ -1251,7 +1251,7 @@ window.editResponsiblePerson = function (personid) {
     <input
       id="editResponsibleName"
       type="text"
-      value="${person.name || ''}"
+      value="${safeAttr(person.name || '')}"
     >
 
     <button onclick="saveResponsiblePersonChanges(${person.personid})">
@@ -1338,9 +1338,9 @@ window.filterResponsiblePersons = function (resetPage = false) {
   document.querySelector('#responsibleTableBody').innerHTML =
     pagination.rows.map(person => `
       <tr>
-        <td>${person.personid}</td>
-        <td>${person.clientname || ''}</td>
-        <td>${person.name || ''}</td>
+        <td>${escapeHtml(person.personid)}</td>
+        <td>${escapeHtml(person.clientname || '')}</td>
+        <td>${escapeHtml(person.name || '')}</td>
         <td>${person.archived ? 'Archived' : 'Active'}</td>
         <td>
           <button onclick="editResponsiblePerson(${person.personid})">
@@ -1449,8 +1449,8 @@ window.showAddSectionForm = function () {
         <select id="sectionClient" onchange="filterSectionDropdowns()">
           <option value="">Select Client</option>
           ${sortedCustomers.map(client => `
-            <option value="${client.clientid}">
-              ${client.clientname}
+            <option value="${safeAttr(client.clientid)}">
+              ${escapeHtml(client.clientname)}
             </option>
           `).join("")}
         </select>
@@ -1511,8 +1511,8 @@ window.filterSectionDropdowns = function () {
   siteSelect.innerHTML = `
     <option value="">Select Site</option>
     ${filteredSites.map(site => `
-      <option value="${site.siteid}">
-        ${site.sitename}
+      <option value="${safeAttr(site.siteid)}">
+        ${escapeHtml(site.sitename)}
       </option>
     `).join('')}
   `
@@ -1520,8 +1520,8 @@ window.filterSectionDropdowns = function () {
   responsibleSelect.innerHTML = `
     <option value="">Select Responsible Person</option>
     ${filteredResponsiblePersons.map(person => `
-      <option value="${person.personid}">
-        ${person.name}
+      <option value="${safeAttr(person.personid)}">
+        ${escapeHtml(person.name)}
       </option>
     `).join('')}
   `
@@ -1573,11 +1573,11 @@ window.filterSections = function (resetPage = false) {
   document.querySelector("#sectionTableBody").innerHTML =
     pagination.rows.map(section => `
       <tr>
-        <td>${section.sectionid}</td>
-        <td>${section.clientname || ""}</td>
-        <td>${section.sitename || ""}</td>
-        <td>${section.responsiblename || ""}</td>
-        <td>${section.sectionname || ""}</td>
+        <td>${escapeHtml(section.sectionid)}</td>
+        <td>${escapeHtml(section.clientname || "")}</td>
+        <td>${escapeHtml(section.sitename || "")}</td>
+        <td>${escapeHtml(section.responsiblename || "")}</td>
+        <td>${escapeHtml(section.sectionname || "")}</td>
         <td>${section.archived ? "Archived" : "Active"}</td>
         <td>
           <button onclick="editSection(${section.sectionid})">
@@ -1630,19 +1630,19 @@ window.editSection = function (sectionid) {
     <h2>Edit Section</h2>
 
     <label>Client</label>
-    <input type="text" value="${section.clientname || ''}" disabled>
+    <input type="text" value="${safeAttr(section.clientname || '')}" disabled>
 
     <label>Site</label>
-    <input type="text" value="${section.sitename || ''}" disabled>
+    <input type="text" value="${safeAttr(section.sitename || '')}" disabled>
 
     <label>Responsible Person</label>
     <select id="editSectionResponsible">
       ${filteredResponsiblePersons.map(person => `
         <option
-          value="${person.personid}"
+          value="${safeAttr(person.personid)}"
           ${String(person.personid) === String(section.responsibleid) ? 'selected' : ''}
         >
-          ${person.name}
+          ${escapeHtml(person.name)}
         </option>
       `).join('')}
     </select>
@@ -1651,7 +1651,7 @@ window.editSection = function (sectionid) {
     <input
       id="editSectionName"
       type="text"
-      value="${section.sectionname || ''}"
+      value="${safeAttr(section.sectionname || '')}"
     >
 
     <button onclick="saveSectionChanges(${section.sectionid})">
@@ -1836,9 +1836,9 @@ window.filterSites = function (resetPage = false) {
   document.querySelector('#siteTableBody').innerHTML =
     pagination.rows.map(site => `
       <tr>
-        <td>${site.siteid}</td>
-        <td>${site.clientname || ''}</td>
-        <td>${site.sitename || ''}</td>
+        <td>${escapeHtml(site.siteid)}</td>
+        <td>${escapeHtml(site.clientname || '')}</td>
+        <td>${escapeHtml(site.sitename || '')}</td>
         <td>${site.archived ? "Archived" : "Active"}</td>
         <td>
           <button onclick="editSite(${site.siteid})">
@@ -1883,7 +1883,7 @@ window.editSite = function (siteid) {
     <label>Client</label>
     <input
       type="text"
-      value="${site.clientname || ''}"
+      value="${safeAttr(site.clientname || '')}"
       disabled
     >
 
@@ -1891,7 +1891,7 @@ window.editSite = function (siteid) {
     <input
       id="editSiteName"
       type="text"
-      value="${site.sitename || ''}"
+      value="${safeAttr(site.sitename || '')}"
     >
 
     <button onclick="saveSiteChanges(${site.siteid})">
@@ -1998,8 +1998,8 @@ window.showAddSiteForm = function () {
     <select id="siteClient">
       <option value="">Select Client</option>
       ${sortedCustomers.map(client => `
-        <option value="${client.clientid}">
-          ${client.clientname}
+        <option value="${safeAttr(client.clientid)}">
+          ${escapeHtml(client.clientname)}
         </option>
       `).join('')}
     </select>
@@ -2301,8 +2301,8 @@ window.showAddAssetForm = function () {
     <select id="assetClient" onchange="filterAssetDropdowns()">
       <option value="">Select Client</option>
       ${sortedCustomers.map(client => `
-        <option value="${client.clientid}">
-          ${client.clientname}
+        <option value="${safeAttr(client.clientid)}">
+          ${escapeHtml(client.clientname)}
         </option>
       `).join('')}
     </select>
@@ -2333,8 +2333,8 @@ window.showAddAssetForm = function () {
     <select id="assetEquipType" onchange="handleAssetEquipmentTypeChange()">
       <option value="">Select Equipment Type</option>
       ${sortedEquipmentTypes.map(type => `
-        <option value="${type.equiptypeid}">
-          ${type.description}
+        <option value="${safeAttr(type.equiptypeid)}">
+          ${escapeHtml(type.description)}
         </option>
       `).join('')}
     </select>
@@ -2516,8 +2516,8 @@ window.filterAssetDropdowns = function () {
     <option value="">Select Site</option>
 
     ${filteredSites.map(site => `
-      <option value="${site.siteid}">
-        ${site.sitename}
+      <option value="${safeAttr(site.siteid)}">
+        ${escapeHtml(site.sitename)}
       </option>
     `).join('')}
   `
@@ -2552,8 +2552,8 @@ window.filterAssetSections = function () {
     <option value="">Select Section</option>
 
     ${filteredSections.map(section => `
-      <option value="${section.sectionid}">
-        ${section.sectionname}
+      <option value="${safeAttr(section.sectionid)}">
+        ${escapeHtml(section.sectionname)}
       </option>
     `).join('')}
   `
@@ -2955,23 +2955,23 @@ window.showMoveAssetForm = async function (assetid) {
     .sort((a, b) => (a.sitename || "").localeCompare(b.sitename || ""))
 
   document.querySelector("#page").innerHTML = `
-    <h2>Move Asset ${asset.assetid}</h2>
+    <h2>Move Asset ${escapeHtml(asset.assetid)}</h2>
 
     <div class="filter-card">
       <div class="asset-form-grid">
         <div class="form-group">
           <label>Customer</label>
-          <input type="text" value="${asset.clientname || ""}" disabled>
+          <input type="text" value="${safeAttr(asset.clientname || "")}" disabled>
         </div>
 
         <div class="form-group">
           <label>Current Site</label>
-          <input type="text" value="${asset.sitename || "-"}" disabled>
+          <input type="text" value="${safeAttr(asset.sitename || "-")}" disabled>
         </div>
 
         <div class="form-group">
           <label>Current Section</label>
-          <input type="text" value="${asset.sectionname || "-"}" disabled>
+          <input type="text" value="${safeAttr(asset.sectionname || "-")}" disabled>
         </div>
 
         <div class="form-group">
@@ -2979,8 +2979,8 @@ window.showMoveAssetForm = async function (assetid) {
           <select id="moveAssetSite" onchange="filterMoveAssetSections()">
             <option value="">Select Site</option>
             ${activeSites.map(site => `
-              <option value="${site.siteid}" ${String(site.siteid) === String(asset.siteid) ? "selected" : ""}>
-                ${site.sitename}
+              <option value="${safeAttr(site.siteid)}" ${String(site.siteid) === String(asset.siteid) ? "selected" : ""}>
+                ${escapeHtml(site.sitename)}
               </option>
             `).join("")}
           </select>
@@ -3025,8 +3025,8 @@ window.filterMoveAssetSections = function (selectedSectionId = "") {
   sectionSelect.innerHTML = `
     <option value="">Select Section</option>
     ${filteredSections.map(section => `
-      <option value="${section.sectionid}" ${String(section.sectionid) === String(selectedSectionId) ? "selected" : ""}>
-        ${section.sectionname}
+      <option value="${safeAttr(section.sectionid)}" ${String(section.sectionid) === String(selectedSectionId) ? "selected" : ""}>
+        ${escapeHtml(section.sectionname)}
       </option>
     `).join("")}
   `
@@ -3071,54 +3071,54 @@ function buildEditAssetDynamicFields(groupid, values = {}) {
 
   if (groupid === '100') {
     dynamicEditFields = `
-      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${values.wll || ''}"></div>
-      <div class="form-group"><label>Height of Lift(mm)</label><input id="editAssetHeightOfLift" type="number" value="${values.heightoflift || ''}"></div>
-      <div class="form-group"><label>Number of Chain Falls</label><input id="editAssetNumberOfChainFalls" type="number" value="${values.numberofchainfalls || ''}"></div>
-      <div class="form-group"><label>OEM Top Hook Size(mm)</label><input id="editAssetOEMTopHookSize" type="number" value="${values.oemtophooksize || ''}"></div>
-      <div class="form-group"><label>OEM Bottom Hook Size(mm)</label><input id="editAssetOEMBottomHookSize" type="number" value="${values.oembottomhooksize || ''}"></div>
-      <div class="form-group"><label>Load Chain Diameter(mm)</label><input id="editAssetLoadChainDiameter" type="number" value="${values.loadchaindiameter || ''}"></div>
+      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${safeAttr(values.wll || '')}"></div>
+      <div class="form-group"><label>Height of Lift(mm)</label><input id="editAssetHeightOfLift" type="number" value="${safeAttr(values.heightoflift || '')}"></div>
+      <div class="form-group"><label>Number of Chain Falls</label><input id="editAssetNumberOfChainFalls" type="number" value="${safeAttr(values.numberofchainfalls || '')}"></div>
+      <div class="form-group"><label>OEM Top Hook Size(mm)</label><input id="editAssetOEMTopHookSize" type="number" value="${safeAttr(values.oemtophooksize || '')}"></div>
+      <div class="form-group"><label>OEM Bottom Hook Size(mm)</label><input id="editAssetOEMBottomHookSize" type="number" value="${safeAttr(values.oembottomhooksize || '')}"></div>
+      <div class="form-group"><label>Load Chain Diameter(mm)</label><input id="editAssetLoadChainDiameter" type="number" value="${safeAttr(values.loadchaindiameter || '')}"></div>
     `
   }
 
   if (groupid === '200') {
     dynamicEditFields = `
-      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${values.wll || ''}"></div>
-      <div class="form-group"><label>Effective Length(mm)</label><input id="editAssetEffectiveLength" type="number" value="${values.effectivelength || ''}"></div>
+      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${safeAttr(values.wll || '')}"></div>
+      <div class="form-group"><label>Effective Length(mm)</label><input id="editAssetEffectiveLength" type="number" value="${safeAttr(values.effectivelength || '')}"></div>
     `
   }
 
   if (groupid === '300' || groupid === '600') {
     dynamicEditFields = `
-      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${values.wll || ''}"></div>
+      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${safeAttr(values.wll || '')}"></div>
     `
   }
 
   if (groupid === '400') {
     dynamicEditFields = `
-      <div class="form-group"><label>Main Hoist WLL(kg)</label><input id="editAssetWLL" type="number" value="${values.wll || ''}"></div>
-      <div class="form-group"><label>Auxiliary Hoist WLL(kg)</label><input id="editAssetAuxHoistWLL" type="number" value="${values.auxhoistwll || ''}"></div>
-      <div class="form-group"><label>Span(mm)</label><input id="editAssetSpan" type="number" value="${values.span || ''}"></div>
-      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="editAssetPermissibleDeflection" type="number" value="${values.permissibledeflection || ''}"></div>
-      <div class="form-group"><label>Main Hoist Description</label><input id="editAssetHoistDescription" type="text" value="${values.hoistdescription || ''}"></div>
-      <div class="form-group"><label>Main Hoist Serial No</label><input id="editAssetHoistSerialNo" type="text" value="${values.hoistserialno || ''}"></div>
-      <div class="form-group"><label>Auxiliary Hoist Description</label><input id="editAssetAuxHoistDescription" type="text" value="${values.auxhoistdescription || ''}"></div>
-      <div class="form-group"><label>Auxiliary Hoist Serial No</label><input id="editAssetAuxHoistSerialNo" type="text" value="${values.auxhoistserialno || ''}"></div>
-      <div class="form-group"><label>Main Hoist Hook Size(mm)</label><input id="editAssetHookSize" type="number" value="${values.hooksize || ''}"></div>
-      <div class="form-group"><label>Auxiliary Hoist Hook Size(mm)</label><input id="editAssetAuxHoistHookSize" type="number" value="${values.auxhoisthooksize || ''}"></div>
-      <div class="form-group"><label>Height of Lift(mm)</label><input id="editAssetHeightOfLift" type="number" value="${values.heightoflift || ''}"></div>
-      <div class="form-group"><label>Main Hoist Steel Wire Rope(mm)</label><input id="editAssetSteelWireRopeMM" type="number" value="${values.steelwireropemm || ''}"></div>
-      <div class="form-group"><label>Auxiliary Hoist Steel Wire Rope(mm)</label><input id="editAssetAuxHoistRopeMM" type="number" value="${values.auxhoistropemm || ''}"></div>
+      <div class="form-group"><label>Main Hoist WLL(kg)</label><input id="editAssetWLL" type="number" value="${safeAttr(values.wll || '')}"></div>
+      <div class="form-group"><label>Auxiliary Hoist WLL(kg)</label><input id="editAssetAuxHoistWLL" type="number" value="${safeAttr(values.auxhoistwll || '')}"></div>
+      <div class="form-group"><label>Span(mm)</label><input id="editAssetSpan" type="number" value="${safeAttr(values.span || '')}"></div>
+      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="editAssetPermissibleDeflection" type="number" value="${safeAttr(values.permissibledeflection || '')}"></div>
+      <div class="form-group"><label>Main Hoist Description</label><input id="editAssetHoistDescription" type="text" value="${safeAttr(values.hoistdescription || '')}"></div>
+      <div class="form-group"><label>Main Hoist Serial No</label><input id="editAssetHoistSerialNo" type="text" value="${safeAttr(values.hoistserialno || '')}"></div>
+      <div class="form-group"><label>Auxiliary Hoist Description</label><input id="editAssetAuxHoistDescription" type="text" value="${safeAttr(values.auxhoistdescription || '')}"></div>
+      <div class="form-group"><label>Auxiliary Hoist Serial No</label><input id="editAssetAuxHoistSerialNo" type="text" value="${safeAttr(values.auxhoistserialno || '')}"></div>
+      <div class="form-group"><label>Main Hoist Hook Size(mm)</label><input id="editAssetHookSize" type="number" value="${safeAttr(values.hooksize || '')}"></div>
+      <div class="form-group"><label>Auxiliary Hoist Hook Size(mm)</label><input id="editAssetAuxHoistHookSize" type="number" value="${safeAttr(values.auxhoisthooksize || '')}"></div>
+      <div class="form-group"><label>Height of Lift(mm)</label><input id="editAssetHeightOfLift" type="number" value="${safeAttr(values.heightoflift || '')}"></div>
+      <div class="form-group"><label>Main Hoist Steel Wire Rope(mm)</label><input id="editAssetSteelWireRopeMM" type="number" value="${safeAttr(values.steelwireropemm || '')}"></div>
+      <div class="form-group"><label>Auxiliary Hoist Steel Wire Rope(mm)</label><input id="editAssetAuxHoistRopeMM" type="number" value="${safeAttr(values.auxhoistropemm || '')}"></div>
     `
   }
 
   if (groupid === '500') {
     dynamicEditFields = `
-      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${values.wll || ''}"></div>
-      <div class="form-group"><label>Span(mm)</label><input id="editAssetSpan" type="number" value="${values.span || ''}"></div>
-      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="editAssetPermissibleDeflection" type="number" value="${values.permissibledeflection || ''}"></div>
-      <div class="form-group"><label>Hook Size(mm)</label><input id="editAssetHookSize" type="number" value="${values.hooksize || ''}"></div>
-      <div class="form-group"><label>Hoist Description</label><input id="editAssetHoistDescription" type="text" value="${values.hoistdescription || ''}"></div>
-      <div class="form-group"><label>Hoist Serial No</label><input id="editAssetHoistSerialNo" type="text" value="${values.hoistserialno || ''}"></div>
+      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${safeAttr(values.wll || '')}"></div>
+      <div class="form-group"><label>Span(mm)</label><input id="editAssetSpan" type="number" value="${safeAttr(values.span || '')}"></div>
+      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="editAssetPermissibleDeflection" type="number" value="${safeAttr(values.permissibledeflection || '')}"></div>
+      <div class="form-group"><label>Hook Size(mm)</label><input id="editAssetHookSize" type="number" value="${safeAttr(values.hooksize || '')}"></div>
+      <div class="form-group"><label>Hoist Description</label><input id="editAssetHoistDescription" type="text" value="${safeAttr(values.hoistdescription || '')}"></div>
+      <div class="form-group"><label>Hoist Serial No</label><input id="editAssetHoistSerialNo" type="text" value="${safeAttr(values.hoistserialno || '')}"></div>
     `
   }
 
@@ -3205,13 +3205,13 @@ window.editAsset = async function (assetid) {
   const equipmentTypeOptions = [...equipmentTypes]
     .sort((a, b) => (a.description || '').localeCompare(b.description || ''))
     .map(type => `
-      <option value="${type.equiptypeid}" ${String(type.equiptypeid) === String(asset.equiptypeid) ? 'selected' : ''}>
-        ${type.description}
+      <option value="${safeAttr(type.equiptypeid)}" ${String(type.equiptypeid) === String(asset.equiptypeid) ? 'selected' : ''}>
+        ${escapeHtml(type.description)}
       </option>
     `).join('')
 
   document.querySelector('#page').innerHTML = `
-    <h2>Edit Asset ${asset.assetid}</h2>
+    <h2>Edit Asset ${escapeHtml(asset.assetid)}</h2>
 
     <div class="filter-card">
       <div class="asset-form-grid">
@@ -3226,22 +3226,22 @@ window.editAsset = async function (assetid) {
 
         <div class="form-group">
           <label>Serial No</label>
-          <input id="editAssetSerialNo" type="text" value="${asset.serialno || ''}">
+          <input id="editAssetSerialNo" type="text" value="${safeAttr(asset.serialno || '')}">
         </div>
 
         <div class="form-group">
           <label>Asset Tag Number <span class="optional-label">(Optional)</span></label>
-          <input id="editAssetTagNo" type="text" value="${asset.assettagno || ''}" placeholder="Customer tag / plant number if available">
+          <input id="editAssetTagNo" type="text" value="${safeAttr(asset.assettagno || '')}" placeholder="Customer tag / plant number if available">
         </div>
 
         <div class="form-group">
           <label>Manufacturer</label>
-          <input id="editAssetManufacturer" type="text" value="${asset.manufacturer || ''}">
+          <input id="editAssetManufacturer" type="text" value="${safeAttr(asset.manufacturer || '')}">
         </div>
 
         <div class="form-group" id="editManufactureDateRow" style="${showManufactureDate ? '' : 'display:none;'}">
           <label>Manufacture Date</label>
-          <input id="editAssetManufactDate" type="date" value="${String(asset.manufactdate || '').slice(0, 10)}">
+          <input id="editAssetManufactDate" type="date" value="${safeAttr(String(asset.manufactdate || '').slice(0, 10))}">
         </div>
 
         <div id="editDynamicAssetFields" class="dynamic-asset-fields">
@@ -3250,7 +3250,7 @@ window.editAsset = async function (assetid) {
 
         <div class="form-group asset-description">
           <label>Description</label>
-          <textarea id="editAssetDescription" rows="4">${asset.description || ''}</textarea>
+          <textarea id="editAssetDescription" rows="4">${escapeHtml(asset.description || '')}</textarea>
         </div>
 
         <div class="asset-photo-row">
@@ -3292,7 +3292,7 @@ window.editAsset = async function (assetid) {
       ${asset.media1 ? `
         <div class="photo-card">
           <h3>Photo 1</h3>
-          <img src="${API_BASE}${asset.media1}">
+          <img src="${safeAttr(`${API_BASE}${asset.media1}`)}">
           ${canArchiveOrMoveAssetRecords() ? `
             <button
               type="button"
@@ -3308,7 +3308,7 @@ window.editAsset = async function (assetid) {
       ${asset.media2 ? `
         <div class="photo-card">
           <h3>Photo 2</h3>
-          <img src="${API_BASE}${asset.media2}">
+          <img src="${safeAttr(`${API_BASE}${asset.media2}`)}">
           ${canArchiveOrMoveAssetRecords() ? `
             <button
               type="button"
@@ -3550,11 +3550,7 @@ window.goToCriteriaPage = function (page) {
 }
 
 function escapeAttribute(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
+  return safeAttr(value)
 }
 
 function renderCriteriaPopup(row = {}) {
@@ -3603,7 +3599,7 @@ function renderCriteriaPopup(row = {}) {
         </div>
 
         <div class="criteria-modal-body">
-          <input id="editingCriteriaId" type="hidden" value="${row.criteriaid || ""}">
+          <input id="editingCriteriaId" type="hidden" value="${safeAttr(row.criteriaid || "")}">
 
           <div class="form-row">
             <div class="form-group">
@@ -3611,10 +3607,10 @@ function renderCriteriaPopup(row = {}) {
               <select id="criteriaEquipType">
                 ${sortedEquipmentTypes.map(type => `
                   <option
-                    value="${type.equiptypeid}"
+                    value="${safeAttr(type.equiptypeid)}"
                     ${String(type.equiptypeid) === String(selectedEquipmentType) ? "selected" : ""}
                   >
-                    ${type.description}
+                    ${escapeHtml(type.description)}
                   </option>
                 `).join('')}
               </select>
@@ -3888,8 +3884,8 @@ window.filterCertificateSites = function () {
   siteSelect.innerHTML = `
     <option value="">All Sites</option>
     ${filteredSites.map(site => `
-      <option value="${site.siteid}">
-        ${site.sitename}
+      <option value="${safeAttr(site.siteid)}">
+        ${escapeHtml(site.sitename)}
       </option>
     `).join("")}
   `
@@ -3906,8 +3902,8 @@ window.filterCertificateSections = function () {
   sectionSelect.innerHTML = `
     <option value="">All Sections</option>
     ${filteredSections.map(section => `
-      <option value="${section.sectionid}">
-        ${section.sectionname}
+      <option value="${safeAttr(section.sectionid)}">
+        ${escapeHtml(section.sectionname)}
       </option>
     `).join("")}
   `
@@ -4045,31 +4041,31 @@ function renderCertificateResultRows(certificates) {
       <tbody>
         ${pagination.rows.map(cert => `
           <tr>
-            <td>${cert.testid}</td>
-            <td>${cert.tagnumber || "-"}</td>
-            <td>${cert.clientname || ""}</td>
-            <td>${cert.sitename || ""}</td>
-            <td>${cert.description || ""}</td>
-            <td>${cert.serialno || ""}</td>
-            <td>${cert.inspectiontype || ""}</td>
-            <td>${cert.testdate ? cert.testdate.split("T")[0] : ""}</td>
+            <td>${escapeHtml(cert.testid)}</td>
+            <td>${escapeHtml(cert.tagnumber || "-")}</td>
+            <td>${escapeHtml(cert.clientname || "")}</td>
+            <td>${escapeHtml(cert.sitename || "")}</td>
+            <td>${escapeHtml(cert.description || "")}</td>
+            <td>${escapeHtml(cert.serialno || "")}</td>
+            <td>${escapeHtml(cert.inspectiontype || "")}</td>
+            <td>${escapeHtml(cert.testdate ? cert.testdate.split("T")[0] : "")}</td>
             <td>
               <strong class="${
                 cert.status === "SAFE"
                   ? "status-safe"
                   : "status-unsafe"
               }">
-                ${cert.status || ""}
+                ${escapeHtml(cert.status || "")}
               </strong>
             </td>
-            <td>${cert.inspector || "-"}</td>
+            <td>${escapeHtml(cert.inspector || "-")}</td>
             <td>
               <button onclick="previewCertificate(${cert.testid})">Preview</button>
               <button onclick="openCertificateModal(${cert.testid})">View</button>
               <a
                 class="cert-action-link"
-                href="${API_BASE}/inspections/${cert.testid}/certificate.pdf?t=${Date.now()}"
-                download="certificate-${cert.testid}.pdf"
+                href="${safeAttr(`${API_BASE}/inspections/${encodeURIComponent(cert.testid)}/certificate.pdf?t=${Date.now()}`)}"
+                download="certificate-${safeAttr(cert.testid)}.pdf"
               >
                 Download PDF
               </a>
@@ -4213,10 +4209,10 @@ window.quickFindAsset = async function () {
                 <tbody>
                   ${broadMatches.map(asset => `
                     <tr>
-                      <td>${asset.assetid}</td>
-                      <td>${asset.assettagno || ''}</td>
-                      <td>${asset.serialno || asset.hoistserialno || asset.auxhoistserialno || ''}</td>
-                      <td>${asset.description || ''}</td>
+                      <td>${escapeHtml(asset.assetid)}</td>
+                      <td>${escapeHtml(asset.assettagno || '')}</td>
+                      <td>${escapeHtml(asset.serialno || asset.hoistserialno || asset.auxhoistserialno || '')}</td>
+                      <td>${escapeHtml(asset.description || '')}</td>
                       <td>
                         <button onclick="quickOpenAsset(${asset.assetid})">
                           Select
@@ -4238,7 +4234,7 @@ window.quickFindAsset = async function () {
     resultBox.innerHTML = `
       <div class="filter-card">
         <h3>No Asset Found</h3>
-        <p>No asset matched: <strong>${search}</strong></p>
+        <p>No asset matched: <strong>${escapeHtml(search)}</strong></p>
       </div>
     `
     return
@@ -4264,10 +4260,10 @@ window.quickFindAsset = async function () {
           <tbody>
             ${matchedAssets.map(asset => `
               <tr>
-                <td>${asset.assetid}</td>
-                <td>${asset.assettagno || ''}</td>
-                <td>${asset.serialno || ''}</td>
-                <td>${asset.description || ''}</td>
+                <td>${escapeHtml(asset.assetid)}</td>
+                <td>${escapeHtml(asset.assettagno || '')}</td>
+                <td>${escapeHtml(asset.serialno || '')}</td>
+                <td>${escapeHtml(asset.description || '')}</td>
                 <td>
                   <button onclick="quickOpenAsset(${asset.assetid})">
                     Select
@@ -4387,25 +4383,25 @@ window.quickOpenAsset = async function (assetid) {
     <div class="filter-card quick-result-card">
       <div class="quick-result-header">
         <h3>Asset Found</h3>
-        <strong>${asset.assetid}</strong>
+        <strong>${escapeHtml(asset.assetid)}</strong>
       </div>
 
       <div class="quick-asset-grid">
 
         <div class="quick-detail-grid">
-          <p><span>Asset Tag</span><strong>${asset.assettagno || '-'}</strong></p>
-          <p><span>Serial No</span><strong>${asset.serialno || '-'}</strong></p>
-          <p><span>Equipment</span><strong>${asset.equipmenttype || '-'}</strong></p>
-          <p class="quick-wide"><span>Description</span><strong>${asset.description || '-'}</strong></p>
-          <p><span>Client</span><strong>${asset.clientname || '-'}</strong></p>
-          <p><span>Site</span><strong>${asset.sitename || '-'}</strong></p>
-          <p><span>Section</span><strong>${asset.sectionname || '-'}</strong></p>
+          <p><span>Asset Tag</span><strong>${escapeHtml(asset.assettagno || '-')}</strong></p>
+          <p><span>Serial No</span><strong>${escapeHtml(asset.serialno || '-')}</strong></p>
+          <p><span>Equipment</span><strong>${escapeHtml(asset.equipmenttype || '-')}</strong></p>
+          <p class="quick-wide"><span>Description</span><strong>${escapeHtml(asset.description || '-')}</strong></p>
+          <p><span>Client</span><strong>${escapeHtml(asset.clientname || '-')}</strong></p>
+          <p><span>Site</span><strong>${escapeHtml(asset.sitename || '-')}</strong></p>
+          <p><span>Section</span><strong>${escapeHtml(asset.sectionname || '-')}</strong></p>
         </div>
 
         <div class="quick-history-card">
           <h4>Inspection History</h4>
-          <p><span>Last Visual</span><strong>${asset.lastvisualdate ? asset.lastvisualdate.split('T')[0] : 'No record'}</strong><em>${asset.lastvisualstatus || '-'}</em></p>
-          <p><span>Last Load Test</span><strong>${asset.lastloadtestdate ? asset.lastloadtestdate.split('T')[0] : 'No record'}</strong><em>${asset.lastloadteststatus || '-'}</em></p>
+          <p><span>Last Visual</span><strong>${escapeHtml(asset.lastvisualdate ? asset.lastvisualdate.split('T')[0] : 'No record')}</strong><em>${escapeHtml(asset.lastvisualstatus || '-')}</em></p>
+          <p><span>Last Load Test</span><strong>${escapeHtml(asset.lastloadtestdate ? asset.lastloadtestdate.split('T')[0] : 'No record')}</strong><em>${escapeHtml(asset.lastloadteststatus || '-')}</em></p>
         </div>
 
       </div>
@@ -4414,14 +4410,14 @@ window.quickOpenAsset = async function (assetid) {
         <div class="quick-photo-grid">
         ${asset.media1 ? `
           <div class="quick-photo-card">
-            <img src="${API_BASE}${asset.media1}">
+            <img src="${safeAttr(`${API_BASE}${asset.media1}`)}">
             <span>Photo 1</span>
           </div>
         ` : ''}
 
         ${asset.media2 ? `
           <div class="quick-photo-card">
-            <img src="${API_BASE}${asset.media2}">
+            <img src="${safeAttr(`${API_BASE}${asset.media2}`)}">
             <span>Photo 2</span>
           </div>
         ` : ''}
@@ -4572,7 +4568,7 @@ function inspectionSummaryCard(label, value, unit = "") {
   if (!hasInspectionSummaryValue(value)) return ""
 
   const suffix = unit ? ` ${unit}` : ""
-  return `<div><span>${label}</span><strong>${value}${suffix}</strong></div>`
+  return `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}${escapeHtml(suffix)}</strong></div>`
 }
 
 const criteriaAssetMap = {
@@ -5040,8 +5036,8 @@ function renderMeasurementCriteriaRow(row, asset, inspectiontype) {
   return `
     <div class="inspection-row compact-row ${inspectiontype === "LOADTEST" ? "loadtest-measurement-row" : ""}">
       <div class="inspection-criteria">
-        ${inspectionCriteriaText(row)}
-        ${row.severity ? `<span class="inspection-criteria-badge ${String(row.severity).toLowerCase()}">${row.severity}</span>` : ""}
+        ${escapeHtml(inspectionCriteriaText(row))}
+        ${row.severity ? `<span class="inspection-criteria-badge ${safeAttr(String(row.severity).toLowerCase())}">${escapeHtml(row.severity)}</span>` : ""}
       </div>
 
       <div class="comparison-grid">
@@ -5083,8 +5079,8 @@ function renderVisualCriteriaRow(row) {
     return `
       <div class="inspection-row compact-row">
         <div class="inspection-criteria">
-          ${inspectionCriteriaText(row)}
-          ${row.severity ? `<span class="inspection-criteria-badge ${String(row.severity).toLowerCase()}">${row.severity}</span>` : ""}
+          ${escapeHtml(inspectionCriteriaText(row))}
+          ${row.severity ? `<span class="inspection-criteria-badge ${safeAttr(String(row.severity).toLowerCase())}">${escapeHtml(row.severity)}</span>` : ""}
         </div>
 
         <div class="inspection-result inspection-text-result">
@@ -5101,8 +5097,8 @@ function renderVisualCriteriaRow(row) {
   return `
     <div class="inspection-row compact-row">
       <div class="inspection-criteria">
-        ${inspectionCriteriaText(row)}
-        ${row.severity ? `<span class="inspection-criteria-badge ${String(row.severity).toLowerCase()}">${row.severity}</span>` : ""}
+        ${escapeHtml(inspectionCriteriaText(row))}
+        ${row.severity ? `<span class="inspection-criteria-badge ${safeAttr(String(row.severity).toLowerCase())}">${escapeHtml(row.severity)}</span>` : ""}
       </div>
 
       <div class="inspection-result">
@@ -5416,19 +5412,19 @@ const visualCriteria = assetCriteria.filter(row => row.fieldtype !== "NUMBER")
 window.currentInspectionCriteria = assetCriteria
 
   document.querySelector('#page').innerHTML = `
-    <h2>${inspectiontype} - Asset ${asset.assetid}</h2>
+    <h2>${escapeHtml(inspectiontype)} - Asset ${escapeHtml(asset.assetid)}</h2>
 
     <div class="filter-card">
       <div class="inspection-asset-summary">
         <div class="inspection-asset-title">
-          <strong>${asset.description || ''}</strong>
-          <span>Asset ${asset.assetid}</span>
+          <strong>${escapeHtml(asset.description || '')}</strong>
+          <span>Asset ${escapeHtml(asset.assetid)}</span>
         </div>
 
         <div class="inspection-asset-details">
-          <div><span>Serial No</span><strong>${asset.serialno || '-'}</strong></div>
-          <div><span>Equipment Type</span><strong>${asset.equipmenttype || '-'}</strong></div>
-          <div><span>WLL</span><strong>${asset.wll || '-'} kg</strong></div>
+          <div><span>Serial No</span><strong>${escapeHtml(asset.serialno || '-')}</strong></div>
+          <div><span>Equipment Type</span><strong>${escapeHtml(asset.equipmenttype || '-')}</strong></div>
+          <div><span>WLL</span><strong>${escapeHtml(asset.wll || '-')} kg</strong></div>
           ${inspectionSummaryCard("Span/Jib", asset.span, "mm")}
           ${inspectionSummaryCard("Permissible Deflection", asset.permissibledeflection, "mm")}
         </div>
@@ -5449,13 +5445,13 @@ window.currentInspectionCriteria = assetCriteria
 
   ${asset.media1 ? `
     <div class="quick-photo-card">
-      <img src="${API_BASE}${asset.media1}">
+      <img src="${safeAttr(`${API_BASE}${asset.media1}`)}">
     </div>
   ` : ''}
 
   ${asset.media2 ? `
     <div class="quick-photo-card">
-      <img src="${API_BASE}${asset.media2}">
+      <img src="${safeAttr(`${API_BASE}${asset.media2}`)}">
     </div>
   ` : ''}
 
@@ -5490,11 +5486,11 @@ window.currentInspectionCriteria = assetCriteria
   <div class="inspector-identity-card">
     <div>
       <span>Logged-in Inspector</span>
-      <strong>${currentUser?.full_name || '-'}</strong>
+      <strong>${escapeHtml(currentUser?.full_name || '-')}</strong>
     </div>
     <div>
       <span>LMI Number</span>
-      <strong>${currentUser?.lmi_number || '-'}</strong>
+      <strong>${escapeHtml(currentUser?.lmi_number || '-')}</strong>
     </div>
   </div>
 
@@ -5542,17 +5538,17 @@ window.currentInspectionCriteria = assetCriteria
 
           <div>
             <strong>Date:</strong><br>
-            ${quickDetails.lastinspectiondate || 'Never Inspected'}
+            ${escapeHtml(quickDetails.lastinspectiondate || 'Never Inspected')}
           </div>
 
           <div>
             <strong>Tag Number:</strong><br>
-            ${quickDetails.lastinspectiontag || '-'}
+            ${escapeHtml(quickDetails.lastinspectiontag || '-')}
           </div>
 
           <div>
             <strong>Type:</strong><br>
-            ${quickDetails.lastinspectiontype || '-'}
+            ${escapeHtml(quickDetails.lastinspectiontype || '-')}
           </div>
 
           <div>
@@ -5562,13 +5558,13 @@ window.currentInspectionCriteria = assetCriteria
                 ? 'status-safe'
                 : 'status-unsafe'
             }">
-              ${quickDetails.lastinspectionstatus || '-'}
+              ${escapeHtml(quickDetails.lastinspectionstatus || '-')}
             </span>
           </div>
 
           <div>
             <strong>Inspector:</strong><br>
-            ${quickDetails.lastinspector || '-'}
+            ${escapeHtml(quickDetails.lastinspector || '-')}
           </div>
 
         </div>
@@ -5616,11 +5612,11 @@ window.showInspectionHistory = async function (assetid) {
 
   const rows = history.map(row => `
     <tr>
-      <td>${row.testdate || ''}</td>
-      <td>${row.inspectiontype || ''}</td>
-      <td><strong>${row.tagnumber || '-'}</strong></td>
-      <td>${row.status || ''}</td>
-      <td>${row.inspector || '-'}</td>
+      <td>${escapeHtml(row.testdate || '')}</td>
+      <td>${escapeHtml(row.inspectiontype || '')}</td>
+      <td><strong>${escapeHtml(row.tagnumber || '-')}</strong></td>
+      <td>${escapeHtml(row.status || '')}</td>
+      <td>${escapeHtml(row.inspector || '-')}</td>
       <td>
           <button onclick="openCertificateModal(${row.testid})">
             View Certificate
@@ -5691,11 +5687,11 @@ window.showAssetHistoryFromSetup = async function (assetid) {
         <tbody>
           ${history.length ? history.map(row => `
             <tr>
-              <td>${row.testdate || ''}</td>
-              <td>${row.inspectiontype || ''}</td>
-              <td><strong>${row.tagnumber || '-'}</strong></td>
-              <td>${row.status || ''}</td>
-              <td>${row.inspector || '-'}</td>
+              <td>${escapeHtml(row.testdate || '')}</td>
+              <td>${escapeHtml(row.inspectiontype || '')}</td>
+              <td><strong>${escapeHtml(row.tagnumber || '-')}</strong></td>
+              <td>${escapeHtml(row.status || '')}</td>
+              <td>${escapeHtml(row.inspector || '-')}</td>
               <td>
               <button onclick="openCertificateModal(${row.testid})">
                 View Certificate
@@ -5774,7 +5770,7 @@ window.dashboardFindAsset = async function () {
 
     if (!matchedAssets.length) {
       resultBox.innerHTML = `
-        <p>No asset found for <strong>${search}</strong>.</p>
+        <p>No asset found for <strong>${escapeHtml(search)}</strong>.</p>
       `
       return
     }
@@ -5802,12 +5798,12 @@ window.dashboardFindAsset = async function () {
           <tbody>
             ${matchedAssets.slice(0, 10).map(asset => `
               <tr>
-                <td>${asset.assetid}</td>
-                <td>${asset.assettagno || "-"}</td>
-                <td>${asset.serialno || "-"}</td>
-                <td>${asset.hoistserialno || "-"}</td>
-                <td>${asset.description || ""}</td>
-                <td>${asset.equipmenttype || ""}</td>
+                <td>${escapeHtml(asset.assetid)}</td>
+                <td>${escapeHtml(asset.assettagno || "-")}</td>
+                <td>${escapeHtml(asset.serialno || "-")}</td>
+                <td>${escapeHtml(asset.hoistserialno || "-")}</td>
+                <td>${escapeHtml(asset.description || "")}</td>
+                <td>${escapeHtml(asset.equipmenttype || "")}</td>
                 <td class="dashboard-search-actions">
                   <button onclick="startInspection(${asset.assetid}, 'VISUAL', 'quick')">Inspect</button>
                   ${

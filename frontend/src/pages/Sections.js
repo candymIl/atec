@@ -1,5 +1,6 @@
 import { getPaginationState, renderPaginationControls } from '../pagination.js'
 import { sortHeader, sortTableRows } from '../tableSort.js'
+import { escapeHtml } from '../utils/security.js'
 
 export function renderSections(sections, sectionArchiveMode = 'active') {
   const canArchiveSections = window.currentUser?.role === 'ADMIN'
@@ -103,11 +104,11 @@ export function renderSections(sections, sectionArchiveMode = 'active') {
       <tbody id="sectionTableBody">
         ${pagination.rows.map(section => `
           <tr>
-            <td>${section.sectionid}</td>
-            <td>${section.clientname || ''}</td>
-            <td>${section.sitename || ''}</td>
-            <td>${section.responsiblename || ''}</td>
-            <td>${section.sectionname || ''}</td>
+            <td>${escapeHtml(section.sectionid)}</td>
+            <td>${escapeHtml(section.clientname || '')}</td>
+            <td>${escapeHtml(section.sitename || '')}</td>
+            <td>${escapeHtml(section.responsiblename || '')}</td>
+            <td>${escapeHtml(section.sectionname || '')}</td>
             <td>${section.archived ? 'Archived' : 'Active'}</td>
             <td>
               <button onclick="editSection(${section.sectionid})">

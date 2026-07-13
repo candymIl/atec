@@ -1,5 +1,6 @@
 import { sortHeader, sortTableRows } from '../tableSort.js'
 import { API_BASE } from '../api.js'
+import { escapeHtml, safeAttr } from '../utils/security.js'
 
 function todayIso() {
   return new Date().toISOString().split('T')[0]
@@ -59,8 +60,8 @@ function assetOptions(assets, selected = '') {
   return `
     <option value="">General / no asset</option>
     ${assets.map(asset => `
-      <option value="${asset.assetid}" ${String(selected) === String(asset.assetid) ? 'selected' : ''}>
-        ${asset.assetid} - ${asset.assettagno || asset.serialno || asset.description || 'Asset'}
+      <option value="${safeAttr(asset.assetid)}" ${String(selected) === String(asset.assetid) ? 'selected' : ''}>
+        ${escapeHtml(asset.assetid)} - ${escapeHtml(asset.assettagno || asset.serialno || asset.description || 'Asset')}
       </option>
     `).join('')}
   `
@@ -350,19 +351,19 @@ export function renderRiskAssessmentTable(risks = [], canWrite = true) {
       <tbody>
         ${sorted.length ? sorted.map(risk => `
           <tr>
-            <td>${risk.riskid}</td>
+            <td>${escapeHtml(risk.riskid)}</td>
             <td>${formatDate(risk.assessment_date)}</td>
             <td>
-              <strong>${risk.assettagno || risk.assetid || '-'}</strong><br>
-              <small>${risk.asset_description || risk.serialno || ''}</small>
+              <strong>${escapeHtml(risk.assettagno || risk.assetid || '-')}</strong><br>
+              <small>${escapeHtml(risk.asset_description || risk.serialno || '')}</small>
             </td>
-            <td>${risk.activity || ''}</td>
-            <td>${risk.hazard || ''}</td>
-            <td>${Array.isArray(risk.hazard_categories) ? risk.hazard_categories.join(', ') : ''}</td>
-            <td><span class="status-badge ${ratingClass(risk.initial_rating)}">${risk.initial_rating || '-'}</span></td>
-            <td><span class="status-badge ${ratingClass(risk.residual_rating)}">${risk.residual_rating || '-'}</span></td>
-            <td>${risk.responsible_person || ''}</td>
-            <td>${risk.status || ''}</td>
+            <td>${escapeHtml(risk.activity || '')}</td>
+            <td>${escapeHtml(risk.hazard || '')}</td>
+            <td>${escapeHtml(Array.isArray(risk.hazard_categories) ? risk.hazard_categories.join(', ') : '')}</td>
+            <td><span class="status-badge ${ratingClass(risk.initial_rating)}">${escapeHtml(risk.initial_rating || '-')}</span></td>
+            <td><span class="status-badge ${ratingClass(risk.residual_rating)}">${escapeHtml(risk.residual_rating || '-')}</span></td>
+            <td>${escapeHtml(risk.responsible_person || '')}</td>
+            <td>${escapeHtml(risk.status || '')}</td>
             <td>${formatDate(risk.due_date)}</td>
             ${canWrite ? `<td>
               <div class="action-buttons">

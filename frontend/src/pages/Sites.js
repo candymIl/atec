@@ -1,5 +1,6 @@
 import { getPaginationState, renderPaginationControls } from '../pagination.js'
 import { sortHeader, sortTableRows } from '../tableSort.js'
+import { escapeHtml } from '../utils/security.js'
 
 export function renderSites(sites, siteArchiveMode = 'active') {
   const canArchiveSites = window.currentUser?.role === 'ADMIN'
@@ -81,9 +82,9 @@ export function renderSites(sites, siteArchiveMode = 'active') {
       <tbody id="siteTableBody">
         ${pagination.rows.map(site => `
          <tr>
-          <td>${site.siteid}</td>
-          <td>${site.clientname || ''}</td>
-          <td>${site.sitename || ''}</td>
+          <td>${escapeHtml(site.siteid)}</td>
+          <td>${escapeHtml(site.clientname || '')}</td>
+          <td>${escapeHtml(site.sitename || '')}</td>
           <td>${site.archived ? 'Archived' : 'Active'}</td>
           <td>
             <button onclick="editSite(${site.siteid})">

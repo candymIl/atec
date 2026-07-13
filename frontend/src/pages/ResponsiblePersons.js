@@ -1,5 +1,6 @@
 import { getPaginationState, renderPaginationControls } from '../pagination.js'
 import { sortHeader, sortTableRows } from '../tableSort.js'
+import { escapeHtml } from '../utils/security.js'
 
 export function renderResponsiblePersons(responsiblePersons, responsibleArchiveMode = 'active') {
   const canArchiveResponsiblePersons = window.currentUser?.role === 'ADMIN'
@@ -81,9 +82,9 @@ export function renderResponsiblePersons(responsiblePersons, responsibleArchiveM
       <tbody id="responsibleTableBody">
         ${pagination.rows.map(person => `
           <tr>
-            <td>${person.personid}</td>
-            <td>${person.clientname || ''}</td>
-            <td>${person.name || ''}</td>
+            <td>${escapeHtml(person.personid)}</td>
+            <td>${escapeHtml(person.clientname || '')}</td>
+            <td>${escapeHtml(person.name || '')}</td>
             <td>${person.archived ? 'Archived' : 'Active'}</td>
             <td>
               <button onclick="editResponsiblePerson(${person.personid})">

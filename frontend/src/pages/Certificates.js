@@ -126,7 +126,7 @@ export function renderCertificateSearch(customers = [], sites = [], sections = [
           <select id="bulkCertClient">
             <option value="">Select Customer</option>
             ${customers.map(c => `
-              <option value="${c.clientid}">${c.clientname}</option>
+              <option value="${safeAttr(c.clientid)}">${escapeHtml(c.clientname)}</option>
             `).join("")}
           </select>
         </div>
@@ -245,7 +245,7 @@ window.filterCertificateSites = function () {
   siteSelect.innerHTML = `
     <option value="">All Sites</option>
     ${filteredSites.map(site => `
-      <option value="${site.siteid}">${site.sitename}</option>
+      <option value="${safeAttr(site.siteid)}">${escapeHtml(site.sitename)}</option>
     `).join("")}
   `
 }
@@ -261,7 +261,7 @@ window.filterCertificateSections = function () {
   sectionSelect.innerHTML = `
     <option value="">All Sections</option>
     ${filteredSections.map(section => `
-      <option value="${section.sectionid}">${section.sectionname}</option>
+      <option value="${safeAttr(section.sectionid)}">${escapeHtml(section.sectionname)}</option>
     `).join("")}
   `
 }
@@ -277,7 +277,7 @@ window.filterBulkCertificateSites = function () {
   siteSelect.innerHTML = `
     <option value="">All Sites</option>
     ${filteredSites.map(site => `
-      <option value="${site.siteid}">${site.sitename}</option>
+      <option value="${safeAttr(site.siteid)}">${escapeHtml(site.sitename)}</option>
     `).join("")}
   `
 }
@@ -957,24 +957,24 @@ function renderCertificateDocument(certificate) {
       <img src="${assetUrl('header.jpg')}" class="fb-cert-header" alt="FB Cranes Header">
 
       <div class="fb-cert-title">
-        <h1>${certificateTitle}</h1>
+        <h1>${escapeHtml(certificateTitle)}</h1>
       </div>
 
       <div class="fb-cert-meta">
         <div>
           <strong>Certificate No:</strong>
-          <span>${inspection.testid}</span>
+          <span>${escapeHtml(inspection.testid)}</span>
         </div>
 
         <div>
           <strong>Tag Number:</strong>
-          <span>${inspection.tagnumber || "-"}</span>
+          <span>${escapeHtml(inspection.tagnumber || "-")}</span>
         </div>
 
         <div>
           <strong>Status:</strong>
           <span class="${inspection.status === "SAFE" ? "status-safe" : "status-unsafe"}">
-            ${inspection.status || "-"}
+            ${escapeHtml(inspection.status || "-")}
           </span>
         </div>
       </div>
@@ -982,21 +982,21 @@ function renderCertificateDocument(certificate) {
       <div class="fb-cert-section">
         <h3>Customer Details</h3>
         <div class="fb-cert-grid">
-          <p><strong>Client:</strong> ${inspection.clientname || "-"}</p>
-          <p><strong>Site:</strong> ${inspection.sitename || "-"}</p>
-          <p><strong>Section:</strong> ${inspection.sectionname || "-"}</p>
+          <p><strong>Client:</strong> ${escapeHtml(inspection.clientname || "-")}</p>
+          <p><strong>Site:</strong> ${escapeHtml(inspection.sitename || "-")}</p>
+          <p><strong>Section:</strong> ${escapeHtml(inspection.sectionname || "-")}</p>
         </div>
       </div>
 
       <div class="fb-cert-section">
         <h3>Asset Details</h3>
         <div class="fb-cert-grid">
-          <p><strong>Asset ID:</strong> ${inspection.assetid || "-"}</p>
-          <p><strong>Asset Tag No:</strong> ${inspection.assettagno || "-"}</p>
-          <p><strong>Equipment Type:</strong> ${inspection.equipmenttype || "-"}</p>
-          <p><strong>Description:</strong> ${inspection.description || "-"}</p>
-          <p class="fb-cert-serial-line"><strong>Serial No:</strong> <span>${inspection.serialno || "-"}</span></p>
-          <p><strong>Manufacturer:</strong> ${inspection.manufacturer || "-"}</p>
+          <p><strong>Asset ID:</strong> ${escapeHtml(inspection.assetid || "-")}</p>
+          <p><strong>Asset Tag No:</strong> ${escapeHtml(inspection.assettagno || "-")}</p>
+          <p><strong>Equipment Type:</strong> ${escapeHtml(inspection.equipmenttype || "-")}</p>
+          <p><strong>Description:</strong> ${escapeHtml(inspection.description || "-")}</p>
+          <p class="fb-cert-serial-line"><strong>Serial No:</strong> <span>${escapeHtml(inspection.serialno || "-")}</span></p>
+          <p><strong>Manufacturer:</strong> ${escapeHtml(inspection.manufacturer || "-")}</p>
         </div>
       </div>
 
@@ -1005,7 +1005,7 @@ function renderCertificateDocument(certificate) {
           <h3>Asset Specifications</h3>
           <div class="fb-cert-grid">
             ${assetDetails.map(([label, value]) => `
-              <p><strong>${label}:</strong> ${value}</p>
+              <p><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</p>
             `).join("")}
           </div>
         </div>
@@ -1014,11 +1014,11 @@ function renderCertificateDocument(certificate) {
       <div class="fb-cert-section">
         <h3>Inspection Details</h3>
         <div class="fb-cert-grid">
-          <p><strong>Inspection Type:</strong> ${inspection.inspectiontype || "-"}</p>
-          <p><strong>Inspection Date:</strong> ${formatDate(inspection.testdate)}</p>
-          <p><strong>Certificate Expiry Date:</strong> ${formatDate(inspection.validdate)}</p>
-          <p><strong>Inspector:</strong> ${inspection.inspector || "-"}</p>
-          <p><strong>LMI Number:</strong> ${inspection.inspector_lmi_number || "-"}</p>
+          <p><strong>Inspection Type:</strong> ${escapeHtml(inspection.inspectiontype || "-")}</p>
+          <p><strong>Inspection Date:</strong> ${escapeHtml(formatDate(inspection.testdate))}</p>
+          <p><strong>Certificate Expiry Date:</strong> ${escapeHtml(formatDate(inspection.validdate))}</p>
+          <p><strong>Inspector:</strong> ${escapeHtml(inspection.inspector || "-")}</p>
+          <p><strong>LMI Number:</strong> ${escapeHtml(inspection.inspector_lmi_number || "-")}</p>
         </div>
       </div>
 
@@ -1027,9 +1027,9 @@ function renderCertificateDocument(certificate) {
         <div class="fb-cert-photo-grid">
           ${inspectionPhotos.length ? inspectionPhotos.slice(0, 4).map((photo, index) => `
             <div>
-              <img src="${API_BASE}${photo.photo_path}">
-              <p>${photo.photo_type ? photo.photo_type.replaceAll("_", " ") : `Photo ${index + 1}`}</p>
-              ${photo.caption ? `<p>${photo.caption}</p>` : ""}
+              <img src="${safeAttr(`${API_BASE}${photo.photo_path}`)}">
+              <p>${escapeHtml(photo.photo_type ? photo.photo_type.replaceAll("_", " ") : `Photo ${index + 1}`)}</p>
+              ${photo.caption ? `<p>${escapeHtml(photo.caption)}</p>` : ""}
             </div>
           `).join("") : `
             <div class="fb-cert-no-photo">No inspection photos</div>
@@ -1061,7 +1061,7 @@ function renderCertificateDocument(certificate) {
           <tbody>
             ${results.map(row => `
               <tr>
-                <td>${row.criterianame || ""}</td>
+                <td>${escapeHtml(row.criterianame || "")}</td>
                 <td>
                   <strong class="${
                     getCertificateResultDisplay(row) === "YES" || getCertificateResultDisplay(row) === "PASS"
@@ -1070,12 +1070,12 @@ function renderCertificateDocument(certificate) {
                         ? "status-unsafe"
                         : ""
                   }">
-                    ${getCertificateResultDisplay(row)}
+                    ${escapeHtml(getCertificateResultDisplay(row))}
                   </strong>
                 </td>
-                <td>${row.assetvalue || ""}</td>
-                <td>${row.measuredvalue || ""}</td>
-                <td>${row.remarks || ""}</td>
+                <td>${escapeHtml(row.assetvalue || "")}</td>
+                <td>${escapeHtml(row.measuredvalue || "")}</td>
+                <td>${escapeHtml(row.remarks || "")}</td>
               </tr>
             `).join("")}
           </tbody>
@@ -1088,7 +1088,7 @@ function renderCertificateDocument(certificate) {
           ${inspection.inspector_signature_image ? `
             <img
               class="fb-cert-signature-image"
-              src="${API_BASE}${inspection.inspector_signature_image}"
+              src="${safeAttr(`${API_BASE}${inspection.inspector_signature_image}`)}"
               alt="Inspector Signature"
             >
           ` : ""}
@@ -1098,7 +1098,7 @@ function renderCertificateDocument(certificate) {
 
       ${certificateRegulationNotes.map(note => `
         <p class="fb-cert-driven-note">
-          ${note}
+          ${escapeHtml(note)}
         </p>
       `).join("")}
 

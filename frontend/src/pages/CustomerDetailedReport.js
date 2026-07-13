@@ -1,5 +1,6 @@
 import { sortHeader, sortTableRows } from '../tableSort.js'
 import { API_BASE } from '../api.js'
+import { escapeHtml, safeAttr } from '../utils/security.js'
 
 let currentReport = null
 let currentReportPage = 1
@@ -41,8 +42,8 @@ export function renderCustomerDetailedReport(customers = [], equipmentTypes = []
           <select id="customerReportClient">
               <option value="">All Customers</option>
               ${sortedCustomers.map(customer => `
-                <option value="${customer.clientid}">
-                  ${customer.clientname || `Customer ${customer.clientid}`}
+                <option value="${safeAttr(customer.clientid)}">
+                  ${escapeHtml(customer.clientname || `Customer ${customer.clientid}`)}
                 </option>
               `).join("")}
             </select>
@@ -53,8 +54,8 @@ export function renderCustomerDetailedReport(customers = [], equipmentTypes = []
           <select id="customerReportSite">
             <option value="">All Sites</option>
             ${sortedSites.map(site => `
-              <option value="${site.siteid}">
-                ${site.sitename || `Site ${site.siteid}`}
+              <option value="${safeAttr(site.siteid)}">
+                ${escapeHtml(site.sitename || `Site ${site.siteid}`)}
               </option>
             `).join("")}
           </select>
@@ -65,8 +66,8 @@ export function renderCustomerDetailedReport(customers = [], equipmentTypes = []
           <select id="customerReportSection">
             <option value="">All Sections</option>
             ${sortedSections.map(section => `
-              <option value="${section.sectionid}">
-                ${section.sectionname || `Section ${section.sectionid}`}
+              <option value="${safeAttr(section.sectionid)}">
+                ${escapeHtml(section.sectionname || `Section ${section.sectionid}`)}
               </option>
             `).join("")}
           </select>
@@ -77,8 +78,8 @@ export function renderCustomerDetailedReport(customers = [], equipmentTypes = []
           <select id="customerReportResponsible">
             <option value="">All Responsible Persons</option>
             ${sortedResponsiblePersons.map(person => `
-              <option value="${person.personid}">
-                ${person.name || `Person ${person.personid}`}
+              <option value="${safeAttr(person.personid)}">
+                ${escapeHtml(person.name || `Person ${person.personid}`)}
               </option>
             `).join("")}
           </select>
@@ -89,8 +90,8 @@ export function renderCustomerDetailedReport(customers = [], equipmentTypes = []
           <select id="customerReportEquipment">
             <option value="">All Equipment Types</option>
             ${sortedEquipmentTypes.map(type => `
-              <option value="${type.equiptypeid}">
-                ${type.description || `Equipment ${type.equiptypeid}`}
+              <option value="${safeAttr(type.equiptypeid)}">
+                ${escapeHtml(type.description || `Equipment ${type.equiptypeid}`)}
               </option>
             `).join("")}
           </select>
@@ -196,7 +197,7 @@ async function loadCustomerDetailedReport() {
   if (!response.ok) {
     preview.innerHTML = `
       <div class="report-preview-empty">
-        Error loading report: ${report.error || "Unknown error"}
+        Error loading report: ${escapeHtml(report.error || "Unknown error")}
       </div>
     `
     return
@@ -238,7 +239,7 @@ function getCustomerReportQuery() {
 function renderCustomerReportPreview(report) {
   const title =
     report.customers.length === 1
-      ? report.customers[0].clientname
+      ? escapeHtml(report.customers[0].clientname)
       : "All Customers"
 
   const pageSize = getReportPageSize()
@@ -355,23 +356,23 @@ function renderCustomerReportPreview(report) {
           <tbody>
             ${rows.map(row => `
               <tr>
-                <td>${row.clientname || "-"}</td>
-                <td>${row.assetid || "-"}</td>
-                <td>${row.assettagno || "-"}</td>
-                <td>${row.serialno || "-"}</td>
-                <td>${row.sitename || "-"}</td>
-                <td>${row.sectionname || "-"}</td>
-                <td>${row.responsiblename || "-"}</td>
-                <td>${row.equipmenttype || "-"}</td>
-                <td>${row.description || "-"}</td>
+                <td>${escapeHtml(row.clientname || "-")}</td>
+                <td>${escapeHtml(row.assetid || "-")}</td>
+                <td>${escapeHtml(row.assettagno || "-")}</td>
+                <td>${escapeHtml(row.serialno || "-")}</td>
+                <td>${escapeHtml(row.sitename || "-")}</td>
+                <td>${escapeHtml(row.sectionname || "-")}</td>
+                <td>${escapeHtml(row.responsiblename || "-")}</td>
+                <td>${escapeHtml(row.equipmenttype || "-")}</td>
+                <td>${escapeHtml(row.description || "-")}</td>
                 <td>${formatReportDate(row.latestinspectiondate)}</td>
                 <td>${formatReportDate(row.visualtestdate)}</td>
-                <td class="${statusClass(row.visualstatus)}">${row.visualstatus || "-"}</td>
+                <td class="${statusClass(row.visualstatus)}">${escapeHtml(row.visualstatus || "-")}</td>
                 <td>${formatReportDate(row.loadtestdate)}</td>
-                <td class="${statusClass(row.loadstatus)}">${row.loadstatus || "-"}</td>
+                <td class="${statusClass(row.loadstatus)}">${escapeHtml(row.loadstatus || "-")}</td>
                 <td>
                   <span class="report-status-pill ${reportStatusClass(row.reportstatus)}">
-                    ${row.reportstatus || "-"}
+                    ${escapeHtml(row.reportstatus || "-")}
                   </span>
                 </td>
               </tr>

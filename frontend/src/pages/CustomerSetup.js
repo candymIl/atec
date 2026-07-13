@@ -1,5 +1,6 @@
 import { getPaginationState, renderPaginationControls } from '../pagination.js'
 import { sortHeader, sortTableRows } from '../tableSort.js'
+import { escapeHtml } from '../utils/security.js'
 
 export function renderCustomerSetup(customers, customerArchiveMode = "active") {
   const canArchiveCustomers = window.currentUser?.role === "ADMIN"
@@ -98,9 +99,9 @@ export function renderCustomerSetup(customers, customerArchiveMode = "active") {
       <tbody id="customerTableBody">
         ${pagination.rows.map(customer => `
           <tr>
-            <td>${customer.clientid}</td>
-            <td>${customer.clientname || ""}</td>
-            <td>${customer.clientaddr || ""}</td>
+            <td>${escapeHtml(customer.clientid)}</td>
+            <td>${escapeHtml(customer.clientname || "")}</td>
+            <td>${escapeHtml(customer.clientaddr || "")}</td>
             <td>${customer.archived ? "Archived" : "Active"}</td>
             <td>
               <button onclick="editClient(${customer.clientid})">Edit</button>
