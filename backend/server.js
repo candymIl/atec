@@ -9,6 +9,7 @@ const bcrypt = require("bcryptjs")
 const pool = require("./db");
 require("dotenv").config();
 const app = express();
+const backendStartedAt = new Date()
 const multer = require("multer");
 const path = require("path");
 const { pathToFileURL } = require("url");
@@ -23,6 +24,8 @@ const {
   createSingleCertificatePdfBuffer,
   renderSingleCertificatePreviewHtml
 } = require("./services/certificateRenderer");
+const { buildSystemInfo } = require("./services/systemInfo")
+const backendPackage = require("./package.json")
 const {
   asyncRoute,
   auditLogger,
@@ -283,6 +286,10 @@ async function compressUploadedPhotos(req, res, next) {
 app.get("/", (req, res) => {
   res.send("ATEC backend is running");
 });
+
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" })
+})
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -1053,6 +1060,20 @@ app.get("/admin/system-health", asyncRoute(async (req, res) => {
       ...pdfQueueMetrics
     }
   })
+}))
+
+app.get("/admin/system-info", asyncRoute(async (req, res) => {
+  if (req.user.role !== "ADMIN") {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  res.json(await buildSystemInfo({
+    pool,
+    projectRoot: path.join(__dirname, ".."),
+    startedAt: backendStartedAt,
+    port: PORT,
+    appVersion: backendPackage.version
+  }))
 }))
 
 app.use((req, res, next) => {

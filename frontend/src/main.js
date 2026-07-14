@@ -11,6 +11,7 @@ import { renderQuickInspection } from './pages/QuickInspection.js'
 import { renderCertificateSearch } from './pages/Certificates.js'
 import { renderCustomerDetailedReport } from './pages/CustomerDetailedReport.js'
 import { renderRiskAssessments, renderRiskAssessmentTable } from './pages/RiskAssessments.js'
+import { renderSystemHealthPage } from './pages/SystemHealth.js'
 import { getPaginationState, renderPaginationControls } from './pagination.js'
 import { getTableSortState, sortTableRows } from './tableSort.js'
 import { API_BASE, assetUrl } from './api.js'
@@ -73,6 +74,7 @@ const pageAccess = {
   she: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER'],
   criteria: ['ADMIN'],
   users: ['ADMIN'],
+  'system-health': ['ADMIN'],
   profile: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER']
 }
 
@@ -856,6 +858,7 @@ async function loadData() {
     ${menuButton('she', 'Risk Assessment / SHE', 'showRiskAssessments()')}
     ${menuButton('criteria', 'Equipment Type Criteria', 'showEquipmentTypeCriteria()')}
     ${menuButton('users', 'User Management', 'showUserManagement()')}
+    ${menuButton('system-health', 'System Health', 'showSystemHealth()')}
     ${menuButton('profile', 'My Profile', 'showMyProfile()')}
 
     <button onclick="logoutUser()">Logout</button>
@@ -3860,6 +3863,13 @@ window.showCustomerDetailedReport = function (options = {}) {
   renderCustomerDetailedReport(customers, equipmentTypes, sites, sections, responsiblePersons, options)
 }
 
+window.showSystemHealth = function () {
+  if (!ensurePageAccess('system-health')) return
+
+  localStorage.setItem("currentPage", "system-health")
+  renderSystemHealthPage()
+}
+
 window.handleCertificateEnter = function (event) {
   if (event.key === "Enter") {
     searchCertificates()
@@ -6454,6 +6464,10 @@ switch (currentPage) {
 
   case "users":
     showUserManagement()
+    break
+
+  case "system-health":
+    showSystemHealth()
     break
 
   case "profile":

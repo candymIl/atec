@@ -4038,6 +4038,97 @@ tr:hover {
   margin: 0 0 10px;
 }
 
+.system-health-header {
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.system-health-header p {
+  color: #5f6f82;
+  margin: 4px 0 0;
+}
+
+.health-status-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  margin: 14px 0 18px;
+}
+
+.health-status-card {
+  background: #ffffff;
+  border: 1px solid #d9e1ec;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 82px;
+  padding: 14px;
+}
+
+.health-status-card span:first-child {
+  color: #5f6f82;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.health-badge {
+  align-self: flex-start;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  padding: 7px 10px;
+}
+
+.health-good {
+  background: #e6f4ec;
+  color: #17633a;
+}
+
+.health-warning {
+  background: #fff4db;
+  color: #845500;
+}
+
+.health-bad {
+  background: #fde8e8;
+  color: #a32121;
+}
+
+.health-section-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.health-info-row {
+  align-items: start;
+  border-bottom: 1px solid #edf1f6;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(0, 1.2fr);
+  padding: 9px 0;
+}
+
+.health-info-row span {
+  color: #5f6f82;
+  font-size: 13px;
+}
+
+.health-info-row strong {
+  color: #142033;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.system-health-page .dashboard-section h3 {
+  color: #26364c;
+  font-size: 14px;
+  margin: 16px 0 4px;
+}
+
 .dashboard-table {
   margin-top: 6px;
 }
@@ -4075,10 +4166,21 @@ tr:hover {
   .dashboard-two-column {
     grid-template-columns: 1fr;
   }
+
+  .health-status-grid,
+  .health-section-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 720px) {
   .dashboard-search-row {
+    grid-template-columns: 1fr;
+  }
+
+  .health-status-grid,
+  .health-section-grid,
+  .health-info-row {
     grid-template-columns: 1fr;
   }
 }
