@@ -5493,6 +5493,26 @@ window.currentInspectionCriteria = assetCriteria
 
 <div class="filter-card">
 
+  <h3>Replace Asset Photos</h3>
+
+  <p class="muted-text">
+    Choose a replacement only when the asset master photo should be updated on save.
+  </p>
+
+  <div class="asset-photo-row inspection-asset-photo-row">
+    <div class="form-group">
+      <label>Replace Asset Photo 1</label>
+      <input id="inspectionAssetPhoto1" type="file" accept="image/*">
+    </div>
+
+    <div class="form-group">
+      <label>Replace Asset Photo 2</label>
+      <input id="inspectionAssetPhoto2" type="file" accept="image/*">
+    </div>
+  </div>
+
+  <hr>
+
   <h3>Inspection Photos</h3>
 
   <input
@@ -6362,10 +6382,25 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
   formData.append("inspectiontype", inspectiontype)
   formData.append("tagnumber", tagnumber)
   formData.append("results", JSON.stringify(results))
-  formData.append(
-    "updateassetphotos",
-    document.querySelector("#updateAssetPhotos")?.checked || false
-  )
+
+  const replacementPhoto1 = document.querySelector("#inspectionAssetPhoto1")?.files?.[0] || null
+  const replacementPhoto2 = document.querySelector("#inspectionAssetPhoto2")?.files?.[0] || null
+
+  if (!validateAssetPhotoFiles([replacementPhoto1, replacementPhoto2])) {
+    return
+  }
+
+  const updateAssetPhotos = Boolean(replacementPhoto1 || replacementPhoto2)
+
+  formData.append("updateassetphotos", updateAssetPhotos)
+
+  if (replacementPhoto1) {
+    formData.append("photo1", replacementPhoto1)
+  }
+
+  if (replacementPhoto2) {
+    formData.append("photo2", replacementPhoto2)
+  }
 
   ;(window.pendingInspectionPhotos || []).forEach(photo => {
     formData.append("inspectionPhotos", photo.file)

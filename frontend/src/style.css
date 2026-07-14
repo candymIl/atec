@@ -1578,6 +1578,11 @@ tr:hover {
   margin-top: 12px;
 }
 
+.inspection-asset-photo-row {
+  margin-top: 10px;
+  margin-bottom: 14px;
+}
+
 .inspection-photo-preview-card {
   display: grid;
   grid-template-columns: 110px 1fr;
