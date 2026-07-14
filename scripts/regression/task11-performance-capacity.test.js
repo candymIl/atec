@@ -113,6 +113,8 @@ const dbSource = fs.readFileSync(path.join(__dirname, "..", "..", "backend", "db
 const systemSource = fs.readFileSync(path.join(__dirname, "..", "..", "backend", "services", "systemInfo.js"), "utf8")
 const assetPageSource = fs.readFileSync(path.join(__dirname, "..", "..", "frontend", "src", "pages", "AssetSetup.js"), "utf8")
 const mainSource = fs.readFileSync(path.join(__dirname, "..", "..", "frontend", "src", "main.js"), "utf8")
+const certificateRendererSource = fs.readFileSync(path.join(__dirname, "..", "..", "backend", "services", "certificateRenderer.js"), "utf8")
+const certificatePageSource = fs.readFileSync(path.join(__dirname, "..", "..", "frontend", "src", "pages", "Certificates.js"), "utf8")
 const customerReportSource = fs.readFileSync(path.join(__dirname, "..", "..", "frontend", "src", "pages", "CustomerDetailedReport.js"), "utf8")
 const indexSource = fs.readFileSync(path.join(__dirname, "..", "..", "database", "2026-07-14-task11-performance-capacity-indexes.sql"), "utf8")
 
@@ -147,6 +149,8 @@ assert(assetPageSource.includes("serverPaged"))
 assert(mainSource.includes("filterAssetsDebounced"))
 assert(mainSource.includes("assetSearchTimer = setTimeout"))
 assert(customerReportSource.includes("currentReportPage = 1"))
+assert(certificateRendererSource.includes('return String(inspection.equipgroupid || "") === "400"'))
+assert(certificatePageSource.includes('return String(inspection.equipgroupid || "") === "400"'))
 
 assert(serverSource.indexOf('app.use(requireAuth)') < serverSource.indexOf('app.get("/admin/system-info"'))
 assert(serverSource.includes('if (req.user.role !== "ADMIN")'))
