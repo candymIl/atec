@@ -24,3 +24,19 @@ export function assetUrl(path = '') {
   const cleanPath = String(path || '').replace(/^\/+/, '')
   return `${APP_BASE}${cleanPath}`
 }
+
+export function uploadUrl(path = '') {
+  if (!path) return ''
+
+  const cleanPath = String(path)
+
+  if (/^https?:\/\//i.test(cleanPath)) {
+    return apiUrl(cleanPath)
+  }
+
+  if (import.meta.env.PROD && cleanPath.startsWith('/uploads/')) {
+    return `${window.location.origin}${cleanPath}`
+  }
+
+  return apiUrl(cleanPath)
+}

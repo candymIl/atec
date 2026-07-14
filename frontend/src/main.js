@@ -14,7 +14,7 @@ import { renderRiskAssessments, renderRiskAssessmentTable } from './pages/RiskAs
 import { renderSystemHealthPage } from './pages/SystemHealth.js'
 import { getPaginationState, renderPaginationControls } from './pagination.js'
 import { getTableSortState, sortTableRows } from './tableSort.js'
-import { API_BASE, assetUrl } from './api.js'
+import { API_BASE, assetUrl, uploadUrl } from './api.js'
 import { escapeHtml, safeAttr } from './utils/security.js'
 
 if (window.location.pathname.toLowerCase().startsWith('/atec/atec')) {
@@ -3291,7 +3291,7 @@ window.editAsset = async function (assetid) {
       ${asset.media1 ? `
         <div class="photo-card">
           <h3>Photo 1</h3>
-          <img src="${safeAttr(`${API_BASE}${asset.media1}`)}">
+          <img src="${safeAttr(uploadUrl(asset.media1))}">
           ${canArchiveOrMoveAssetRecords() ? `
             <button
               type="button"
@@ -3307,7 +3307,7 @@ window.editAsset = async function (assetid) {
       ${asset.media2 ? `
         <div class="photo-card">
           <h3>Photo 2</h3>
-          <img src="${safeAttr(`${API_BASE}${asset.media2}`)}">
+          <img src="${safeAttr(uploadUrl(asset.media2))}">
           ${canArchiveOrMoveAssetRecords() ? `
             <button
               type="button"
@@ -4444,14 +4444,14 @@ window.quickOpenAsset = async function (assetid) {
         <div class="quick-photo-grid">
         ${asset.media1 ? `
           <div class="quick-photo-card">
-            <img src="${safeAttr(`${API_BASE}${asset.media1}`)}">
+            <img src="${safeAttr(uploadUrl(asset.media1))}">
             <span>Photo 1</span>
           </div>
         ` : ''}
 
         ${asset.media2 ? `
           <div class="quick-photo-card">
-            <img src="${safeAttr(`${API_BASE}${asset.media2}`)}">
+            <img src="${safeAttr(uploadUrl(asset.media2))}">
             <span>Photo 2</span>
           </div>
         ` : ''}
@@ -5479,13 +5479,13 @@ window.currentInspectionCriteria = assetCriteria
 
   ${asset.media1 ? `
     <div class="quick-photo-card">
-      <img src="${safeAttr(`${API_BASE}${asset.media1}`)}">
+      <img src="${safeAttr(uploadUrl(asset.media1))}">
     </div>
   ` : ''}
 
   ${asset.media2 ? `
     <div class="quick-photo-card">
-      <img src="${safeAttr(`${API_BASE}${asset.media2}`)}">
+      <img src="${safeAttr(uploadUrl(asset.media2))}">
     </div>
   ` : ''}
 
