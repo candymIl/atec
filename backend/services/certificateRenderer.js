@@ -16,6 +16,8 @@ const SANS_500_CERTIFICATE_NOTE =
 const REGULATION_18_CERTIFICATE_NOTE =
   "EXAMINED AND TESTED IN ACCORDANCE WITH REGULATION 18 OF OHS ACT 85 OF 1993"
 
+const SANS_500_EQUIPTYPE_IDS = new Set(["101", "102"])
+
 const DRIVEN_MACHINERY_ITEMS_EQUIPTYPE_IDS = new Set([
   "201",
   "202",
@@ -46,6 +48,13 @@ function formatPdfDate(value) {
   }
 
   return String(value).split("T")[0]
+}
+
+function formatInspectionFrequency(value) {
+  const normalized = String(value || "").toUpperCase()
+  if (normalized === "ANNUAL") return "Annual"
+  if (normalized === "FREQUENT") return "Frequent"
+  return ""
 }
 
 function htmlEscape(value) {
@@ -96,15 +105,22 @@ function resolveUploadFilePath(uploadPath, options = {}) {
   if (!uploadPath) return null
 
   const uploadsRoot = getUploadsRoot(options)
-  const normalizedPath = path.posix.normalize(
-    String(uploadPath).replace(/\\/g, "/")
-  )
+  const rawPath = String(uploadPath).trim().replace(/\\/g, "/")
+  const uploadRelativePath = rawPath
+    .replace(/^\/?uploads\//, "")
+    .replace(/^\/+/, "")
+  const normalizedPath = path.posix.normalize(uploadRelativePath)
 
-  if (!normalizedPath.startsWith("/uploads/") || normalizedPath.includes("/../")) {
+  if (
+    !normalizedPath ||
+    normalizedPath.startsWith("../") ||
+    normalizedPath === ".." ||
+    path.posix.isAbsolute(normalizedPath)
+  ) {
     return null
   }
 
-  const fullPath = path.resolve(uploadsRoot, normalizedPath.replace(/^\/uploads\//, ""))
+  const fullPath = path.resolve(uploadsRoot, normalizedPath)
 
   return fullPath.startsWith(uploadsRoot + path.sep) ? fullPath : null
 }
@@ -127,6 +143,13 @@ function brandImageDataUrl(fileName, options = {}) {
 }
 
 function getCertificateTitle(inspection) {
+  if (
+    inspection.inspectiontype !== "LOADTEST" &&
+    String(inspection.equipgroupid || "") === "400"
+  ) {
+    return "SERVICE AND INSPECTION"
+  }
+
   return inspection.inspectiontype === "LOADTEST"
     ? "CERTIFICATE OF EXAMINATION AND TEST"
     : "CERTIFICATE OF INSPECTION"
@@ -247,24 +270,41 @@ function certificateAssetDetails(inspection) {
 
 function getCertificateRegulationNotes(inspection) {
   const notes = []
+  const equipgroupid = String(inspection.equipgroupid || "")
+  const equiptypeid = String(inspection.equiptypeid || "")
 
-  if (["400", "500"].includes(String(inspection.equipgroupid || ""))) {
+  if (["400", "500"].includes(equipgroupid)) {
     notes.push(DRIVEN_MACHINERY_CERTIFICATE_NOTE)
   }
 
-  if (String(inspection.equiptypeid || "") === "102") {
+  if (SANS_500_EQUIPTYPE_IDS.has(equiptypeid)) {
     notes.push(SANS_500_CERTIFICATE_NOTE)
   }
 
-  if (["103", "105"].includes(String(inspection.equiptypeid || ""))) {
+  if (["103", "105"].includes(equiptypeid)) {
     notes.push(REGULATION_18_CERTIFICATE_NOTE)
   }
 
-  if (DRIVEN_MACHINERY_ITEMS_EQUIPTYPE_IDS.has(String(inspection.equiptypeid || ""))) {
+  if (
+    ["200", "300"].includes(equipgroupid) ||
+    DRIVEN_MACHINERY_ITEMS_EQUIPTYPE_IDS.has(equiptypeid)
+  ) {
     notes.push(DRIVEN_MACHINERY_ITEMS_CERTIFICATE_NOTE)
   }
 
   return notes
+}
+
+function getCertificateLayoutDensity(results = [], assetDetails = [], photos = []) {
+  const contentWeight = results.length + Math.ceil(assetDetails.length / 2) + photos.length
+
+  if (results.length <= 8 && contentWeight <= 14) return "spacious"
+  if (results.length <= 16 && contentWeight <= 24) return "balanced"
+  return "compact"
+}
+
+function allowsTwoPageCertificate(inspection = {}) {
+  return String(inspection.equipgroupid || "") === "400"
 }
 
 function collectCertificatePhotoFilePaths(certificate, options = {}) {
@@ -373,9 +413,13 @@ function renderCertificateBodyHtml(certificate, imageDataUrlCache = null, option
   const signatureUrl = uploadPathToDataUrl(inspection.inspector_signature_image, null, options)
   const assetDetails = certificateAssetDetails(inspection)
   const regulationNotes = getCertificateRegulationNotes(inspection)
+  const layoutDensity = getCertificateLayoutDensity(results, assetDetails, photos)
+  const pageMode = allowsTwoPageCertificate(inspection)
+    ? "fb-cert-allow-two-pages"
+    : "fb-cert-force-one-page"
 
   return `
-    <main class="fb-cert-content">
+    <main class="fb-cert-content fb-cert-layout-${layoutDensity} ${pageMode}">
       <div class="fb-cert-title">
         <h1>${htmlEscape(getCertificateTitle(inspection))}</h1>
       </div>
@@ -427,6 +471,7 @@ function renderCertificateBodyHtml(certificate, imageDataUrlCache = null, option
         <h3>Inspection Details</h3>
         <div class="fb-cert-grid">
           <p><strong>Inspection Type:</strong> ${htmlEscape(inspection.inspectiontype || "-")}</p>
+          ${formatInspectionFrequency(inspection.inspectionfrequency) ? `<p><strong>Frequency:</strong> ${htmlEscape(formatInspectionFrequency(inspection.inspectionfrequency))}</p>` : ""}
           <p><strong>Inspection Date:</strong> ${htmlEscape(formatPdfDate(inspection.testdate))}</p>
           <p><strong>Certificate Expiry Date:</strong> ${htmlEscape(formatPdfDate(inspection.validdate))}</p>
           <p><strong>Inspector:</strong> ${htmlEscape(inspection.inspector || "-")}</p>
@@ -498,9 +543,10 @@ function renderCertificateBodyHtml(certificate, imageDataUrlCache = null, option
         </table>
       </section>
 
-      <section class="fb-cert-signature-section">
+      <section class="fb-cert-signature-section ${signatureUrl ? "fb-cert-signature-has-image" : "fb-cert-signature-manual"}">
         <strong>Inspector Signature</strong>
         ${signatureUrl ? `<img class="fb-cert-signature-image" src="${signatureUrl}" alt="Inspector Signature">` : ""}
+        ${signatureUrl ? "" : `<div class="fb-cert-signature-manual-space"></div>`}
         <div class="fb-cert-signature-line"></div>
       </section>
 
@@ -548,7 +594,7 @@ function renderSingleCertificateHtmlDocument(certificate, imageDataUrlCache = nu
           }
           .fb-cert-inline-header {
             height: 40mm;
-            margin: 0 0 14mm;
+            margin: 0 0 6mm;
             object-position: center top;
           }
           .fb-cert-inline-footer {
@@ -561,6 +607,14 @@ function renderSingleCertificateHtmlDocument(certificate, imageDataUrlCache = nu
             line-height: 1.05;
             padding-top: 0;
             width: 100%;
+          }
+          .fb-cert-layout-balanced {
+            font-size: 9.7px;
+            line-height: 1.13;
+          }
+          .fb-cert-layout-spacious {
+            font-size: 10.6px;
+            line-height: 1.2;
           }
           .fb-cert-title {
             margin: 0 0 3mm;
@@ -591,6 +645,33 @@ function renderSingleCertificateHtmlDocument(certificate, imageDataUrlCache = nu
             margin: 2px 0;
             break-inside: avoid;
           }
+          .fb-cert-allow-two-pages .fb-cert-section {
+            break-inside: auto;
+          }
+          .fb-cert-force-one-page {
+            font-size: 7.7px;
+            line-height: 1;
+          }
+          .fb-cert-force-one-page.fb-cert-layout-balanced,
+          .fb-cert-force-one-page.fb-cert-layout-spacious {
+            font-size: 8.2px;
+            line-height: 1.04;
+          }
+          .fb-cert-force-one-page.fb-cert-layout-compact {
+            font-size: 7.2px;
+            line-height: 0.98;
+          }
+          .fb-cert-layout-balanced .fb-cert-section {
+            margin: 3px 0;
+          }
+          .fb-cert-layout-spacious .fb-cert-section {
+            margin: 4px 0;
+          }
+          .fb-cert-force-one-page .fb-cert-section,
+          .fb-cert-force-one-page.fb-cert-layout-balanced .fb-cert-section,
+          .fb-cert-force-one-page.fb-cert-layout-spacious .fb-cert-section {
+            margin: 1px 0;
+          }
           .fb-cert-section h3 {
             border-bottom: 1px solid #d9e1ec;
             color: #1f3b5c;
@@ -602,6 +683,12 @@ function renderSingleCertificateHtmlDocument(certificate, imageDataUrlCache = nu
             display: grid;
             gap: 1px 16px;
             grid-template-columns: 1fr 1fr;
+          }
+          .fb-cert-layout-balanced .fb-cert-grid {
+            gap: 2px 17px;
+          }
+          .fb-cert-layout-spacious .fb-cert-grid {
+            gap: 3px 18px;
           }
           .fb-cert-grid p {
             margin: 1px 0;
@@ -630,12 +717,19 @@ function renderSingleCertificateHtmlDocument(certificate, imageDataUrlCache = nu
             padding: 2px;
             text-align: center;
           }
+          .fb-cert-force-one-page .fb-cert-photo-grid div {
+            min-height: 23mm;
+            padding: 1px;
+          }
           .fb-cert-photo-grid img {
             display: block;
             margin: 0 auto;
             max-height: 42mm;
             max-width: 100%;
             object-fit: contain;
+          }
+          .fb-cert-force-one-page .fb-cert-photo-grid img {
+            max-height: 27mm;
           }
           .fb-cert-photo-grid p {
             margin: 1px 0;
@@ -653,6 +747,20 @@ function renderSingleCertificateHtmlDocument(certificate, imageDataUrlCache = nu
             line-height: 1;
             width: 100%;
           }
+          .fb-cert-layout-balanced .fb-cert-results-table {
+            font-size: 8.8px;
+            line-height: 1.08;
+          }
+          .fb-cert-layout-spacious .fb-cert-results-table {
+            font-size: 9.8px;
+            line-height: 1.16;
+          }
+          .fb-cert-force-one-page .fb-cert-results-table,
+          .fb-cert-force-one-page.fb-cert-layout-balanced .fb-cert-results-table,
+          .fb-cert-force-one-page.fb-cert-layout-spacious .fb-cert-results-table {
+            font-size: 7.6px;
+            line-height: 1.08;
+          }
           .fb-cert-results-table thead {
             display: table-header-group;
           }
@@ -665,6 +773,11 @@ function renderSingleCertificateHtmlDocument(certificate, imageDataUrlCache = nu
           .fb-cert-results-standard-col { width: 10%; }
           .fb-cert-results-measured-col { width: 10%; }
           .fb-cert-results-remarks-col { width: 30%; }
+          .fb-cert-force-one-page .fb-cert-results-criteria-col { width: 39%; }
+          .fb-cert-force-one-page .fb-cert-results-result-col { width: 11%; }
+          .fb-cert-force-one-page .fb-cert-results-standard-col { width: 9%; }
+          .fb-cert-force-one-page .fb-cert-results-measured-col { width: 9%; }
+          .fb-cert-force-one-page .fb-cert-results-remarks-col { width: 32%; }
           .fb-cert-results-table th {
             background: #1f3b5c;
             color: #fff;
@@ -674,6 +787,31 @@ function renderSingleCertificateHtmlDocument(certificate, imageDataUrlCache = nu
             border: 1px solid #d9e1ec;
             padding: 1px 2px;
             vertical-align: top;
+          }
+          .fb-cert-layout-balanced .fb-cert-results-table th,
+          .fb-cert-layout-balanced .fb-cert-results-table td {
+            padding: 2px 3px;
+          }
+          .fb-cert-layout-spacious .fb-cert-results-table th,
+          .fb-cert-layout-spacious .fb-cert-results-table td {
+            padding: 3px 4px;
+          }
+          .fb-cert-layout-spacious .fb-cert-results-table tr {
+            height: 6.5mm;
+          }
+          .fb-cert-layout-spacious .fb-cert-results-table td {
+            min-height: 6.5mm;
+          }
+          .fb-cert-force-one-page .fb-cert-results-table th,
+          .fb-cert-force-one-page .fb-cert-results-table td,
+          .fb-cert-force-one-page.fb-cert-layout-balanced .fb-cert-results-table th,
+          .fb-cert-force-one-page.fb-cert-layout-balanced .fb-cert-results-table td,
+          .fb-cert-force-one-page.fb-cert-layout-spacious .fb-cert-results-table th,
+          .fb-cert-force-one-page.fb-cert-layout-spacious .fb-cert-results-table td {
+            padding: 1px 2px;
+          }
+          .fb-cert-force-one-page.fb-cert-layout-spacious .fb-cert-results-table tr {
+            height: auto;
           }
           .fb-cert-results-table th:nth-child(2),
           .fb-cert-results-table td:nth-child(2) {
@@ -695,12 +833,32 @@ function renderSingleCertificateHtmlDocument(certificate, imageDataUrlCache = nu
             margin: 3px 0 1px;
             max-width: 80mm;
           }
+          .fb-cert-force-one-page .fb-cert-signature-section {
+            margin: 2px 0 1px;
+            min-height: 18mm;
+          }
+          .fb-cert-signature-manual {
+            min-height: 28mm;
+          }
+          .fb-cert-force-one-page .fb-cert-signature-manual {
+            min-height: 20mm;
+          }
+          .fb-cert-signature-manual-space {
+            height: 22mm;
+          }
+          .fb-cert-force-one-page .fb-cert-signature-manual-space {
+            height: 14mm;
+          }
           .fb-cert-signature-image {
             display: block;
             height: 24mm;
             margin-top: 1px;
             max-width: 72mm;
             object-fit: contain;
+          }
+          .fb-cert-force-one-page .fb-cert-signature-image {
+            height: 16mm;
+            max-width: 62mm;
           }
           .fb-cert-signature-line {
             border-bottom: 1px solid #111827;
@@ -715,7 +873,7 @@ function renderSingleCertificateHtmlDocument(certificate, imageDataUrlCache = nu
             font-style: italic;
             font-weight: 700;
             line-height: 1.15;
-            margin: 2px 0 1px;
+            margin: 5mm 0 1px;
             text-align: center;
           }
           .status-safe {
@@ -830,7 +988,7 @@ function singleCertificatePdfOptions(options = {}) {
     headerTemplate: renderCertificateHeaderTemplate(options),
     footerTemplate: renderCertificateFooterTemplate(options),
     margin: {
-      top: "78mm",
+      top: "54mm",
       right: "8mm",
       bottom: "25mm",
       left: "8mm"

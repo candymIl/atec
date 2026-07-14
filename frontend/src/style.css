@@ -2879,6 +2879,26 @@ tr:hover {
   line-height: 1.12;
 }
 
+.fb-cert-page.fb-cert-layout-balanced {
+  font-size: 11.2px;
+  line-height: 1.18;
+}
+
+.fb-cert-page.fb-cert-layout-spacious {
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.fb-cert-page.fb-cert-force-one-page {
+  font-size: 9px;
+  line-height: 1.05;
+}
+
+.fb-cert-page.fb-cert-force-one-page.fb-cert-layout-compact {
+  font-size: 8.4px;
+  line-height: 1;
+}
+
 .fb-cert-header,
 .fb-cert-footer {
   width: 100%;
@@ -2886,7 +2906,7 @@ tr:hover {
 }
 
 .fb-cert-header {
-  margin-bottom: 20px;
+  margin-bottom: 10px;
   height: 150px;
   max-height: none;
   object-fit: fill;
@@ -2935,6 +2955,20 @@ tr:hover {
   margin: 4px 0;
 }
 
+.fb-cert-layout-balanced .fb-cert-section {
+  margin: 5px 0;
+}
+
+.fb-cert-layout-spacious .fb-cert-section {
+  margin: 6px 0;
+}
+
+.fb-cert-force-one-page .fb-cert-section,
+.fb-cert-force-one-page.fb-cert-layout-balanced .fb-cert-section,
+.fb-cert-force-one-page.fb-cert-layout-spacious .fb-cert-section {
+  margin: 2px 0;
+}
+
 .fb-cert-section h3 {
   color: #1f3b5c;
   border-bottom: 1px solid #d9e1ec;
@@ -2947,6 +2981,14 @@ tr:hover {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 2px 18px;
+}
+
+.fb-cert-layout-balanced .fb-cert-grid {
+  gap: 3px 19px;
+}
+
+.fb-cert-layout-spacious .fb-cert-grid {
+  gap: 4px 20px;
 }
 
 .fb-cert-grid p {
@@ -2981,10 +3023,19 @@ tr:hover {
   min-height: 185px;
 }
 
+.fb-cert-force-one-page .fb-cert-photo-grid div {
+  min-height: 118px;
+  padding: 2px;
+}
+
 .fb-cert-photo-grid img {
   max-width: 100%;
   max-height: 240px;
   object-fit: contain;
+}
+
+.fb-cert-force-one-page .fb-cert-photo-grid img {
+  max-height: 142px;
 }
 
 .fb-cert-no-photo {
@@ -3000,6 +3051,23 @@ tr:hover {
   border-collapse: collapse;
   font-size: 9.5px;
   line-height: 1.05;
+}
+
+.fb-cert-layout-balanced .fb-cert-results-table {
+  font-size: 10.2px;
+  line-height: 1.12;
+}
+
+.fb-cert-layout-spacious .fb-cert-results-table {
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.fb-cert-force-one-page .fb-cert-results-table,
+.fb-cert-force-one-page.fb-cert-layout-balanced .fb-cert-results-table,
+.fb-cert-force-one-page.fb-cert-layout-spacious .fb-cert-results-table {
+  font-size: 8.8px;
+  line-height: 1.1;
 }
 
 .fb-cert-results-criteria-col {
@@ -3022,6 +3090,23 @@ tr:hover {
   width: 32%;
 }
 
+.fb-cert-force-one-page .fb-cert-results-criteria-col {
+  width: 39%;
+}
+
+.fb-cert-force-one-page .fb-cert-results-result-col {
+  width: 11%;
+}
+
+.fb-cert-force-one-page .fb-cert-results-standard-col,
+.fb-cert-force-one-page .fb-cert-results-measured-col {
+  width: 9%;
+}
+
+.fb-cert-force-one-page .fb-cert-results-remarks-col {
+  width: 32%;
+}
+
 .fb-cert-results-table th {
   background: #1f3b5c;
   color: white;
@@ -3031,6 +3116,25 @@ tr:hover {
 .fb-cert-results-table td {
   border: 1px solid #d9e1ec;
   padding: 1px 3px;
+}
+
+.fb-cert-layout-balanced .fb-cert-results-table th,
+.fb-cert-layout-balanced .fb-cert-results-table td {
+  padding: 3px 4px;
+}
+
+.fb-cert-layout-spacious .fb-cert-results-table th,
+.fb-cert-layout-spacious .fb-cert-results-table td {
+  padding: 5px 5px;
+}
+
+.fb-cert-force-one-page .fb-cert-results-table th,
+.fb-cert-force-one-page .fb-cert-results-table td,
+.fb-cert-force-one-page.fb-cert-layout-balanced .fb-cert-results-table th,
+.fb-cert-force-one-page.fb-cert-layout-balanced .fb-cert-results-table td,
+.fb-cert-force-one-page.fb-cert-layout-spacious .fb-cert-results-table th,
+.fb-cert-force-one-page.fb-cert-layout-spacious .fb-cert-results-table td {
+  padding: 2px 3px;
 }
 
 .fb-cert-results-table th:nth-child(2),
@@ -3058,13 +3162,34 @@ tr:hover {
   margin: 12px 0 4px;
 }
 
+.fb-cert-force-one-page .fb-cert-signature-section {
+  margin: 4px 0 2px;
+  min-height: 72px;
+}
+
+.fb-cert-signature-manual {
+  min-height: 118px;
+}
+
+.fb-cert-force-one-page .fb-cert-signature-manual {
+  min-height: 82px;
+}
+
+.fb-cert-signature-manual-space {
+  height: 88px;
+}
+
+.fb-cert-force-one-page .fb-cert-signature-manual-space {
+  height: 56px;
+}
+
 .fb-cert-driven-note {
   color: #d00000;
   font-size: 12px;
   font-style: italic;
   font-weight: 700;
   line-height: 1.35;
-  margin: 4px 0 2px;
+  margin: 18px 0 2px;
   text-align: center;
 }
 
@@ -3081,6 +3206,11 @@ tr:hover {
   margin-top: 6px;
   max-width: 300px;
   object-fit: contain;
+}
+
+.fb-cert-force-one-page .fb-cert-signature-image {
+  height: 64px;
+  max-width: 250px;
 }
 
 .screen-only {
@@ -3213,7 +3343,7 @@ tr:hover {
     width: 100% !important;
     max-width: 100% !important;
     margin-left: 0 !important;
-    margin-bottom: 14mm;
+    margin-bottom: 6mm;
     height: 40mm;
     max-height: none;
     object-fit: fill;

@@ -118,13 +118,13 @@ export function renderCertificateSearch(customers = [], sites = [], sections = [
 
     <div class="filter-card bulk-certificate-card">
       <h2>Bulk Print Certificates</h2>
-      <p>Select a customer and date range, then choose the certificates to print together.</p>
+      <p>Select a date range, then choose the certificates to print together. Customer is optional.</p>
 
       <div class="asset-form-grid">
         <div class="form-group">
           <label>Customer</label>
           <select id="bulkCertClient">
-            <option value="">Select Customer</option>
+            <option value="">All Customers</option>
             ${customers.map(c => `
               <option value="${safeAttr(c.clientid)}">${escapeHtml(c.clientname)}</option>
             `).join("")}
@@ -224,6 +224,7 @@ export function renderCertificateSearch(customers = [], sites = [], sections = [
   document.querySelector('#bulkCertDownloadSelectedBtn').addEventListener('click', window.downloadSelectedBulkCertificatesPdf)
   document.querySelector('#bulkCertDownloadAllBtn').addEventListener('click', window.downloadAllBulkCertificatesPdf)
 
+  window.filterBulkCertificateSites()
   window.searchCertificates()
 }
 
@@ -272,7 +273,7 @@ window.filterBulkCertificateSites = function () {
 
   const filteredSites = clientid
     ? window.certificateSites.filter(site => String(site.clientid) === String(clientid))
-    : []
+    : window.certificateSites
 
   siteSelect.innerHTML = `
     <option value="">All Sites</option>
@@ -503,17 +504,17 @@ window.searchBulkCertificates = async function () {
   const inspectiontype = document.querySelector('#bulkCertInspectionType').value
   const status = document.querySelector('#bulkCertStatus').value
 
-  if (!clientid || !datefrom || !dateto) {
-    alert("Please select a customer, Date From and Date To for bulk printing.")
+  if (!datefrom || !dateto) {
+    alert("Please select Date From and Date To for bulk printing.")
     return
   }
 
   const params = new URLSearchParams({
-    clientid,
     datefrom,
     dateto
   })
 
+  if (clientid) params.set("clientid", clientid)
   if (siteid) params.set("siteid", siteid)
   if (inspectiontype && inspectiontype !== "ALL") params.set("inspectiontype", inspectiontype)
   if (status && status !== "ALL") params.set("status", status)
@@ -663,8 +664,8 @@ function updateBulkPrintButtonState() {
   if (downloadSelectedButton) {
     downloadSelectedButton.disabled = selectedCount === 0
     downloadSelectedButton.textContent = selectedCount
-      ? `Download Selected PDFs (${selectedCount})`
-      : "Download Selected PDFs"
+      ? `Download Selected as PDF (${selectedCount})`
+      : "Download Selected as PDF"
   }
 
   if (selectAll) {
@@ -700,17 +701,17 @@ function getBulkCertificateFilterParams() {
   const inspectiontype = document.querySelector('#bulkCertInspectionType').value
   const status = document.querySelector('#bulkCertStatus').value
 
-  if (!clientid || !datefrom || !dateto) {
-    alert("Please select a customer, Date From and Date To before downloading PDFs.")
+  if (!datefrom || !dateto) {
+    alert("Please select Date From and Date To before downloading PDFs.")
     return null
   }
 
   const params = new URLSearchParams({
-    clientid,
     datefrom,
     dateto
   })
 
+  if (clientid) params.set("clientid", clientid)
   if (siteid) params.set("siteid", siteid)
   if (inspectiontype && inspectiontype !== "ALL") params.set("inspectiontype", inspectiontype)
   if (status && status !== "ALL") params.set("status", status)
@@ -731,7 +732,12 @@ window.downloadSelectedBulkCertificatesPdf = async function () {
     return
   }
 
-  await downloadIndividualCertificatePdfs(selectedTestIds)
+  const params = getBulkCertificateFilterParams()
+  if (!params) return
+
+  params.set("testids", selectedTestIds.join(","))
+
+  await downloadBulkCertificatesPdf(params)
 }
 
 window.downloadAllBulkCertificatesPdf = async function () {
@@ -977,9 +983,13 @@ function renderCertificateDocument(certificate) {
   const assetDetails = getCertificateAssetDetails(inspection)
   const certificateTitle = getCertificateTitle(inspection)
   const certificateRegulationNotes = getCertificateRegulationNotes(inspection)
+  const layoutDensity = getCertificateLayoutDensity(results, assetDetails, inspectionPhotos.slice(0, 4))
+  const pageMode = allowsTwoPageCertificate(inspection)
+    ? "fb-cert-allow-two-pages"
+    : "fb-cert-force-one-page"
 
   return `
-    <div class="fb-cert-page">
+    <div class="fb-cert-page fb-cert-layout-${layoutDensity} ${pageMode}">
       <img src="${assetUrl('header.jpg')}" class="fb-cert-header" alt="FB Cranes Header">
 
       <div class="fb-cert-title">
@@ -1041,6 +1051,7 @@ function renderCertificateDocument(certificate) {
         <h3>Inspection Details</h3>
         <div class="fb-cert-grid">
           <p><strong>Inspection Type:</strong> ${escapeHtml(inspection.inspectiontype || "-")}</p>
+          ${formatInspectionFrequency(inspection.inspectionfrequency) ? `<p><strong>Frequency:</strong> ${escapeHtml(formatInspectionFrequency(inspection.inspectionfrequency))}</p>` : ""}
           <p><strong>Inspection Date:</strong> ${escapeHtml(formatDate(inspection.testdate))}</p>
           <p><strong>Certificate Expiry Date:</strong> ${escapeHtml(formatDate(inspection.validdate))}</p>
           <p><strong>Inspector:</strong> ${escapeHtml(inspection.inspector || "-")}</p>
@@ -1108,7 +1119,7 @@ function renderCertificateDocument(certificate) {
         </table>
       </div>
 
-      <div class="fb-cert-signature-section">
+      <div class="fb-cert-signature-section ${inspection.inspector_signature_image ? "fb-cert-signature-has-image" : "fb-cert-signature-manual"}">
         <div>
           <strong>Inspector Signature</strong>
           ${inspection.inspector_signature_image ? `
@@ -1117,7 +1128,7 @@ function renderCertificateDocument(certificate) {
               src="${safeAttr(`${API_BASE}${inspection.inspector_signature_image}`)}"
               alt="Inspector Signature"
             >
-          ` : ""}
+          ` : `<div class="fb-cert-signature-manual-space"></div>`}
           <div class="fb-cert-signature-line"></div>
         </div>
       </div>
@@ -1290,6 +1301,13 @@ function getCertificateAssetDetails(inspection) {
 }
 
 function getCertificateTitle(inspection) {
+  if (
+    inspection.inspectiontype !== "LOADTEST" &&
+    String(inspection.equipgroupid || "") === "400"
+  ) {
+    return "SERVICE AND INSPECTION"
+  }
+
   return inspection.inspectiontype === "LOADTEST"
     ? "CERTIFICATE OF EXAMINATION AND TEST"
     : "CERTIFICATE OF INSPECTION"
@@ -1359,6 +1377,18 @@ function getCertificateResultsForDisplay(results, inspection = {}) {
     })
 }
 
+function getCertificateLayoutDensity(results = [], assetDetails = [], photos = []) {
+  const contentWeight = results.length + Math.ceil(assetDetails.length / 2) + photos.length
+
+  if (results.length <= 8 && contentWeight <= 14) return "spacious"
+  if (results.length <= 16 && contentWeight <= 24) return "balanced"
+  return "compact"
+}
+
+function allowsTwoPageCertificate(inspection = {}) {
+  return String(inspection.equipgroupid || "") === "400"
+}
+
 function getCertificateResultDisplay(row) {
   const result = String(row?.result || "").trim().toUpperCase()
 
@@ -1381,6 +1411,8 @@ const SANS_500_CERTIFICATE_NOTE =
 
 const REGULATION_18_CERTIFICATE_NOTE =
   "EXAMINED AND TESTED IN ACCORDANCE WITH REGULATION 18 OF OHS ACT 85 OF 1993"
+
+const SANS_500_EQUIPTYPE_IDS = new Set(["101", "102"])
 
 const DRIVEN_MACHINERY_ITEMS_EQUIPTYPE_IDS = new Set([
   "201",
@@ -1407,12 +1439,13 @@ const DRIVEN_MACHINERY_ITEMS_EQUIPTYPE_IDS = new Set([
 function getCertificateRegulationNotes(inspection) {
   const notes = []
   const equiptypeid = String(inspection.equiptypeid || "")
+  const equipgroupid = String(inspection.equipgroupid || "")
 
-  if (["400", "500"].includes(String(inspection.equipgroupid || ""))) {
+  if (["400", "500"].includes(equipgroupid)) {
     notes.push(DRIVEN_MACHINERY_CERTIFICATE_NOTE)
   }
 
-  if (equiptypeid === "102") {
+  if (SANS_500_EQUIPTYPE_IDS.has(equiptypeid)) {
     notes.push(SANS_500_CERTIFICATE_NOTE)
   }
 
@@ -1420,7 +1453,10 @@ function getCertificateRegulationNotes(inspection) {
     notes.push(REGULATION_18_CERTIFICATE_NOTE)
   }
 
-  if (DRIVEN_MACHINERY_ITEMS_EQUIPTYPE_IDS.has(equiptypeid)) {
+  if (
+    ["200", "300"].includes(equipgroupid) ||
+    DRIVEN_MACHINERY_ITEMS_EQUIPTYPE_IDS.has(equiptypeid)
+  ) {
     notes.push(DRIVEN_MACHINERY_ITEMS_CERTIFICATE_NOTE)
   }
 
@@ -1432,43 +1468,11 @@ function formatDate(value) {
   return String(value).split("T")[0]
 }
 
-async function downloadIndividualCertificatePdfs(testIds) {
-  const selectedCertificates = (window.bulkCertificateResults || [])
-    .filter(certificate => testIds.includes(String(certificate.inspection?.testid)))
-
-  if (!selectedCertificates.length) {
-    alert("No selected certificates could be prepared for download.")
-    return
-  }
-
-  for (const certificate of selectedCertificates) {
-    const testid = certificate.inspection?.testid
-    const response = await fetch(`${API_BASE}/inspections/${testid}/certificate.pdf?t=${Date.now()}`, {
-      credentials: "include"
-    })
-
-    if (!response.ok) {
-      alert(`Unable to download certificate ${testid}.`)
-      continue
-    }
-
-    const blob = await response.blob()
-    const filename = getDownloadFilename(
-      response.headers.get("content-disposition"),
-      `certificate-${testid}.pdf`
-    )
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement("a")
-
-    link.href = url
-    link.download = filename
-    link.style.display = "none"
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-
-    window.setTimeout(() => window.URL.revokeObjectURL(url), 1000)
-  }
+function formatInspectionFrequency(value) {
+  const normalized = String(value || "").toUpperCase()
+  if (normalized === "ANNUAL") return "Annual"
+  if (normalized === "FREQUENT") return "Frequent"
+  return ""
 }
 
 const certificatePageActions = {

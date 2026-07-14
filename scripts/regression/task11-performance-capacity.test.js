@@ -42,6 +42,12 @@ assert.deepStrictEqual(pdfConfig({
   reportExportMaxRows: 100000
 })
 
+assert.deepStrictEqual(pdfConfig({}), {
+  concurrency: 1,
+  bulkMaxCertificates: 500,
+  reportExportMaxRows: 10000
+})
+
 assert.deepStrictEqual(uploadProcessingConfig({
   UPLOAD_IMAGE_MAX_WIDTH: "99999",
   UPLOAD_IMAGE_MAX_HEIGHT: "0",

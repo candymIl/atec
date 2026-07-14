@@ -59,7 +59,7 @@ const pdfConcurrency = pdfRuntimeConfig.concurrency
 const bulkPdfMaxCertificates = pdfRuntimeConfig.bulkMaxCertificates
 const reportExportMaxRows = pdfRuntimeConfig.reportExportMaxRows
 const uploadCompressionConcurrency = uploadRuntimeConfig.concurrency
-const requestTimeoutMs = parsePositiveInteger(process.env.REQUEST_TIMEOUT_MS, 180000, 900000)
+const requestTimeoutMs = parsePositiveInteger(process.env.REQUEST_TIMEOUT_MS, 900000, 900000)
 const headersTimeoutMs = Math.max(
   parsePositiveInteger(process.env.HEADERS_TIMEOUT_MS, Math.max(requestTimeoutMs + 5000, 65000), 905000),
   requestTimeoutMs + 1000
@@ -3927,6 +3927,7 @@ app.post("/inspections",
         comments,
         status,
         inspectiontype,
+        inspectionfrequency,
         tagnumber,
         results,
         updateassetphotos
@@ -4007,6 +4008,10 @@ app.post("/inspections",
         typeof tagnumber === "string" && tagnumber.trim()
           ? tagnumber.trim()
           : null
+      const normalizedInspectionFrequency =
+        ["FREQUENT", "ANNUAL"].includes(String(inspectionfrequency || "").toUpperCase())
+          ? String(inspectionfrequency).toUpperCase()
+          : null
 
       const inspection = await client.query(
         `
@@ -4024,12 +4029,13 @@ app.post("/inspections",
           inspector_lmi_number,
           inspector_signature_image,
           tagnumber,
+          inspectionfrequency,
           photo1,
           photo2,
           updateassetphotos
         )
         VALUES
-        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
         RETURNING testid
         `,
         [
@@ -4045,6 +4051,7 @@ app.post("/inspections",
           inspectorProfile.lmi_number || "",
           inspectorProfile.signature_image || "",
           inspectionTagNumber,
+          normalizedInspectionFrequency,
           photo1,
           photo2,
           updatePhotos
@@ -4818,8 +4825,8 @@ async function getBulkCertificateMatches(req, includeTestIds = false) {
     testids = ""
   } = req.query
 
-  if (!clientid || !datefrom || !dateto) {
-    const error = new Error("Customer, Date From and Date To are required")
+  if (!datefrom || !dateto) {
+    const error = new Error("Date From and Date To are required")
     error.statusCode = 400
     throw error
   }
@@ -4830,11 +4837,22 @@ async function getBulkCertificateMatches(req, includeTestIds = false) {
     throw error
   }
 
-  if (req.user.role === "CUSTOMER" && String(req.user.clientid || "") !== String(clientid)) {
+  if (req.user.role === "CUSTOMER" && !req.user.clientid) {
     const error = new Error("Access denied")
     error.statusCode = 403
     throw error
   }
+
+  if (req.user.role === "CUSTOMER" && clientid && String(req.user.clientid || "") !== String(clientid)) {
+    const error = new Error("Access denied")
+    error.statusCode = 403
+    throw error
+  }
+
+  const effectiveClientId =
+    req.user.role === "CUSTOMER"
+      ? req.user.clientid
+      : clientid
 
   const selectedTestIds = includeTestIds
     ? String(testids || "")
@@ -4843,12 +4861,16 @@ async function getBulkCertificateMatches(req, includeTestIds = false) {
       .filter(value => Number.isInteger(value) && value > 0)
     : []
 
-  const values = [clientid, datefrom, dateto]
+  const values = [datefrom, dateto]
   let where = `
-    WHERE a.clientid = $1
-      AND i.testdate::date >= $2::date
-      AND i.testdate::date <= $3::date
+    WHERE i.testdate::date >= $1::date
+      AND i.testdate::date <= $2::date
   `
+
+  if (effectiveClientId) {
+    values.push(effectiveClientId)
+    where += ` AND a.clientid = $${values.length}`
+  }
 
   if (siteid) {
     values.push(siteid)
@@ -4894,7 +4916,7 @@ async function getBulkCertificateMatches(req, includeTestIds = false) {
 
   return {
     filters: {
-      clientid,
+      clientid: effectiveClientId || "",
       datefrom,
       dateto,
       siteid,
@@ -5188,6 +5210,71 @@ async function getCertificatesData(testids = []) {
     if (certificate) certificate.results.push(row)
   }
 
+  const fallbackEquiptypeIds = [...new Set(
+    [...certificates.values()]
+      .filter(certificate =>
+        certificate.results.length === 0 &&
+        certificate.inspection?.equiptypeid &&
+        certificate.inspection?.inspectiontype !== "LOADTEST"
+      )
+      .map(certificate => Number(certificate.inspection.equiptypeid))
+      .filter(value => Number.isInteger(value) && value > 0)
+  )]
+
+  if (fallbackEquiptypeIds.length) {
+    const criteriaResult = await pool.query(
+      `
+      SELECT
+        criteriaid,
+        equiptypeid,
+        COALESCE(criteriadescription, criterianame, 'Criteria ' || criteriaid) AS criterianame,
+        fieldtype,
+        COALESCE(resulttype,
+          CASE WHEN UPPER(COALESCE(fieldtype, '')) = 'NUMBER' THEN 'MEASURED' ELSE 'PASS_FAIL' END
+        ) AS resulttype,
+        COALESCE(inspection_category, 'PERIODIC_THOROUGH_INSPECTION') AS inspection_category,
+        COALESCE(severity, 'MINOR') AS severity,
+        COALESCE(displayorder, sortorder, criteriaid) AS displayorder
+      FROM atec.tblequiptypecriteria
+      WHERE equiptypeid = ANY($1::int[])
+        AND COALESCE(active, true) = true
+      ORDER BY equiptypeid, COALESCE(displayorder, sortorder, criteriaid), criteriaid
+      `,
+      [fallbackEquiptypeIds]
+    )
+
+    const criteriaByEquiptype = new Map()
+    for (const row of criteriaResult.rows) {
+      const key = String(row.equiptypeid)
+      if (!criteriaByEquiptype.has(key)) criteriaByEquiptype.set(key, [])
+      criteriaByEquiptype.get(key).push(row)
+    }
+
+    for (const certificate of certificates.values()) {
+      if (certificate.results.length || certificate.inspection?.inspectiontype === "LOADTEST") continue
+
+      const criteriaRows = criteriaByEquiptype.get(String(certificate.inspection?.equiptypeid)) || []
+      const inspectionIsSafe = certificate.inspection?.status === "SAFE"
+
+      certificate.results.push(...criteriaRows.map(row => ({
+        resultid: null,
+        testid: certificate.inspection.testid,
+        criteriaid: row.criteriaid,
+        criterianame: row.criterianame,
+        fieldtype: row.fieldtype,
+        resulttype: row.resulttype,
+        inspection_category: row.inspection_category,
+        severity: row.severity,
+        assetvalue: "",
+        measuredvalue: "",
+        result: inspectionIsSafe
+          ? isSafeForContinuedOperation(row.criterianame) ? "YES" : "PASS"
+          : "",
+        remarks: ""
+      })))
+    }
+  }
+
   for (const row of photosResult.rows) {
     const certificate = certificates.get(Number(row.testid))
     if (certificate) certificate.photos.push(row)
@@ -5210,6 +5297,13 @@ function formatPdfDate(value) {
   return String(value).split("T")[0]
 }
 
+function formatInspectionFrequency(value) {
+  const normalized = String(value || "").toUpperCase()
+  if (normalized === "ANNUAL") return "Annual"
+  if (normalized === "FREQUENT") return "Frequent"
+  return ""
+}
+
 function valueOrDash(value) {
   return value === null || value === undefined || value === "" ? "-" : String(value)
 }
@@ -5224,6 +5318,13 @@ function certificateImagePath(imagePath) {
 }
 
 function getCertificateTitle(inspection) {
+  if (
+    inspection.inspectiontype !== "LOADTEST" &&
+    String(inspection.equipgroupid || "") === "400"
+  ) {
+    return "SERVICE AND INSPECTION"
+  }
+
   return inspection.inspectiontype === "LOADTEST"
     ? "CERTIFICATE OF EXAMINATION AND TEST"
     : "CERTIFICATE OF INSPECTION"
@@ -5309,7 +5410,7 @@ function shouldShowDrivenMachineryNote(inspection) {
 }
 
 function shouldShowSans500Note(inspection) {
-  return String(inspection.equiptypeid || "") === "102"
+  return ["101", "102"].includes(String(inspection.equiptypeid || ""))
 }
 
 function shouldShowRegulation18Note(inspection) {
@@ -5317,7 +5418,8 @@ function shouldShowRegulation18Note(inspection) {
 }
 
 function shouldShowDrivenMachineryItemsNote(inspection) {
-  return DRIVEN_MACHINERY_ITEMS_EQUIPTYPE_IDS.has(String(inspection.equiptypeid || ""))
+  return ["200", "300"].includes(String(inspection.equipgroupid || "")) ||
+    DRIVEN_MACHINERY_ITEMS_EQUIPTYPE_IDS.has(String(inspection.equiptypeid || ""))
 }
 
 function canViewCertificate(user, certificate) {
@@ -5627,6 +5729,7 @@ function renderBulkCertificateHtml(certificate, imageDataUrlCache = null, option
           <h3>Inspection Details</h3>
           <div class="fb-cert-grid">
             <p><strong>Inspection Type:</strong> ${htmlEscape(inspection.inspectiontype || "-")}</p>
+            ${formatInspectionFrequency(inspection.inspectionfrequency) ? `<p><strong>Frequency:</strong> ${htmlEscape(formatInspectionFrequency(inspection.inspectionfrequency))}</p>` : ""}
             <p><strong>Inspection Date:</strong> ${htmlEscape(formatPdfDate(inspection.testdate))}</p>
             <p><strong>Certificate Expiry Date:</strong> ${htmlEscape(formatPdfDate(inspection.validdate))}</p>
             <p><strong>Inspector:</strong> ${htmlEscape(inspection.inspector || "-")}</p>
@@ -6054,7 +6157,7 @@ const DRIVEN_MACHINERY_ITEMS_EQUIPTYPE_IDS = new Set([
 ])
 
 function shouldShowSans500Note(inspection) {
-  return String(inspection.equiptypeid || "") === "102"
+  return ["101", "102"].includes(String(inspection.equiptypeid || ""))
 }
 
 function addPdfKeyValues(doc, items, x, y, width, options = {}) {

@@ -3294,7 +3294,7 @@ window.editAsset = async function (assetid) {
         </div>
 
         <div class="form-group">
-          <label>Asset Tag Number <span class="optional-label">(Optional)</span></label>
+          <label>Asset Number(QR/NFC) <span class="optional-label">(Optional)</span></label>
           <input id="editAssetTagNo" type="text" value="${safeAttr(asset.assettagno || '')}" placeholder="Customer tag / plant number if available">
         </div>
 
@@ -4711,11 +4711,12 @@ function dateInputValue(date = new Date()) {
   return localDate.toISOString().split("T")[0]
 }
 
-function calculateValidDateFromTestDate(testDateValue, inspectiontype = "VISUAL") {
+function calculateValidDateFromTestDate(testDateValue, inspectiontype = "VISUAL", inspectionFrequency = "") {
   const testDate = testDateValue ? new Date(`${testDateValue}T00:00:00`) : new Date()
   const validDate = new Date(testDate)
+  const normalizedFrequency = String(inspectionFrequency || "").toUpperCase()
 
-  if (inspectiontype === "LOADTEST") {
+  if (inspectiontype === "LOADTEST" || normalizedFrequency === "ANNUAL") {
     validDate.setFullYear(validDate.getFullYear() + 1)
   } else {
     validDate.setMonth(validDate.getMonth() + 3)
@@ -4727,9 +4728,10 @@ function calculateValidDateFromTestDate(testDateValue, inspectiontype = "VISUAL"
 window.updateInspectionValidDateFromTestDate = function (inspectiontype = "VISUAL") {
   const testDate = document.querySelector("#inspectionTestDate")?.value || ""
   const validDateInput = document.querySelector("#inspectionValidDate")
+  const inspectionFrequency = document.querySelector("#inspectionFrequency")?.value || ""
 
   if (!validDateInput || !testDate) return
-  validDateInput.value = calculateValidDateFromTestDate(testDate, inspectiontype)
+  validDateInput.value = calculateValidDateFromTestDate(testDate, inspectiontype, inspectionFrequency)
 }
 
 function isProofLoadCriteria(row) {
@@ -5486,7 +5488,6 @@ window.startInspection = async function (assetid, inspectiontype = "VISUAL", ret
     `${API_BASE}/assets/${assetid}/quick-details`
   )
   const defaultTestDate = dateInputValue()
-  const defaultValidDate = calculateValidDateFromTestDate(defaultTestDate, inspectiontype)
 
   const quickDetails = await quickDetailsResponse.json()
 
@@ -5510,6 +5511,9 @@ const visualCriteria = assetCriteria.filter(row => row.fieldtype !== "NUMBER")
 
 window.currentInspectionCriteria = assetCriteria
 const showInspectionPhotoUpload = String(asset.equipgroupid || "") === "400"
+const showInspectionFrequency = showInspectionPhotoUpload && inspectiontype !== "LOADTEST"
+const defaultInspectionFrequency = showInspectionFrequency ? "ANNUAL" : ""
+const defaultValidDate = calculateValidDateFromTestDate(defaultTestDate, inspectiontype, defaultInspectionFrequency)
 
   document.querySelector('#page').innerHTML = `
     <h2>${escapeHtml(inspectiontype)} - Asset ${escapeHtml(asset.assetid)}</h2>
@@ -5646,6 +5650,19 @@ const showInspectionPhotoUpload = String(asset.equipgroupid || "") === "400"
         value="${defaultValidDate}"
       >
     </div>
+
+    ${showInspectionFrequency ? `
+      <div class="form-group">
+        <label>Inspection Frequency</label>
+        <select
+          id="inspectionFrequency"
+          onchange="updateInspectionValidDateFromTestDate('${inspectiontype}')"
+        >
+          <option value="ANNUAL" selected>Annual</option>
+          <option value="FREQUENT">Frequent</option>
+        </select>
+      </div>
+    ` : ""}
 
   </div>
 
@@ -6448,6 +6465,7 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
   formData.append("comments", "")
   formData.append("status", overallStatus)
   formData.append("inspectiontype", inspectiontype)
+  formData.append("inspectionfrequency", document.querySelector("#inspectionFrequency")?.value || "")
   formData.append("tagnumber", tagnumber)
   formData.append("results", JSON.stringify(results))
 

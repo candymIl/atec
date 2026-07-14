@@ -27,8 +27,9 @@ DB_CONNECTION_TIMEOUT_MS=5000
 DB_STATEMENT_TIMEOUT_MS=30000
 DB_QUERY_TIMEOUT_MS=30000
 SLOW_REQUEST_MS=2000
+REQUEST_TIMEOUT_MS=900000
 PDF_CONCURRENCY=1
-BULK_PDF_MAX_CERTIFICATES=50
+BULK_PDF_MAX_CERTIFICATES=500
 REPORT_EXPORT_MAX_ROWS=10000
 UPLOAD_IMAGE_MAX_WIDTH=1600
 UPLOAD_IMAGE_MAX_HEIGHT=1600
@@ -114,7 +115,7 @@ Slow request logs include method, route label, status and duration only.
 
 ## Capacity Assumptions
 
-The defaults are intended for normal small-team concurrent use with occasional PDF generation. Keep `PDF_CONCURRENCY=1` unless memory testing proves the server can safely handle more.
+The defaults support occasional large bulk certificate dumps up to 500 certificates. Keep `PDF_CONCURRENCY=1` unless memory testing proves the server can safely handle more; large PDF jobs should queue rather than run many Chromium/PDF jobs at the same time.
 
 Use controlled localhost or staging load testing before raising:
 

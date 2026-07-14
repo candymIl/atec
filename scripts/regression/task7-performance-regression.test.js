@@ -9,7 +9,7 @@ function parsePositiveInteger(value, fallback, max = fallback) {
 }
 
 function deriveTimeouts(env = {}) {
-  const requestTimeoutMs = parsePositiveInteger(env.REQUEST_TIMEOUT_MS, 180000, 900000)
+  const requestTimeoutMs = parsePositiveInteger(env.REQUEST_TIMEOUT_MS, 900000, 900000)
   const headersTimeoutMs = Math.max(
     parsePositiveInteger(env.HEADERS_TIMEOUT_MS, Math.max(requestTimeoutMs + 5000, 65000), 905000),
     requestTimeoutMs + 1000
@@ -72,8 +72,8 @@ assert.strictEqual(parsePositiveInteger("-1", 10, 250), 10)
 assert.strictEqual(parsePositiveInteger("not-a-number", 10, 250), 10)
 
 assert.deepStrictEqual(deriveTimeouts({}), {
-  requestTimeoutMs: 180000,
-  headersTimeoutMs: 185000,
+  requestTimeoutMs: 900000,
+  headersTimeoutMs: 905000,
   keepAliveTimeoutMs: 65000
 })
 
@@ -82,8 +82,8 @@ assert.deepStrictEqual(deriveTimeouts({
   HEADERS_TIMEOUT_MS: "1",
   KEEP_ALIVE_TIMEOUT_MS: "bad"
 }), {
-  requestTimeoutMs: 180000,
-  headersTimeoutMs: 181000,
+  requestTimeoutMs: 900000,
+  headersTimeoutMs: 901000,
   keepAliveTimeoutMs: 65000
 })
 
