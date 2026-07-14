@@ -5444,6 +5444,7 @@ const measurementCriteria = assetCriteria.filter(row => row.fieldtype === "NUMBE
 const visualCriteria = assetCriteria.filter(row => row.fieldtype !== "NUMBER")
 
 window.currentInspectionCriteria = assetCriteria
+const showInspectionPhotoUpload = String(asset.equipgroupid || "") === "400"
 
   document.querySelector('#page').innerHTML = `
     <h2>${escapeHtml(inspectiontype)} - Asset ${escapeHtml(asset.assetid)}</h2>
@@ -5511,21 +5512,23 @@ window.currentInspectionCriteria = assetCriteria
     </div>
   </div>
 
-  <hr>
+  ${showInspectionPhotoUpload ? `
+    <hr>
 
-  <h3>Inspection Photos</h3>
+    <h3>Inspection Photos</h3>
 
-  <input
-    id="inspectionPhotoFiles"
-    type="file"
-    accept="image/*"
-    multiple
-    onchange="handleInspectionPhotoSelection(event)"
-  >
+    <input
+      id="inspectionPhotoFiles"
+      type="file"
+      accept="image/*"
+      multiple
+      onchange="handleInspectionPhotoSelection(event)"
+    >
 
-  <div id="inspectionPhotoPreview" class="inspection-photo-preview-grid">
-    <p class="muted-text">No inspection photos selected.</p>
-  </div>
+    <div id="inspectionPhotoPreview" class="inspection-photo-preview-grid">
+      <p class="muted-text">No inspection photos selected.</p>
+    </div>
+  ` : ""}
 
 </div>
 
@@ -6402,7 +6405,9 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
     formData.append("photo2", replacementPhoto2)
   }
 
-  ;(window.pendingInspectionPhotos || []).forEach(photo => {
+  const allowInspectionPhotos = String(asset.equipgroupid || "") === "400"
+
+  ;(allowInspectionPhotos ? window.pendingInspectionPhotos || [] : []).forEach(photo => {
     formData.append("inspectionPhotos", photo.file)
     formData.append("photoCaptions", photo.caption || "")
     formData.append("photoTypes", photo.photoType || "GENERAL")
