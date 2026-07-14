@@ -2,6 +2,10 @@ import { getPaginationState, renderPaginationControls } from '../pagination.js'
 import { sortHeader, sortTableRows } from '../tableSort.js'
 import { escapeHtml } from '../utils/security.js'
 
+function sectionResponsibleLabel(section) {
+  return section.responsiblename || 'Not assigned'
+}
+
 export function renderSections(sections, sectionArchiveMode = 'active') {
   const canArchiveSections = window.currentUser?.role === 'ADMIN'
   const visibleSections = sections.filter(section => {
@@ -16,7 +20,7 @@ export function renderSections(sections, sectionArchiveMode = 'active') {
     sectionid: section => section.sectionid,
     clientname: section => section.clientname,
     sitename: section => section.sitename,
-    responsiblename: section => section.responsiblename,
+    responsiblename: section => sectionResponsibleLabel(section),
     sectionname: section => section.sectionname,
     archived: section => section.archived ? 'Archived' : 'Active'
   }, 'client_section')
@@ -107,7 +111,7 @@ export function renderSections(sections, sectionArchiveMode = 'active') {
             <td>${escapeHtml(section.sectionid)}</td>
             <td>${escapeHtml(section.clientname || '')}</td>
             <td>${escapeHtml(section.sitename || '')}</td>
-            <td>${escapeHtml(section.responsiblename || '')}</td>
+            <td>${escapeHtml(sectionResponsibleLabel(section))}</td>
             <td>${escapeHtml(section.sectionname || '')}</td>
             <td>${section.archived ? 'Archived' : 'Active'}</td>
             <td>

@@ -718,7 +718,9 @@ async function fetchJsonOrDefault(url, fallback) {
   if (!response.ok) {
     if ([401, 403].includes(response.status)) return fallback
     const errorBody = await response.json().catch(() => ({}))
-    throw new Error(errorBody.error || `Unable to load ${url}`)
+    throw new Error(errorBody.error || `Unable to load ${url}`, {
+      cause: { url, status: response.status }
+    })
   }
 
   return response.json()
@@ -750,17 +752,18 @@ async function getAssetForAction(assetid) {
   return result
 }
 
-function renderStartupError(message) {
+function renderStartupError(message, details = {}) {
+  const requestedUrl = details.url || ''
+  const statusText = details.status ? `Status ${details.status}` : ''
+  const detailText = [statusText, requestedUrl].filter(Boolean).join(' - ')
+
   document.querySelector('#app').innerHTML = `
     <div class="login-page">
       <div class="login-card">
         <img src="${assetUrl('logo.jpg')}" alt="ATEC Logo" class="login-logo">
-        <h1>ATEC needs a database update</h1>
+        <h1>ATEC could not finish loading</h1>
         <p>${message}</p>
-        <p>
-          Please run:
-          <strong>database/2026-06-23-equipment-400-photos-and-critical-rule.sql</strong>
-        </p>
+        ${detailText ? `<p><strong>${escapeHtml(detailText)}</strong></p>` : ''}
         <button type="button" onclick="location.reload()">Reload</button>
       </div>
     </div>
@@ -816,7 +819,10 @@ async function loadData() {
     criteria = criteriaData
     window.atecCriteria = criteria
   } catch (err) {
-    renderStartupError(err.message || "The database update has not been completed.")
+    renderStartupError(
+      err.message || "The app could not load its startup data.",
+      err.cause || {}
+    )
     return
   }
 
@@ -1636,6 +1642,9 @@ window.editSection = function (sectionid) {
 
     <label>Responsible Person</label>
     <select id="editSectionResponsible">
+      <option value="" ${section.responsibleid ? '' : 'selected'}>
+        Select Responsible Person
+      </option>
       ${filteredResponsiblePersons.map(person => `
         <option
           value="${safeAttr(person.personid)}"
@@ -2324,6 +2333,9 @@ window.showAddAssetForm = function () {
   <div class="form-group">
     <label>Responsible Person</label>
     <input id="assetResponsibleName" type="text" placeholder="Auto-filled from Section" disabled>
+    <select id="assetResponsibleSelect" style="display:none;" onchange="syncAssetResponsibleFromSelect()">
+      <option value="">Select Responsible Person</option>
+    </select>
     <input id="assetResponsible" type="hidden">
   </div>
 
@@ -2496,6 +2508,7 @@ window.filterAssetDropdowns = function () {
 
   document.querySelector('#assetResponsibleName').value = ''
   document.querySelector('#assetResponsible').value = ''
+  hideAssetResponsibleFallback()
 
   if (!clientid) {
     siteSelect.innerHTML = `<option value="">Select Client First</option>`
@@ -2531,6 +2544,7 @@ window.filterAssetSections = function () {
 
   document.querySelector('#assetResponsibleName').value = ''
   document.querySelector('#assetResponsible').value = ''
+  hideAssetResponsibleFallback()
 
   if (!siteid) {
     sectionSelect.innerHTML =
@@ -2558,6 +2572,52 @@ window.filterAssetSections = function () {
   `
 }
 
+function hideAssetResponsibleFallback() {
+  const responsibleNameInput = document.querySelector('#assetResponsibleName')
+  const responsibleSelect = document.querySelector('#assetResponsibleSelect')
+
+  if (responsibleNameInput) responsibleNameInput.style.display = ''
+  if (responsibleSelect) {
+    responsibleSelect.style.display = 'none'
+    responsibleSelect.innerHTML = '<option value="">Select Responsible Person</option>'
+  }
+}
+
+function showAssetResponsibleFallback(selectedResponsibleId = '') {
+  const clientid = document.querySelector('#assetClient')?.value || ''
+  const responsibleNameInput = document.querySelector('#assetResponsibleName')
+  const responsibleSelect = document.querySelector('#assetResponsibleSelect')
+
+  if (!responsibleSelect || !responsibleNameInput) return
+
+  const filteredResponsiblePersons = responsiblePersons
+    .filter(person =>
+      String(person.clientid) === String(clientid) &&
+      !(person.archived === true || person.archived === "true")
+    )
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+
+  responsibleNameInput.style.display = 'none'
+  responsibleSelect.style.display = ''
+  responsibleSelect.innerHTML = `
+    <option value="">Select Responsible Person</option>
+    ${filteredResponsiblePersons.map(person => `
+      <option value="${safeAttr(person.personid)}" ${String(person.personid) === String(selectedResponsibleId) ? 'selected' : ''}>
+        ${escapeHtml(person.name || `Responsible Person ${person.personid}`)}
+      </option>
+    `).join('')}
+  `
+}
+
+window.syncAssetResponsibleFromSelect = function () {
+  const responsibleSelect = document.querySelector('#assetResponsibleSelect')
+  const responsibleIdInput = document.querySelector('#assetResponsible')
+
+  if (responsibleIdInput) {
+    responsibleIdInput.value = responsibleSelect?.value || ''
+  }
+}
+
 window.autoFillResponsibleFromSection = function () {
   const sectionid =
     document.querySelector('#assetSection').value
@@ -2570,6 +2630,7 @@ window.autoFillResponsibleFromSection = function () {
 
   responsibleNameInput.value = ''
   responsibleIdInput.value = ''
+  hideAssetResponsibleFallback()
 
   if (!sectionid) return
 
@@ -2584,6 +2645,10 @@ window.autoFillResponsibleFromSection = function () {
 
   responsibleIdInput.value =
     section.responsibleid || ''
+
+  if (!section.responsibleid) {
+    showAssetResponsibleFallback()
+  }
 }
 
 const ASSET_PHOTO_MAX_BYTES = 15 * 1024 * 1024
