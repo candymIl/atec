@@ -1066,13 +1066,15 @@ async function authorizeUploadRequest(req, res, next) {
     return res.status(400).json({ error: "Invalid file path" })
   }
 
+  const uploadBasename = path.posix.basename(normalizedPath)
+
   const accessResult = await pool.query(
     `
     SELECT EXISTS (
       SELECT 1
       FROM atec.tblasset a
       WHERE a.clientid = $1
-        AND $2 IN (a.media1, a.media2)
+        AND ($2 IN (a.media1, a.media2) OR $3 IN (a.media1, a.media2))
 
       UNION ALL
 
@@ -1081,7 +1083,7 @@ async function authorizeUploadRequest(req, res, next) {
       JOIN atec.tblasset a
         ON i.assetid = a.assetid
       WHERE a.clientid = $1
-        AND $2 IN (i.photo1, i.photo2, i.inspector_signature_image)
+        AND ($2 IN (i.photo1, i.photo2, i.inspector_signature_image) OR $3 IN (i.photo1, i.photo2, i.inspector_signature_image))
 
       UNION ALL
 
@@ -1090,10 +1092,10 @@ async function authorizeUploadRequest(req, res, next) {
       JOIN atec.tblasset a
         ON p.assetid = a.assetid
       WHERE a.clientid = $1
-        AND p.photo_path = $2
+        AND (p.photo_path = $2 OR p.photo_path = $3)
     ) AS allowed
     `,
-    [req.user.clientid, normalizedPath]
+    [req.user.clientid, normalizedPath, uploadBasename]
   )
 
   if (!accessResult.rows[0]?.allowed) {

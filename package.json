@@ -2,6 +2,8 @@
   "scripts": {
     "media:scan": "node scripts/cleanup-orphaned-asset-images.js",
     "media:archive": "node scripts/cleanup-orphaned-asset-images.js --archive",
+    "media:restore-referenced:check": "node scripts/restore-referenced-orphaned-asset-images.js",
+    "media:restore-referenced": "node scripts/restore-referenced-orphaned-asset-images.js --apply",
     "backup:database": "node scripts/atec-backup.js backup:database",
     "backup:media": "node scripts/atec-backup.js backup:media",
     "backup:create": "node scripts/atec-backup.js backup:create",

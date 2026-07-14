@@ -147,6 +147,10 @@ function normalizeUploadValue(value) {
     cleaned = cleaned.slice(uploadsIndex)
   } else if (cleaned.toLowerCase().startsWith("uploads/")) {
     cleaned = `/${cleaned}`
+  } else if (cleaned.toLowerCase().startsWith("assets/")) {
+    cleaned = `/uploads/${cleaned}`
+  } else if (!cleaned.includes("/") && isImageFile(cleaned)) {
+    cleaned = `/uploads/assets/${cleaned}`
   } else {
     return null
   }
