@@ -31,7 +31,7 @@ function uploadProcessingConfig(env = process.env) {
 function pdfConfig(env = process.env) {
   return {
     concurrency: positiveInteger(env.PDF_CONCURRENCY, 1, 4),
-    bulkMaxCertificates: positiveInteger(env.BULK_PDF_MAX_CERTIFICATES, 500, 500),
+    bulkMaxCertificates: Math.max(500, positiveInteger(env.BULK_PDF_MAX_CERTIFICATES, 500, 500)),
     reportExportMaxRows: positiveInteger(env.REPORT_EXPORT_MAX_ROWS, 10000, 100000)
   }
 }

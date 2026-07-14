@@ -759,7 +759,7 @@ function renderSingleCertificateHtmlDocument(certificate, imageDataUrlCache = nu
           .fb-cert-force-one-page.fb-cert-layout-balanced .fb-cert-results-table,
           .fb-cert-force-one-page.fb-cert-layout-spacious .fb-cert-results-table {
             font-size: 7.6px;
-            line-height: 1.08;
+            line-height: 1.16;
           }
           .fb-cert-results-table thead {
             display: table-header-group;
@@ -808,7 +808,7 @@ function renderSingleCertificateHtmlDocument(certificate, imageDataUrlCache = nu
           .fb-cert-force-one-page.fb-cert-layout-balanced .fb-cert-results-table td,
           .fb-cert-force-one-page.fb-cert-layout-spacious .fb-cert-results-table th,
           .fb-cert-force-one-page.fb-cert-layout-spacious .fb-cert-results-table td {
-            padding: 1px 2px;
+            padding: 2px 2px;
           }
           .fb-cert-force-one-page.fb-cert-layout-spacious .fb-cert-results-table tr {
             height: auto;
