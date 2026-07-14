@@ -1,4 +1,5 @@
 const jwt = require("jsonwebtoken")
+const crypto = require("crypto")
 const fs = require("fs")
 const path = require("path")
 
@@ -44,14 +45,108 @@ function signAuthToken(user) {
   })
 }
 
+function durationToMs(value, fallbackMs) {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return Math.floor(value)
+  }
+
+  const match = String(value || "").trim().match(/^(\d+)(ms|s|m|h|d)?$/i)
+  if (!match) return fallbackMs
+
+  const amount = Number(match[1])
+  const unit = (match[2] || "ms").toLowerCase()
+  const multipliers = {
+    ms: 1,
+    s: 1000,
+    m: 60 * 1000,
+    h: 60 * 60 * 1000,
+    d: 24 * 60 * 60 * 1000
+  }
+
+  return amount * multipliers[unit]
+}
+
 function authCookieOptions() {
+  const maxAge = durationToMs(process.env.JWT_EXPIRES_IN || "8h", 8 * 60 * 60 * 1000)
+
   return {
     httpOnly: true,
     sameSite: process.env.COOKIE_SAME_SITE || "lax",
     secure: process.env.COOKIE_SECURE === "true" || process.env.NODE_ENV === "production",
     path: process.env.COOKIE_PATH || (process.env.NODE_ENV === "production" ? "/atec" : "/"),
-    maxAge: 8 * 60 * 60 * 1000
+    maxAge
   }
+}
+
+function allowedOriginsFromConfig(value) {
+  return String(value || "")
+    .split(",")
+    .map(origin => origin.trim())
+    .filter(Boolean)
+}
+
+function originFromReferer(referer) {
+  if (!referer) return null
+
+  try {
+    return new URL(referer).origin
+  } catch (err) {
+    return "invalid"
+  }
+}
+
+function createCsrfProtection(allowedOrigins) {
+  const allowed = new Set(allowedOriginsFromConfig(allowedOrigins))
+  const mutatingMethods = new Set(["POST", "PUT", "PATCH", "DELETE"])
+
+  return function csrfProtection(req, res, next) {
+    if (!mutatingMethods.has(req.method)) {
+      return next()
+    }
+
+    const origin = req.get("origin")
+    const refererOrigin = origin ? null : originFromReferer(req.get("referer"))
+    const requestOrigin = origin || refererOrigin
+
+    if (!requestOrigin || !allowed.has(requestOrigin)) {
+      return res.status(403).json({ error: "Request origin is not allowed" })
+    }
+
+    return next()
+  }
+}
+
+function validatePassword(password) {
+  if (typeof password !== "string" || password.trim().length === 0) {
+    return {
+      valid: false,
+      message: "Password must not be blank and must be at least 8 characters"
+    }
+  }
+
+  if (password.length < 8) {
+    return {
+      valid: false,
+      message: "Password must be at least 8 characters"
+    }
+  }
+
+  return { valid: true, message: "" }
+}
+
+function redactSensitiveText(value) {
+  return String(value || "")
+    .replace(/(password|db_password|jwt_secret|smtp_pass|secret|token)\s*[:=]\s*[^,\s}]+/gi, "$1=[redacted]")
+}
+
+function logSafeError(context, err) {
+  const referenceId = crypto.randomUUID()
+  console.error(`${context} failed`, {
+    referenceId,
+    message: redactSensitiveText(err?.message || "Unknown error"),
+    code: err?.code
+  })
+  return referenceId
 }
 
 function requireAuth(req, res, next) {
@@ -125,7 +220,7 @@ function asyncRoute(handler) {
 }
 
 function errorHandler(err, req, res, next) {
-  console.error(err)
+  const referenceId = logSafeError("Request", err)
 
   if (res.headersSent) {
     return next(err)
@@ -148,7 +243,7 @@ function errorHandler(err, req, res, next) {
     ? "An unexpected server error occurred"
     : err.message
 
-  return res.status(status).json({ error: message })
+  return res.status(status).json(status >= 500 ? { error: message, referenceId } : { error: message })
 }
 
 function isSafeUpload(file) {
@@ -166,7 +261,7 @@ function sanitizeFilename(name) {
     .replace(/[^a-z0-9_-]/gi, "-")
     .slice(0, 60)
 
-  return `${Date.now()}-${baseName}${extension}`
+  return `${crypto.randomUUID()}-${baseName || "upload"}${extension}`
 }
 
 function isRealImageFile(filePath) {
@@ -240,12 +335,17 @@ module.exports = {
   auditLogger,
   authCookieOptions,
   canAccess,
+  createCsrfProtection,
+  durationToMs,
   errorHandler,
   isSafeUpload,
+  logSafeError,
   publicUser,
+  redactSensitiveText,
   requireAuth,
   requireRole,
   sanitizeFilename,
   signAuthToken,
+  validatePassword,
   validateUploadedImages
 }

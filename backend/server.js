@@ -30,12 +30,15 @@ const {
   asyncRoute,
   auditLogger,
   authCookieOptions,
+  createCsrfProtection,
   errorHandler,
   isSafeUpload,
+  logSafeError,
   publicUser,
   requireAuth,
   sanitizeFilename,
   signAuthToken,
+  validatePassword,
   validateUploadedImages
 } = require("./middleware/security")
 
@@ -66,6 +69,7 @@ const allowedOrigins = (process.env.FRONTEND_ORIGIN || defaultFrontendOrigin)
   .split(",")
   .map(origin => origin.trim())
   .filter(Boolean)
+const csrfProtection = createCsrfProtection(allowedOrigins.join(","))
 const trustProxy = process.env.TRUST_PROXY || (process.env.NODE_ENV === "production" ? "1" : "")
 
 const pdfQueueMetrics = {
@@ -80,6 +84,14 @@ function parsePositiveInteger(value, fallback, max = fallback) {
   const parsed = Number(value)
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback
   return Math.min(Math.floor(parsed), max)
+}
+
+function parseRateLimitEnv(name, fallback, max) {
+  return parsePositiveInteger(process.env[name], fallback, max)
+}
+
+function rateLimitMessage(profile) {
+  return { error: `Too many ${profile} requests. Please wait a moment and try again.` }
 }
 
 function runQueuedPdfJob(job) {
@@ -161,7 +173,9 @@ app.use(cors({
   },
   credentials: true
 }));
-app.use(express.json());
+app.use(express.json({
+  limit: process.env.JSON_BODY_LIMIT || "1mb"
+}));
 app.use(cookieParser());
 
 const logAudit = auditLogger(pool)
@@ -292,36 +306,49 @@ app.get("/health", (req, res) => {
 })
 
 const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 10,
+  windowMs: parseRateLimitEnv("AUTH_RATE_LIMIT_WINDOW_MS", 15 * 60 * 1000, 60 * 60 * 1000),
+  limit: parseRateLimitEnv("AUTH_RATE_LIMIT", 10, 100),
+  message: rateLimitMessage("login"),
   standardHeaders: true,
   legacyHeaders: false
 })
 
 const searchLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  limit: Number(process.env.SEARCH_RATE_LIMIT || 120),
+  windowMs: parseRateLimitEnv("SEARCH_RATE_LIMIT_WINDOW_MS", 60 * 1000, 15 * 60 * 1000),
+  limit: parseRateLimitEnv("SEARCH_RATE_LIMIT", 120, 1000),
+  message: rateLimitMessage("search"),
   standardHeaders: true,
   legacyHeaders: false
 })
 
 const uploadLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: Number(process.env.UPLOAD_RATE_LIMIT || 60),
+  windowMs: parseRateLimitEnv("UPLOAD_RATE_LIMIT_WINDOW_MS", 15 * 60 * 1000, 60 * 60 * 1000),
+  limit: parseRateLimitEnv("UPLOAD_RATE_LIMIT", 60, 300),
+  message: rateLimitMessage("upload"),
   standardHeaders: true,
   legacyHeaders: false
 })
 
 const pdfLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: Number(process.env.PDF_RATE_LIMIT || 40),
+  windowMs: parseRateLimitEnv("PDF_RATE_LIMIT_WINDOW_MS", 15 * 60 * 1000, 60 * 60 * 1000),
+  limit: parseRateLimitEnv("PDF_RATE_LIMIT", 40, 300),
+  message: rateLimitMessage("PDF/export"),
+  standardHeaders: true,
+  legacyHeaders: false
+})
+
+const exportLimiter = rateLimit({
+  windowMs: parseRateLimitEnv("EXPORT_RATE_LIMIT_WINDOW_MS", 15 * 60 * 1000, 60 * 60 * 1000),
+  limit: parseRateLimitEnv("EXPORT_RATE_LIMIT", 60, 300),
+  message: rateLimitMessage("export"),
   standardHeaders: true,
   legacyHeaders: false
 })
 
 const emailLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: Number(process.env.EMAIL_RATE_LIMIT || 30),
+  windowMs: parseRateLimitEnv("EMAIL_RATE_LIMIT_WINDOW_MS", 15 * 60 * 1000, 60 * 60 * 1000),
+  limit: parseRateLimitEnv("EMAIL_RATE_LIMIT", 30, 200),
+  message: rateLimitMessage("email"),
   standardHeaders: true,
   legacyHeaders: false
 })
@@ -661,7 +688,7 @@ async function ensureTblUsersHaveIds() {
   `)
 }
 
-app.post("/auth/login", loginLimiter, asyncRoute(async (req, res) => {
+app.post("/auth/login", csrfProtection, loginLimiter, asyncRoute(async (req, res) => {
   const username = String(req.body.username || "").trim()
   const password = String(req.body.password || "")
 
@@ -723,8 +750,11 @@ app.post("/auth/login", loginLimiter, asyncRoute(async (req, res) => {
   res.json({ user: publicUser(user) })
 }))
 
-app.post("/auth/logout", requireAuth, asyncRoute(async (req, res) => {
-  await req.logAudit("LOGOUT", "auth", req.user.user_id)
+app.post("/auth/logout", csrfProtection, asyncRoute(async (req, res) => {
+  if (req.user?.user_id) {
+    await req.logAudit("LOGOUT", "auth", req.user.user_id)
+  }
+
   res.clearCookie("atec_session", authCookieOptions())
   res.json({ success: true })
 }))
@@ -1011,6 +1041,7 @@ async function authorizeUploadRequest(req, res, next) {
 
 app.use("/uploads", requireAuth, asyncRoute(authorizeUploadRequest), express.static(uploadsRoot));
 app.use(requireAuth)
+app.use(csrfProtection)
 app.use(authorizeRequest)
 app.use(asyncRoute(enforceInspectorInspectionOwnership))
 
@@ -1247,6 +1278,11 @@ app.post("/users", asyncRoute(async (req, res) => {
     return res.status(400).json({ error: "Username, password, full name and role are required" })
   }
 
+  const passwordValidation = validatePassword(password)
+  if (!passwordValidation.valid) {
+    return res.status(400).json({ error: passwordValidation.message })
+  }
+
   if (!validRoles().includes(role)) {
     return res.status(400).json({ error: "Invalid role" })
   }
@@ -1326,7 +1362,12 @@ app.put("/users/:id", asyncRoute(async (req, res) => {
   ]
 
   let passwordSql = ""
-  if (password) {
+  if (password !== undefined && password !== null && String(password).length > 0) {
+    const passwordValidation = validatePassword(password)
+    if (!passwordValidation.valid) {
+      return res.status(400).json({ error: passwordValidation.message })
+    }
+
     params.push(await bcrypt.hash(String(password), 12))
     passwordSql = `, password = $${params.length}`
   }
@@ -1493,8 +1534,9 @@ app.post("/users/:id/reset-password", asyncRoute(async (req, res) => {
   }
 
   const password = String(req.body.password || "")
-  if (password.length < 8) {
-    return res.status(400).json({ error: "Password must be at least 8 characters" })
+  const passwordValidation = validatePassword(password)
+  if (!passwordValidation.valid) {
+    return res.status(400).json({ error: passwordValidation.message })
   }
 
   const passwordHash = await bcrypt.hash(password, 12)
@@ -2191,7 +2233,7 @@ app.get("/assets/qr/:code", searchLimiter, async (req, res) => {
   }
 })
 
-app.get("/assets/:id/qr-label.pdf", async (req, res) => {
+app.get("/assets/:id/qr-label.pdf", pdfLimiter, async (req, res) => {
   try {
     const { id } = req.params
     const result = await pool.query(
@@ -4517,7 +4559,7 @@ const certificateSearchSortColumns = {
   inspector: "COALESCE(i.inspector_name, i.inspector)"
 }
 
-app.get("/certificates/search", async (req, res) => {
+app.get("/certificates/search", searchLimiter, async (req, res) => {
   try {
     const {
       search = "",
@@ -4791,7 +4833,7 @@ async function getBulkCertificateMatches(req, includeTestIds = false) {
   }
 }
 
-app.get("/certificates/bulk-print", async (req, res) => {
+app.get("/certificates/bulk-print", searchLimiter, async (req, res) => {
   try {
     const { filters, certificates } = await getBulkCertificateMatches(req, false)
 
@@ -4842,9 +4884,10 @@ app.get("/certificates/bulk-pdf", pdfLimiter, async (req, res) => {
     )
     res.send(pdfBuffer)
   } catch (err) {
-    console.error("Bulk certificate PDF error:", err)
+    const referenceId = logSafeError("Bulk certificate PDF", err)
     res.status(err.statusCode || 500).json({
-      error: err.statusCode ? err.message : "An unexpected server error occurred"
+      error: err.statusCode ? err.message : "An unexpected server error occurred",
+      ...(err.statusCode ? {} : { referenceId })
     })
   }
 })
@@ -6748,8 +6791,8 @@ app.post("/certificates/:testid/email", emailLimiter, async (req, res) => {
 
     res.json({ success: true })
   } catch (err) {
-    console.error("Certificate email error:", err)
-    res.status(500).json({ error: getMailErrorMessage(err) })
+    const referenceId = logSafeError("Certificate email", err)
+    res.status(500).json({ error: getMailErrorMessage(err), referenceId })
   }
 })
 
@@ -6791,8 +6834,8 @@ app.post("/admin/email-test", emailLimiter, async (req, res) => {
     await req.logAudit("TEST_EMAIL", "system_email", null, { to: recipient })
     res.json({ success: true })
   } catch (err) {
-    console.error("Email test error:", err)
-    res.status(500).json({ error: getMailErrorMessage(err) })
+    const referenceId = logSafeError("Email test", err)
+    res.status(500).json({ error: getMailErrorMessage(err), referenceId })
   }
 })
 
@@ -6954,7 +6997,7 @@ app.get("/she/risk-assessments", async (req, res) => {
   }
 })
 
-app.get("/she/risk-assessments.pdf", async (req, res) => {
+app.get("/she/risk-assessments.pdf", pdfLimiter, async (req, res) => {
   try {
     const rows = await getRiskAssessmentRows(riskAssessmentFilters(req))
     const filename = `ATEC-SHE-Risk-Register-${new Date().toISOString().split("T")[0]}.pdf`
@@ -7058,12 +7101,12 @@ app.get("/she/risk-assessments.pdf", async (req, res) => {
 
     doc.end()
   } catch (err) {
-    console.error("Risk assessment PDF error:", err)
-    res.status(500).json({ error: "An unexpected server error occurred" })
+    const referenceId = logSafeError("Risk assessment PDF", err)
+    res.status(500).json({ error: "An unexpected server error occurred", referenceId })
   }
 })
 
-app.get("/she/risk-assessments.xlsx", async (req, res) => {
+app.get("/she/risk-assessments.xlsx", exportLimiter, async (req, res) => {
   try {
     const rows = await getRiskAssessmentRows(riskAssessmentFilters(req))
     const workbook = new ExcelJS.Workbook()
@@ -7132,8 +7175,8 @@ app.get("/she/risk-assessments.xlsx", async (req, res) => {
     await workbook.xlsx.write(res)
     res.end()
   } catch (err) {
-    console.error("Risk assessment Excel error:", err)
-    res.status(500).json({ error: "An unexpected server error occurred" })
+    const referenceId = logSafeError("Risk assessment Excel", err)
+    res.status(500).json({ error: "An unexpected server error occurred", referenceId })
   }
 })
 
@@ -8026,12 +8069,12 @@ app.get("/reports/customer-detailed.pdf", pdfLimiter, async (req, res) => {
     drawCustomerReportPdf(doc, report)
     doc.end()
   } catch (err) {
-    console.error("Customer detailed PDF error:", err)
-    res.status(500).json({ error: "An unexpected server error occurred" })
+    const referenceId = logSafeError("Customer detailed PDF", err)
+    res.status(500).json({ error: "An unexpected server error occurred", referenceId })
   }
 })
 
-app.get("/reports/customer-detailed.xlsx", searchLimiter, async (req, res) => {
+app.get("/reports/customer-detailed.xlsx", exportLimiter, async (req, res) => {
   try {
     const report = await getCustomerDetailedReport(customerScopedReportFilters(req))
 
@@ -8053,8 +8096,8 @@ app.get("/reports/customer-detailed.xlsx", searchLimiter, async (req, res) => {
     await workbook.xlsx.write(res)
     res.end()
   } catch (err) {
-    console.error("Customer detailed Excel error:", err)
-    res.status(500).json({ error: "An unexpected server error occurred" })
+    const referenceId = logSafeError("Customer detailed Excel", err)
+    res.status(500).json({ error: "An unexpected server error occurred", referenceId })
   }
 })
 

@@ -1,6 +1,56 @@
 # ATEC Production Backup And Security Checklist
 
-Use this checklist before ATEC goes online and then repeat it every month.
+Use this checklist before ATEC goes online and then repeat it every month. Scripts and instructions are proof tooling only until a restore has been completed into a test database and the evidence output has been saved.
+
+## Ubuntu Live Server Backup Proof
+
+Live production details:
+
+- Database: `fbcranes`
+- Schema: `atec`
+- PostgreSQL host from the Ubuntu server: `127.0.0.1`
+- Project path: `/var/www/atec/ATEC`
+- Suggested backup path: `/var/www/atec/backups`
+
+Use `.pgpass` or environment-based PostgreSQL credentials. Do not put real database passwords in scripts or documentation.
+
+1. Create a daily PostgreSQL and uploads backup:
+
+   ```bash
+   cd /var/www/atec/ATEC
+   DB_HOST=127.0.0.1 DB_NAME=fbcranes DB_USER=atec_backup \
+     BACKUP_ROOT=/var/www/atec/backups \
+     ./scripts/backup-atec-ubuntu.sh
+   ```
+
+2. Confirm the backup folder contains:
+
+   - `fbcranes-*.dump`
+   - `uploads-*.tar.gz`, when uploads exist
+   - `manifest.sha256`
+   - `manifest.json`
+
+3. Copy the full backup folder to an off-server location every day.
+
+4. Keep retention at 7 daily, 4 weekly, and 12 monthly backups.
+
+5. Before every deployment, create a manual backup and copy it off-server before changing code or database schema.
+
+6. Run a monthly restore test into a test database only. The restore script refuses `fbcranes`:
+
+   ```bash
+   cd /var/www/atec/ATEC
+   BACKUP_DUMP=/var/www/atec/backups/atec-YYYYMMDD-HHMMSS/fbcranes-YYYYMMDD-HHMMSS.dump \
+     UPLOADS_ARCHIVE=/var/www/atec/backups/atec-YYYYMMDD-HHMMSS/uploads-YYYYMMDD-HHMMSS.tar.gz \
+     RESTORE_DB_NAME=atec_restore_test \
+     DB_HOST=127.0.0.1 DB_USER=atec_backup \
+     EVIDENCE_FILE=/var/www/atec/backups/restore-evidence-YYYYMMDD.txt \
+     ./scripts/verify-restore-atec-ubuntu.sh
+   ```
+
+7. Save `restore-evidence-*.txt` and `manifest.sha256` as evidence. The evidence must show SHA256 verification and restored counts for clients, assets, inspections, inspection results, and users.
+
+Never restore into `fbcranes`. Restore only into a test database such as `atec_restore_test`.
 
 ## Backup Proof
 
