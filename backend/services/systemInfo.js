@@ -2,6 +2,9 @@ const fs = require("fs")
 const os = require("os")
 const path = require("path")
 const { execFileSync } = require("child_process")
+const {
+  summarizeBackupStatus
+} = require("./backupStatus")
 
 const DEFAULT_BACKUP_ROOT = "/var/www/atec/backups"
 const DEFAULT_BACKUP_MAX_AGE_HOURS = 26
@@ -88,6 +91,28 @@ function getBackupStatus(env = process.env, now = new Date()) {
     DEFAULT_BACKUP_MAX_AGE_HOURS,
     24 * 30
   )
+  const manifestStatus = summarizeBackupStatus(env, now)
+
+  if (manifestStatus.latestBackupSetId || (manifestStatus.accessible && manifestStatus.status === "Critical")) {
+    return {
+      ...manifestStatus,
+      directoryConfigured: backupRoot ? "configured" : "default",
+      latestDatabaseBackup: manifestStatus.latestDatabaseBackup
+        ? {
+            ...manifestStatus.latestDatabaseBackup,
+            modifiedAt: manifestStatus.latestSuccessfulDatabaseBackupAt,
+            ageHours: manifestStatus.backupAgeHours,
+            withinExpectedAge: manifestStatus.backupAgeHours !== null && manifestStatus.backupAgeHours <= maxAgeHours
+          }
+        : null,
+      latestUploadsBackup: manifestStatus.latestUploadsBackup
+        ? {
+            ...manifestStatus.latestUploadsBackup,
+            modifiedAt: manifestStatus.latestSuccessfulMediaBackupAt
+          }
+        : null
+    }
+  }
 
   const result = {
     directoryConfigured: backupRoot ? "configured" : "default",
@@ -273,6 +298,7 @@ async function getDatabaseInfo(pool, env = process.env) {
       postgresVersion: result.rows[0]?.postgres_version || "unknown",
       responseTimeMs: elapsedMs,
       pool: {
+        max: pool.options?.max || null,
         total: pool.totalCount,
         idle: pool.idleCount,
         waiting: pool.waitingCount
@@ -286,6 +312,7 @@ async function getDatabaseInfo(pool, env = process.env) {
       postgresVersion: "unavailable",
       responseTimeMs: null,
       pool: {
+        max: pool.options?.max || null,
         total: pool.totalCount,
         idle: pool.idleCount,
         waiting: pool.waitingCount
@@ -323,9 +350,58 @@ function overallStatus({ database, backup, disk, server, deployment }) {
   return "Healthy"
 }
 
+function safePerformanceInfo(performance = null) {
+  if (!performance) {
+    return {
+      checkedAt: new Date().toISOString(),
+      slowRequestThresholdMs: null,
+      totalRequests: 0,
+      slowRequests: 0,
+      recentRequestCount: 0,
+      recentSlowRequestCount: 0,
+      recentAverageMs: 0,
+      recentMaxMs: 0,
+      lastSlowRequest: null
+    }
+  }
+
+  return {
+    checkedAt: performance.checkedAt,
+    slowRequestThresholdMs: performance.slowRequestThresholdMs,
+    totalRequests: performance.totalRequests,
+    slowRequests: performance.slowRequests,
+    recentRequestCount: performance.recentRequestCount,
+    recentSlowRequestCount: performance.recentSlowRequestCount,
+    recentAverageMs: performance.recentAverageMs,
+    recentMaxMs: performance.recentMaxMs,
+    lastSlowRequest: performance.lastSlowRequest
+      ? {
+          method: performance.lastSlowRequest.method,
+          route: performance.lastSlowRequest.route,
+          status: performance.lastSlowRequest.status,
+          elapsedMs: performance.lastSlowRequest.elapsedMs,
+          at: performance.lastSlowRequest.at
+        }
+      : null
+  }
+}
+
+function safePdfInfo(pdf = null) {
+  return {
+    concurrency: pdf?.concurrency ?? null,
+    maxBulkCertificates: pdf?.maxBulkCertificates ?? null,
+    active: pdf?.active ?? 0,
+    queued: pdf?.queued ?? 0,
+    completed: pdf?.completed ?? 0,
+    failed: pdf?.failed ?? 0
+  }
+}
+
 async function buildSystemInfo(options = {}) {
   const {
     pool,
+    performance = null,
+    pdf = null,
     projectRoot = path.resolve(__dirname, "..", ".."),
     env = process.env,
     startedAt = new Date(),
@@ -365,7 +441,9 @@ async function buildSystemInfo(options = {}) {
     server,
     disk,
     backup,
-    deployment
+    deployment,
+    performance: safePerformanceInfo(performance),
+    pdf: safePdfInfo(pdf)
   }
 }
 
@@ -383,5 +461,7 @@ module.exports = {
   getGitInfo,
   getMemoryStatus,
   overallStatus,
-  positiveNumber
+  positiveNumber,
+  safePerformanceInfo,
+  safePdfInfo
 }

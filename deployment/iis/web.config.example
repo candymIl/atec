@@ -1,19 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  IIS template for https://www.fbcranes.co.za/atec
+  Legacy IIS reference template only. Current production is Ubuntu at
+  https://www.atecinspections.co.za/ and does not use IIS.
 
   Requirements on the server:
   - IIS URL Rewrite module
   - IIS Application Request Routing (ARR) with proxy enabled
   - Node backend running on http://127.0.0.1:5000
-  - Frontend build files copied to the physical /atec folder
+  - Frontend build files copied to the site root
 -->
 <configuration>
   <system.webServer>
     <rewrite>
       <rules>
         <rule name="ATEC API proxy" stopProcessing="true">
-          <match url="^atec/api/(.*)" />
+          <match url="^api/(.*)" />
           <action type="Rewrite" url="http://127.0.0.1:5000/{R:1}" />
           <serverVariables>
             <set name="HTTP_X_FORWARDED_PROTO" value="https" />
@@ -21,7 +22,7 @@
         </rule>
 
         <rule name="ATEC uploads proxy" stopProcessing="true">
-          <match url="^atec/uploads/(.*)" />
+          <match url="^uploads/(.*)" />
           <action type="Rewrite" url="http://127.0.0.1:5000/uploads/{R:1}" />
           <serverVariables>
             <set name="HTTP_X_FORWARDED_PROTO" value="https" />
@@ -29,12 +30,12 @@
         </rule>
 
         <rule name="ATEC frontend fallback" stopProcessing="true">
-          <match url="^atec/.*" />
+          <match url=".*" />
           <conditions logicalGrouping="MatchAll">
             <add input="{REQUEST_FILENAME}" matchType="IsFile" negate="true" />
             <add input="{REQUEST_FILENAME}" matchType="IsDirectory" negate="true" />
           </conditions>
-          <action type="Rewrite" url="/atec/index.html" />
+          <action type="Rewrite" url="/index.html" />
         </rule>
       </rules>
     </rewrite>

@@ -1,7 +1,7 @@
-# Nginx template for https://www.fbcranes.co.za/atec
+# Nginx template for https://www.atecinspections.co.za/
 #
 # Assumptions:
-# - Frontend build files are copied to /var/www/atec
+# - Frontend build files are copied to /var/www/atec/public
 # - Node backend runs on http://127.0.0.1:5000
 # - TLS/SSL is configured on this server block
 #
@@ -13,9 +13,9 @@ add_header X-Content-Type-Options "nosniff" always;
 add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
 add_header X-Frame-Options "SAMEORIGIN" always;
-add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; frame-ancestors 'self'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://www.fbcranes.co.za; form-action 'self'; upgrade-insecure-requests" always;
+add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; frame-ancestors 'self'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://www.atecinspections.co.za; form-action 'self'; upgrade-insecure-requests" always;
 
-location /atec/api/ {
+location /api/ {
   proxy_pass http://127.0.0.1:5000/;
   proxy_http_version 1.1;
   proxy_set_header Host $host;
@@ -25,7 +25,7 @@ location /atec/api/ {
   proxy_read_timeout 180s;
 }
 
-location /atec/uploads/ {
+location /uploads/ {
   proxy_pass http://127.0.0.1:5000/uploads/;
   proxy_http_version 1.1;
   proxy_set_header Host $host;
@@ -35,7 +35,7 @@ location /atec/uploads/ {
   proxy_read_timeout 180s;
 }
 
-location /atec/ {
-  alias /var/www/atec/;
-  try_files $uri $uri/ /atec/index.html;
+location / {
+  root /var/www/atec/public;
+  try_files $uri $uri/ /index.html;
 }

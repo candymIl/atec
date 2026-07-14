@@ -4,10 +4,10 @@
 
 - Added production-safe frontend API helper using `VITE_API_URL`.
 - Removed hardcoded frontend `http://localhost:5000` API/file links from source pages.
-- Added Vite base path `/atec/`.
-- Updated frontend favicon and title for `/atec/` deployment.
-- Tightened backend production CORS default to `https://www.fbcranes.co.za`.
-- Added production cookie path support for `/atec`.
+- Historical note: added support for the retired subpath deployment shape.
+- Historical note: updated frontend favicon and title for the retired subpath deployment.
+- Historical note: tightened backend production CORS default at the time. Current production origin is `https://www.atecinspections.co.za`.
+- Historical note: added production cookie path support for the retired subpath deployment.
 - Added configurable uploads root using `UPLOADS_PATH`.
 - Added production deployment notes for reverse proxy setup.
 - Updated backend and frontend environment examples.
@@ -20,17 +20,14 @@
 - Frontend production build passed.
 - Backend `server.js` syntax check passed.
 - Backend `middleware/security.js` syntax check passed.
-- Built frontend assets are emitted under `/atec/`.
+- Historical note: built frontend assets were emitted under the retired subpath deployment shape at that time.
 - Single certificate PDF, bulk PDF, and email PDF now share `createCertificatePdfBuffer` / `createBulkCertificatesPdfBuffer`.
 
 ## Backup Proof
 
 Fresh backup created successfully:
 
-- Folder: `D:\ATECBackups\atec-20260624-194206`
-- Database dump: `D:\ATECBackups\atec-20260624-194206\fbcranes-20260624-194206.dump`
-- Uploads zip: `D:\ATECBackups\atec-20260624-194206\uploads-20260624-194206.zip`
-- Manifest: `D:\ATECBackups\atec-20260624-194206\manifest.json`
+- Historical Windows local backup evidence was created during that pass.
 
 ## Restore Test Status
 

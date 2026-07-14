@@ -16,6 +16,9 @@ Local Codex changes are not automatically live. This page proves the live versio
   - Requires a valid session.
   - Restricted to `ADMIN` users.
   - Returns application, deployment, database, server, disk and backup status.
+  - Task 10 backup fields include latest backup set ID, database/media timestamps, validation status, checksum status, restore-verification status, retention status and safe failure summary.
+  - Task 11 performance fields include safe recent request aggregates and PDF queue metrics.
+  - Production Admin URL through the proxy: `https://www.atecinspections.co.za/api/admin/system-info`.
 
 ## Page Location
 
@@ -30,6 +33,15 @@ Backend:
 ```env
 ATEC_BACKUP_ROOT=/var/www/atec/backups
 BACKUP_MAX_AGE_HOURS=26
+BACKUP_VERIFY_MAX_AGE_HOURS=30
+RESTORE_VERIFY_MAX_AGE_HOURS=192
+BACKUP_DAILY_RETENTION_DAYS=14
+BACKUP_WEEKLY_RETENTION_WEEKS=8
+BACKUP_MONTHLY_RETENTION_MONTHS=12
+RESTORE_VERIFY_DB_PREFIX=atec_restore_verify_
+RESTORE_VERIFY_ENABLED=false
+BACKUP_MEDIA_ROOT=
+BACKUP_LOCK_DIR=
 DISK_WARNING_PERCENT=85
 DISK_CRITICAL_PERCENT=95
 MEMORY_WARNING_PERCENT=90
@@ -49,10 +61,15 @@ VITE_BUILD_TIMESTAMP=
 
 ## Thresholds
 
-- Backup: current when the newest database backup is no older than `26` hours.
+- Backup: healthy when the latest successful manifest-backed backup is recent, checksum validation is successful, and restore verification is current.
+- Warning: backup is approaching maximum age, validation is stale, restore verification is overdue, or restore verification has not yet been run.
+- Critical: backup is missing, failed, corrupt, too old, has checksum mismatch, or restore verification failed.
+- Legacy backup freshness: if no Task 10 manifest exists, the backend falls back to the older file freshness scan.
 - Disk warning: used space at or above `85%`.
 - Disk critical: used space at or above `95%`.
 - Memory warning: system memory used at or above `90%`.
+- Slow request warning context: recent slow request counts are based on `SLOW_REQUEST_MS`, default `2000`.
+- PDF queue context: active and queued jobs should stay within `PDF_CONCURRENCY`.
 - Auto refresh: frontend refreshes no faster than every `60` seconds.
 
 ## Git And Deployment Identity

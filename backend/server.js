@@ -25,6 +25,7 @@ const {
   renderSingleCertificatePreviewHtml
 } = require("./services/certificateRenderer");
 const { buildSystemInfo } = require("./services/systemInfo")
+const { pdfConfig, positiveInteger, uploadProcessingConfig } = require("./services/runtimeConfig")
 const backendPackage = require("./package.json")
 const {
   asyncRoute,
@@ -43,19 +44,21 @@ const {
 } = require("./middleware/security")
 
 const defaultFrontendOrigin = process.env.NODE_ENV === "production"
-  ? "https://www.fbcranes.co.za"
+  ? "https://www.atecinspections.co.za"
   : "http://localhost:5174,http://localhost:5173,http://127.0.0.1:5174,http://127.0.0.1:5173"
 const uploadsRoot = path.resolve(
   process.env.UPLOAD_ROOT ||
   process.env.UPLOADS_PATH ||
   path.join(__dirname, "uploads")
 )
-const publicBasePath = (process.env.PUBLIC_BASE_PATH || "/atec").replace(/\/+$/, "")
-const slowRequestMs = Number(process.env.SLOW_REQUEST_MS || 2000)
-const pdfConcurrency = Math.max(1, Number(process.env.PDF_CONCURRENCY || 1))
-const bulkPdfMaxCertificates = Math.max(1, Number(process.env.BULK_PDF_MAX_CERTIFICATES || 50))
-const reportExportMaxRows = Math.max(1, Number(process.env.REPORT_EXPORT_MAX_ROWS || 10000))
-const uploadCompressionConcurrency = Math.max(1, Number(process.env.UPLOAD_COMPRESSION_CONCURRENCY || 2))
+const publicBasePath = (process.env.PUBLIC_BASE_PATH || "/").replace(/\/+$/, "")
+const slowRequestMs = positiveInteger(process.env.SLOW_REQUEST_MS, 2000, 60000)
+const pdfRuntimeConfig = pdfConfig(process.env)
+const uploadRuntimeConfig = uploadProcessingConfig(process.env)
+const pdfConcurrency = pdfRuntimeConfig.concurrency
+const bulkPdfMaxCertificates = pdfRuntimeConfig.bulkMaxCertificates
+const reportExportMaxRows = pdfRuntimeConfig.reportExportMaxRows
+const uploadCompressionConcurrency = uploadRuntimeConfig.concurrency
 const requestTimeoutMs = parsePositiveInteger(process.env.REQUEST_TIMEOUT_MS, 180000, 900000)
 const headersTimeoutMs = Math.max(
   parsePositiveInteger(process.env.HEADERS_TIMEOUT_MS, Math.max(requestTimeoutMs + 5000, 65000), 905000),
@@ -79,6 +82,12 @@ const pdfQueueMetrics = {
   failed: 0
 }
 const pendingPdfJobs = []
+const requestPerformanceMetrics = {
+  totalRequests: 0,
+  slowRequests: 0,
+  recentWindow: [],
+  lastSlowRequest: null
+}
 
 function parsePositiveInteger(value, fallback, max = fallback) {
   const parsed = Number(value)
@@ -185,19 +194,71 @@ app.use((req, res, next) => {
   next()
 })
 
+function requestRouteLabel(req) {
+  if (req.route?.path) {
+    return `${req.baseUrl || ""}${req.route.path}`
+  }
+
+  const cleanPath = String(req.path || req.originalUrl || "")
+    .split("?")[0]
+    .replace(/\/\d+(?=\/|$)/g, "/:id")
+
+  return cleanPath || "/"
+}
+
+function recordRequestPerformance(req, res, elapsedMs) {
+  if (req.path === "/health") return
+
+  const entry = {
+    method: req.method,
+    route: requestRouteLabel(req),
+    status: res.statusCode,
+    elapsedMs,
+    at: new Date().toISOString()
+  }
+
+  requestPerformanceMetrics.totalRequests += 1
+  requestPerformanceMetrics.recentWindow.push(entry)
+
+  if (requestPerformanceMetrics.recentWindow.length > 100) {
+    requestPerformanceMetrics.recentWindow.shift()
+  }
+
+  if (elapsedMs >= slowRequestMs) {
+    requestPerformanceMetrics.slowRequests += 1
+    requestPerformanceMetrics.lastSlowRequest = entry
+    console.warn("SLOW_REQUEST", entry)
+  }
+}
+
+function performanceSummary() {
+  const recent = requestPerformanceMetrics.recentWindow
+  const slowRecent = recent.filter(entry => entry.elapsedMs >= slowRequestMs)
+  const durations = recent.map(entry => entry.elapsedMs)
+  const averageMs = durations.length
+    ? Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length)
+    : 0
+  const maxMs = durations.length ? Math.max(...durations) : 0
+
+  return {
+    checkedAt: new Date().toISOString(),
+    slowRequestThresholdMs: slowRequestMs,
+    totalRequests: requestPerformanceMetrics.totalRequests,
+    slowRequests: requestPerformanceMetrics.slowRequests,
+    recentRequestCount: recent.length,
+    recentSlowRequestCount: slowRecent.length,
+    recentAverageMs: averageMs,
+    recentMaxMs: maxMs,
+    lastSlowRequest: requestPerformanceMetrics.lastSlowRequest
+  }
+}
+
 app.use((req, res, next) => {
   const startedAt = Date.now()
 
   res.on("finish", () => {
     const elapsedMs = Date.now() - startedAt
-    if (elapsedMs >= slowRequestMs) {
-      console.warn("SLOW_REQUEST", {
-        method: req.method,
-        path: req.originalUrl,
-        status: res.statusCode,
-        elapsedMs
-      })
-    }
+    recordRequestPerformance(req, res, elapsedMs)
   })
 
   next()
@@ -248,19 +309,22 @@ function flattenUploadFiles(files) {
 async function compressUploadedPhoto(file) {
   if (!file?.path || file.fieldname === "signature") return
 
+  const stat = fs.statSync(file.path)
+  if (stat.size < uploadRuntimeConfig.compressMinBytes) return
+
   const targetPath = file.path.replace(/\.[^.]+$/, ".jpg")
   const tempPath = `${targetPath}.tmp`
 
   await sharp(file.path)
     .rotate()
     .resize({
-      width: Number(process.env.UPLOAD_IMAGE_MAX_WIDTH || 1600),
-      height: Number(process.env.UPLOAD_IMAGE_MAX_HEIGHT || 1600),
+      width: uploadRuntimeConfig.maxWidth,
+      height: uploadRuntimeConfig.maxHeight,
       fit: "inside",
       withoutEnlargement: true
     })
     .jpeg({
-      quality: Number(process.env.UPLOAD_IMAGE_QUALITY || 72),
+      quality: uploadRuntimeConfig.quality,
       mozjpeg: true
     })
     .toFile(tempPath)
@@ -1089,7 +1153,8 @@ app.get("/admin/system-health", asyncRoute(async (req, res) => {
       concurrency: pdfConcurrency,
       maxBulkCertificates: bulkPdfMaxCertificates,
       ...pdfQueueMetrics
-    }
+    },
+    performance: performanceSummary()
   })
 }))
 
@@ -1100,6 +1165,12 @@ app.get("/admin/system-info", asyncRoute(async (req, res) => {
 
   res.json(await buildSystemInfo({
     pool,
+    performance: performanceSummary(),
+    pdf: {
+      concurrency: pdfConcurrency,
+      maxBulkCertificates: bulkPdfMaxCertificates,
+      ...pdfQueueMetrics
+    },
     projectRoot: path.join(__dirname, ".."),
     startedAt: backendStartedAt,
     port: PORT,

@@ -1,5 +1,7 @@
 # ATEC Performance And Maintenance Notes
 
+This quick note is superseded by `docs/performance-and-capacity.md`, which is the authoritative production performance guide.
+
 These steps keep ATEC fast and stop photos/backups from quietly filling the server.
 
 ## 1. Compress New Uploads
@@ -64,6 +66,6 @@ Check:
 - Uploads folder size should not grow unexpectedly.
 - `atec-backend` should show as online.
 
-## 5. Bigger Future Performance Work
+## 5. Full Performance Guide
 
-The next larger performance upgrade is server-side pagination for heavy pages like Assets and Certificates. That is more involved because the frontend currently keeps many records in memory for searching, sorting and page navigation.
+See `docs/performance-and-capacity.md` for pagination, System Health metrics, pool settings, index rollout, EXPLAIN guidance and rollback.

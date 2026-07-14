@@ -1,4 +1,4 @@
-# Apache template for https://www.fbcranes.co.za/atec
+# Apache template for https://www.atecinspections.co.za/
 #
 # Requirements:
 # - mod_proxy
@@ -7,23 +7,23 @@
 # - Node backend running on http://127.0.0.1:5000
 
 ProxyPreserveHost On
-ProxyPass /atec/api/ http://127.0.0.1:5000/
-ProxyPassReverse /atec/api/ http://127.0.0.1:5000/
-ProxyPass /atec/uploads/ http://127.0.0.1:5000/uploads/
-ProxyPassReverse /atec/uploads/ http://127.0.0.1:5000/uploads/
+ProxyPass /api/ http://127.0.0.1:5000/
+ProxyPassReverse /api/ http://127.0.0.1:5000/
+ProxyPass /uploads/ http://127.0.0.1:5000/uploads/
+ProxyPassReverse /uploads/ http://127.0.0.1:5000/uploads/
 
-Alias /atec/ "/var/www/atec/"
+DocumentRoot "/var/www/atec/public"
 
-<Directory "/var/www/atec/">
+<Directory "/var/www/atec/public">
   Options -Indexes +FollowSymLinks
   AllowOverride None
   Require all granted
 
   RewriteEngine On
-  RewriteBase /atec/
+  RewriteBase /
   RewriteCond %{REQUEST_FILENAME} !-f
   RewriteCond %{REQUEST_FILENAME} !-d
-  RewriteRule . /atec/index.html [L]
+  RewriteRule . /index.html [L]
 </Directory>
 
 RequestHeader set X-Forwarded-Proto "https"

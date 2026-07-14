@@ -23,8 +23,8 @@ Main features:
 
 High-level architecture:
 
-- Browser client served as a Vite static build from `/atec/`.
-- Node.js Express API served behind a reverse proxy under `/atec/api/`.
+- Browser client served as a Vite static build from `/`.
+- Node.js Express API served behind a reverse proxy under `/api/`.
 - PostgreSQL database with the application data under the `atec` schema.
 - Filesystem upload storage for photos and signatures.
 - Optional SMTP server for emailing certificate PDFs.
@@ -60,7 +60,7 @@ Backend:
 Frontend:
 
 - Vite static frontend.
-- Vite base path is `/atec/`.
+- Vite base path is `/` for current production.
 - The frontend is mostly plain JavaScript in `frontend/src/main.js` with page modules under `frontend/src/pages`.
 
 Package manager:
@@ -143,7 +143,7 @@ Repository root:
 
 - Vite frontend project.
 - `frontend/index.html`: app HTML shell.
-- `frontend/vite.config.js`: sets `base: '/atec/'`.
+- `frontend/vite.config.js`: sets `base` from `VITE_BASE_PATH` and defaults to `/`.
 - `frontend/package.json`: frontend npm scripts.
 - `frontend/.env.example`: frontend API URL example.
 - `frontend/src/main.js`: primary app entry and much of the UI logic.
@@ -279,9 +279,9 @@ Backend variables:
 - `JWT_EXPIRES_IN`: JWT lifetime, default `8h`.
 - `COOKIE_SECURE`: `true` in HTTPS production.
 - `COOKIE_SAME_SITE`: cookie SameSite value, normally `lax`.
-- `COOKIE_PATH`: cookie path. Use `/atec` when hosted under `/atec`.
+- `COOKIE_PATH`: cookie path. Use `/` for current production.
 - `PUBLIC_APP_URL`: public frontend URL, used in QR labels and generated links.
-- `PUBLIC_BASE_PATH`: frontend base path, normally `/atec`.
+- `PUBLIC_BASE_PATH`: frontend base path, currently `/`.
 - `BACKEND_API_PREFIX`: mounted API prefix, normally `/api` in production.
 - `TRUST_PROXY`: set to `1` behind Nginx/Apache/SSL proxy.
 - `UPLOADS_PATH`: filesystem path for uploaded assets, inspection photos, and signatures. Defaults to `backend/uploads`.
@@ -296,7 +296,7 @@ Backend variables:
 
 Frontend variables:
 
-- `VITE_API_URL`: full API base URL. Production example: `https://www.fbcranes.co.za/atec/api`.
+- `VITE_API_URL`: full API base URL. Production example: `https://www.atecinspections.co.za/api`.
 
 Production backend example:
 
@@ -308,16 +308,16 @@ DB_PORT=5432
 DB_NAME=atec
 DB_USER=atec_app
 DB_PASSWORD=replace-with-strong-password
-FRONTEND_ORIGIN=https://www.fbcranes.co.za
-PUBLIC_APP_URL=https://www.fbcranes.co.za/atec
-PUBLIC_BASE_PATH=/atec
+FRONTEND_ORIGIN=https://www.atecinspections.co.za
+PUBLIC_APP_URL=https://www.atecinspections.co.za
+PUBLIC_BASE_PATH=/
 BACKEND_API_PREFIX=/api
 TRUST_PROXY=1
 JWT_SECRET=replace-with-a-long-random-secret-at-least-32-characters
 JWT_EXPIRES_IN=8h
 COOKIE_SECURE=true
 COOKIE_SAME_SITE=lax
-COOKIE_PATH=/atec
+COOKIE_PATH=/
 UPLOADS_PATH=/var/lib/atec/uploads
 PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 SMTP_HOST=smtp.example.com
@@ -330,7 +330,7 @@ MAIL_FROM=ATEC <no-reply@example.com>
 
 ## 6. API Documentation
 
-All API endpoints except `GET /` and `POST /auth/login` require authentication. In production, endpoints are normally accessed under `/atec/api`, for example `/atec/api/auth/login`. The backend can also accept stripped paths such as `/auth/login`.
+All API endpoints except `GET /` and `POST /auth/login` require authentication. In production, endpoints are normally accessed under `/api`, for example `/api/auth/login`. The backend can also accept stripped paths such as `/auth/login`.
 
 Authentication:
 
@@ -470,7 +470,7 @@ Reports and dashboard:
 Upload access:
 
 - Static uploads are served from `/uploads` after authentication.
-- Under production reverse proxy, `/atec/uploads/...` should proxy to backend `/uploads/...`.
+- Under production reverse proxy, `/uploads/...` should proxy to backend `/uploads/...`.
 - Customer users can only fetch upload files referenced by their own customer records.
 
 ## 7. Authentication
@@ -546,11 +546,11 @@ Permissions:
 
 ```js
 export default defineConfig({
-  base: '/atec/'
+  base: process.env.VITE_BASE_PATH || '/'
 })
 ```
 
-This means the built frontend expects to be hosted under `/atec/`.
+This means the built frontend expects to be hosted at `/` unless a different `VITE_BASE_PATH` is supplied.
 
 `frontend/src/api.js`:
 
@@ -586,7 +586,7 @@ TypeScript, Webpack, PM2, Docker:
 
 Assumptions:
 
-- Public app URL: `https://www.fbcranes.co.za/atec`.
+- Public app URL: `https://www.atecinspections.co.za`.
 - Backend listens privately on `127.0.0.1:5000`.
 - Frontend files are served from `/var/www/atec`.
 - Uploads live in `/var/lib/atec/uploads`.
@@ -647,7 +647,8 @@ Create frontend production environment:
 
 ```bash
 sudo -u atec tee /opt/atec/app/frontend/.env.production >/dev/null <<'EOF'
-VITE_API_URL=https://www.fbcranes.co.za/atec/api
+VITE_API_URL=https://www.atecinspections.co.za/api
+VITE_BASE_PATH=/
 EOF
 ```
 
@@ -757,9 +758,9 @@ Nginx reverse proxy:
 ```nginx
 server {
   listen 80;
-  server_name www.fbcranes.co.za fbcranes.co.za;
+  server_name www.atecinspections.co.za atecinspections.co.za;
 
-  location /atec/api/ {
+  location /api/ {
     proxy_pass http://127.0.0.1:5000/;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
@@ -769,7 +770,7 @@ server {
     proxy_read_timeout 180s;
   }
 
-  location /atec/uploads/ {
+  location /uploads/ {
     proxy_pass http://127.0.0.1:5000/uploads/;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
@@ -779,9 +780,9 @@ server {
     proxy_read_timeout 180s;
   }
 
-  location /atec/ {
-    alias /var/www/atec/;
-    try_files $uri $uri/ /atec/index.html;
+  location / {
+    root /var/www/atec;
+    try_files $uri $uri/ /index.html;
   }
 }
 ```
@@ -793,7 +794,7 @@ sudo ln -s /etc/nginx/sites-available/atec /etc/nginx/sites-enabled/atec
 sudo nginx -t
 sudo systemctl reload nginx
 sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d www.fbcranes.co.za -d fbcranes.co.za
+sudo certbot --nginx -d www.atecinspections.co.za -d atecinspections.co.za
 ```
 
 Firewall:
@@ -813,8 +814,8 @@ Required ports:
 
 Post-deployment checks:
 
-- `https://www.fbcranes.co.za/atec/` opens login.
-- `https://www.fbcranes.co.za/atec/api/` returns backend health text.
+- `https://www.atecinspections.co.za/` opens login.
+- `https://www.atecinspections.co.za/api/` returns backend health text.
 - Login sets a secure `atec_session` cookie.
 - Customers/assets load.
 - Asset photos load.
@@ -833,7 +834,7 @@ Backend startup:
 3. `backend/db.js` creates a PostgreSQL connection pool.
 4. Express app is created.
 5. `trust proxy` is set if `TRUST_PROXY` is configured.
-6. The app installs URL-prefix normalization for `/api`, `/atec/api`, and upload paths.
+6. The app installs URL-prefix normalization for `/api`, the retired prefixed API shape, and upload paths.
 7. Security middleware is installed: Helmet, CORS, JSON parser, cookie parser.
 8. Upload storage is configured with `multer`.
 9. Public routes are registered: `GET /`, `POST /auth/login`.
@@ -845,9 +846,9 @@ Backend startup:
 
 Frontend startup:
 
-1. Browser loads `/atec/index.html`.
-2. Vite-built JS/CSS assets load from `/atec/assets/...`.
-3. Frontend resolves API base from `VITE_API_URL` or `/atec/api`.
+1. Browser loads `/index.html`.
+2. Vite-built JS/CSS assets load from `/assets/...`.
+3. Frontend resolves API base from `VITE_API_URL` or `/api`.
 4. UI checks `/auth/me` to determine logged-in state.
 5. Logged-in users see navigation based on their role.
 
@@ -978,7 +979,7 @@ Error handling:
 Monitoring:
 
 - No APM/monitoring integration is configured.
-- Recommended minimum: uptime monitor for `/atec/api/`, disk-space alerting for uploads/backups, DB health checks, and service restart alerts.
+- Recommended minimum: uptime monitor for `/api/`, disk-space alerting for uploads/backups, DB health checks, and service restart alerts.
 
 ## 15. Backup Requirements
 
@@ -1089,7 +1090,7 @@ npm run build
 Deploy:
 
 - Build frontend.
-- Copy `frontend/dist` contents to the web root `/atec`.
+- Copy `frontend/dist` contents to the web root.
 - Install backend dependencies with `npm ci`.
 - Restart backend service.
 - Apply database migrations before code that depends on them.
@@ -1114,7 +1115,7 @@ Update software:
                                      v
                          +-----------------------+
                          |  Nginx / Apache TLS   |
-                         |  https://domain/atec  |
+                         |  https://domain/      |
                          +-----------+-----------+
                                      |
                   +------------------+------------------+
@@ -1122,8 +1123,8 @@ Update software:
                   v                                     v
         +-------------------+              +-------------------------+
         | Static Frontend   |              | Reverse Proxy           |
-        | /var/www/atec     |              | /atec/api -> :5000      |
-        | Vite HTML/CSS/JS  |              | /atec/uploads -> API    |
+        | /var/www/atec     |              | /api -> :5000           |
+        | Vite HTML/CSS/JS  |              | /uploads -> API         |
         +---------+---------+              +------------+------------+
                   |                                     |
                   | HTTPS API calls with cookie          v
@@ -1182,8 +1183,8 @@ New server build:
 - Configure SSL.
 - Configure firewall.
 - Start backend service.
-- Confirm `/atec/api/` health response.
-- Confirm `/atec/` frontend loads.
+- Confirm `/api/` health response.
+- Confirm `/` frontend loads.
 
 Parallel validation:
 
@@ -1250,4 +1251,3 @@ Rollback:
 - Certificate PDF generation depends on a Chromium-compatible executable when using `puppeteer-core`; this must be verified on the target Linux distribution.
 - SMTP is optional but certificate email fails until SMTP variables are configured.
 - Some foreign keys were historically skipped until data was cleaned. Validate constraints after restoring a live database.
-

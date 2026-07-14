@@ -1,5 +1,7 @@
 # ATEC Production Performance Checks
 
+This checklist is a deployment companion to the authoritative guide in `docs/performance-and-capacity.md`.
+
 Use these checks after deploying the performance changes.
 
 ## 1. Run Required Index Scripts
@@ -10,6 +12,7 @@ Run these against the production `fbcranes` database:
 cd /var/www/atec/ATEC
 psql -h localhost -U fbcranes -d fbcranes -f database/2026-06-30-performance-indexes.sql
 psql -h localhost -U fbcranes -d fbcranes -f database/2026-07-02-pg-trgm-search-indexes.sql
+psql -h localhost -U fbcranes -d fbcranes -f database/2026-07-14-task11-performance-capacity-indexes.sql
 ```
 
 If `CREATE EXTENSION pg_trgm` is denied, ask the server/database administrator to run only that extension command once, then rerun the script.
@@ -44,6 +47,10 @@ PDF_CONCURRENCY=1
 BULK_PDF_MAX_CERTIFICATES=50
 REPORT_EXPORT_MAX_ROWS=10000
 UPLOAD_COMPRESSION_CONCURRENCY=2
+UPLOAD_IMAGE_MAX_WIDTH=1600
+UPLOAD_IMAGE_MAX_HEIGHT=1600
+UPLOAD_IMAGE_QUALITY=72
+UPLOAD_COMPRESS_MIN_BYTES=512000
 ```
 
 Restart the backend after changing `.env`:
@@ -57,12 +64,13 @@ pm2 restart atec-backend --update-env
 Log in as an admin, then open:
 
 ```text
-https://www.atecinspections.co.za/api/admin/system-health
+https://www.atecinspections.co.za/api/admin/system-info
 ```
 
 Review:
 
 - database pool `waiting` should normally be `0`
+- recent slow request count should be low during normal use
 - PDF `active` should stay within `PDF_CONCURRENCY`
 - upload folder and database size should trend slowly, not spike unexpectedly
 - server logs should not show frequent `SLOW_REQUEST` entries

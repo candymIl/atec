@@ -4,6 +4,17 @@ import { escapeHtml } from '../utils/security.js'
 
 const refreshMs = 60000
 
+function isSystemHealthPageActive() {
+  return localStorage.getItem('currentPage') === 'system-health'
+}
+
+export function stopSystemHealthRefresh() {
+  if (window.systemHealthRefreshTimer) {
+    clearInterval(window.systemHealthRefreshTimer)
+    window.systemHealthRefreshTimer = null
+  }
+}
+
 function formatBytes(value) {
   const bytes = Number(value)
   if (!Number.isFinite(bytes)) return 'Unknown'
@@ -67,6 +78,22 @@ function renderBackupFile(file) {
     ${valueRow('Modified', formatDate(file.modifiedAt))}
     ${valueRow('Size', formatBytes(file.sizeBytes))}
     ${file.ageHours === undefined ? '' : valueRow('Age', `${file.ageHours} hours`)}
+  `
+}
+
+function renderBackupEvidence(backup = {}) {
+  return `
+    ${valueRow('Latest backup set', backup.latestBackupSetId || 'Unavailable')}
+    ${valueRow('Database backup timestamp', formatDate(backup.latestSuccessfulDatabaseBackupAt))}
+    ${valueRow('Media backup timestamp', formatDate(backup.latestSuccessfulMediaBackupAt))}
+    ${valueRow('Backup age', backup.backupAgeHours === null || backup.backupAgeHours === undefined ? 'Unknown' : `${backup.backupAgeHours} hours`)}
+    ${valueRow('Validation', `${backup.validation?.status || 'not-run'}${backup.validation?.timestamp ? ` at ${formatDate(backup.validation.timestamp)}` : ''}`)}
+    ${valueRow('Restore verification', `${backup.restoreVerification?.status || 'not-run'}${backup.restoreVerification?.timestamp ? ` at ${formatDate(backup.restoreVerification.timestamp)}` : ''}`)}
+    ${valueRow('Checksum', backup.checksumStatus || 'not-run')}
+    ${valueRow('Last job duration', backup.lastBackupDurationMs ? formatDuration(Number(backup.lastBackupDurationMs) / 1000) : 'Unknown')}
+    ${valueRow('Retention', `${backup.retention?.status || 'not-run'}${backup.retention?.timestamp ? ` at ${formatDate(backup.retention.timestamp)}` : ''}`)}
+    ${valueRow('Next scheduled backup', formatDate(backup.nextScheduledBackup))}
+    ${backup.lastFailure ? valueRow('Last failure', backup.lastFailure) : ''}
   `
 }
 
@@ -144,6 +171,7 @@ function renderSystemHealth(data) {
           ${valueRow('Database', data.database.databaseName)}
           ${valueRow('Schema', data.database.schemaName)}
           ${valueRow('Response time', data.database.responseTimeMs === null ? 'Unavailable' : `${data.database.responseTimeMs} ms`)}
+          ${valueRow('Pool max', data.database.pool.max ?? 'Unknown')}
           ${valueRow('Pool total', data.database.pool.total)}
           ${valueRow('Pool idle', data.database.pool.idle)}
           ${valueRow('Pool waiting', data.database.pool.waiting)}
@@ -164,6 +192,26 @@ function renderSystemHealth(data) {
         </section>
 
         <section class="dashboard-section">
+          <div class="section-header"><h2>Performance</h2></div>
+          ${valueRow('Slow threshold', data.performance?.slowRequestThresholdMs ? `${data.performance.slowRequestThresholdMs} ms` : 'Unknown')}
+          ${valueRow('Recent requests', data.performance?.recentRequestCount ?? 0)}
+          ${valueRow('Recent slow requests', data.performance?.recentSlowRequestCount ?? 0)}
+          ${valueRow('Recent average', `${data.performance?.recentAverageMs ?? 0} ms`)}
+          ${valueRow('Recent max', `${data.performance?.recentMaxMs ?? 0} ms`)}
+          ${data.performance?.lastSlowRequest ? valueRow('Last slow request', `${data.performance.lastSlowRequest.method} ${data.performance.lastSlowRequest.route} - ${data.performance.lastSlowRequest.elapsedMs} ms`) : valueRow('Last slow request', 'None')}
+        </section>
+
+        <section class="dashboard-section">
+          <div class="section-header"><h2>PDF Queue</h2></div>
+          ${valueRow('Concurrency', data.pdf?.concurrency ?? 'Unknown')}
+          ${valueRow('Max bulk certificates', data.pdf?.maxBulkCertificates ?? 'Unknown')}
+          ${valueRow('Active', data.pdf?.active ?? 0)}
+          ${valueRow('Queued', data.pdf?.queued ?? 0)}
+          ${valueRow('Completed', data.pdf?.completed ?? 0)}
+          ${valueRow('Failed', data.pdf?.failed ?? 0)}
+        </section>
+
+        <section class="dashboard-section">
           <div class="section-header"><h2>Disk Usage</h2></div>
           ${valueRow('Status', data.disk.status)}
           ${valueRow('Filesystem', data.disk.checkedPathLabel)}
@@ -180,6 +228,7 @@ function renderSystemHealth(data) {
           ${valueRow('Directory', data.backup.accessible ? 'Accessible' : 'Not accessible')}
           ${valueRow('Maximum expected age', `${data.thresholds.backupMaxAgeHours} hours`)}
           ${valueRow('Message', data.backup.message)}
+          ${renderBackupEvidence(data.backup)}
           <h3>Database Backup</h3>
           ${renderBackupFile(data.backup.latestDatabaseBackup)}
           <h3>Uploads Backup</h3>
@@ -191,7 +240,14 @@ function renderSystemHealth(data) {
 }
 
 async function loadSystemHealth() {
+  if (!isSystemHealthPageActive()) {
+    stopSystemHealthRefresh()
+    return
+  }
+
   const page = document.querySelector('#page')
+  if (!page) return
+
   page.innerHTML = `
     <h1>System Health</h1>
     <div class="filter-card">Loading system health...</div>
@@ -202,6 +258,11 @@ async function loadSystemHealth() {
     const payload = await response.json().catch(() => ({}))
 
     if (!response.ok) {
+      if (!isSystemHealthPageActive()) {
+        stopSystemHealthRefresh()
+        return
+      }
+
       page.innerHTML = `
         <h1>System Health</h1>
         <div class="filter-card">
@@ -211,8 +272,18 @@ async function loadSystemHealth() {
       return
     }
 
+    if (!isSystemHealthPageActive()) {
+      stopSystemHealthRefresh()
+      return
+    }
+
     page.innerHTML = renderSystemHealth(payload)
   } catch (err) {
+    if (!isSystemHealthPageActive()) {
+      stopSystemHealthRefresh()
+      return
+    }
+
     page.innerHTML = `
       <h1>System Health</h1>
       <div class="filter-card">Unable to reach the system health endpoint.</div>
@@ -221,9 +292,7 @@ async function loadSystemHealth() {
 }
 
 export function renderSystemHealthPage() {
-  if (window.systemHealthRefreshTimer) {
-    clearInterval(window.systemHealthRefreshTimer)
-  }
+  stopSystemHealthRefresh()
 
   loadSystemHealth()
   window.systemHealthRefreshTimer = setInterval(loadSystemHealth, refreshMs)

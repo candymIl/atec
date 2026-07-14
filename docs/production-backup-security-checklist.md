@@ -52,7 +52,9 @@ Use `.pgpass` or environment-based PostgreSQL credentials. Do not put real datab
 
 Never restore into `fbcranes`. Restore only into a test database such as `atec_restore_test`.
 
-## Backup Proof
+## Windows Local/Legacy Backup Proof
+
+The following PowerShell examples are for Windows local or legacy maintenance only. The live production server is Ubuntu; use the Ubuntu commands above for production.
 
 1. Create a fresh database and uploads backup:
 
@@ -65,7 +67,7 @@ Never restore into `fbcranes`. Restore only into a test database such as `atec_r
    ```powershell
    powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\backup-atec.ps1 `
      -BackupRoot D:\ATECBackups `
-     -PgDumpPath "C:\Program Files\PostgreSQL\16\bin\pg_dump.exe"
+     -PgDumpPath "<Windows PostgreSQL bin>\pg_dump.exe"
    ```
 
 2. Confirm the backup folder contains:
@@ -117,7 +119,10 @@ In production, `backend\.env` must use real production values:
 
 ```env
 NODE_ENV=production
-FRONTEND_ORIGIN=https://www.fbcranes.co.za
+FRONTEND_ORIGIN=https://www.atecinspections.co.za
+PUBLIC_APP_URL=https://www.atecinspections.co.za
+PUBLIC_BASE_PATH=/
+COOKIE_PATH=/
 COOKIE_SECURE=true
 JWT_SECRET=use-a-long-random-secret-at-least-32-characters
 ```
@@ -125,7 +130,7 @@ JWT_SECRET=use-a-long-random-secret-at-least-32-characters
 Confirm these items:
 
 - HTTPS is enabled.
-- The backend is not publicly exposed except through the intended `/atec/api` route.
+- The backend is not publicly exposed except through the intended `/api` route.
 - PostgreSQL is not open to the internet.
 - The database password is strong and not reused.
 - Test users are removed or disabled.

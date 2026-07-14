@@ -1,7 +1,8 @@
-# Optional rule for the main public_html/.htaccess file.
-# Put this above the WordPress rules if old links still use /Atec.
+# Legacy cPanel redirect reference.
+# Current Ubuntu production is hosted at /, not /atec/.
+# If old links still use /Atec, redirect them to the root app.
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
-  RewriteRule ^Atec(/.*)?$ /atec$1 [R=301,L]
+  RewriteRule ^Atec(/.*)?$ /$1 [R=301,L]
 </IfModule>
