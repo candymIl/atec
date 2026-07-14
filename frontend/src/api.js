@@ -28,15 +28,25 @@ export function assetUrl(path = '') {
 export function uploadUrl(path = '') {
   if (!path) return ''
 
-  const cleanPath = String(path)
+  let cleanPath = String(path).trim()
 
   if (/^https?:\/\//i.test(cleanPath)) {
     return apiUrl(cleanPath)
   }
 
-  if (import.meta.env.PROD && cleanPath.startsWith('/uploads/')) {
-    return `${window.location.origin}${cleanPath}`
+  if (!cleanPath.startsWith('/')) {
+    cleanPath = cleanPath.startsWith('uploads/')
+      ? `/${cleanPath}`
+      : cleanPath.startsWith('assets/')
+        ? `/uploads/${cleanPath}`
+        : `/uploads/assets/${cleanPath}`
   }
 
-  return apiUrl(cleanPath)
+  const encodedPath = encodeURI(cleanPath)
+
+  if (import.meta.env.PROD && cleanPath.startsWith('/uploads/')) {
+    return `${window.location.origin}${encodedPath}`
+  }
+
+  return apiUrl(encodedPath)
 }
