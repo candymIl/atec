@@ -641,6 +641,23 @@ function isInspectionTagUniqueError(err) {
   return text.includes("tagnumber")
 }
 
+function isInspectionSchemaMissingError(err) {
+  if (!["42703", "42P01", "23502"].includes(err?.code)) return false
+
+  const text = `${err.table || ""} ${err.column || ""} ${err.constraint || ""} ${err.message || ""} ${err.detail || ""}`.toLowerCase()
+  return [
+    "tblinspectionphoto",
+    "inspectionfrequency",
+    "inspector_user_id",
+    "inspector_name",
+    "inspector_lmi_number",
+    "inspector_signature_image",
+    "resulttype",
+    "inspection_category",
+    "severity"
+  ].some(name => text.includes(name))
+}
+
 function duplicateAssetResponse(res, duplicateType, duplicateAssetId) {
   const message = duplicateType === "serial"
     ? "Serial number already exists for this customer."
@@ -4056,49 +4073,67 @@ app.post("/inspections",
           ? String(inspectionfrequency).toUpperCase()
           : null
 
+      const optionalInspectionColumnResult = await client.query(
+        `
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'atec'
+          AND table_name = 'tblinspection'
+          AND column_name = ANY($1::text[])
+        `,
+        [[
+          "inspector_user_id",
+          "inspector_name",
+          "inspector_lmi_number",
+          "inspector_signature_image",
+          "inspectionfrequency"
+        ]]
+      )
+      const availableInspectionColumns = new Set(
+        optionalInspectionColumnResult.rows.map(row => row.column_name)
+      )
+
+      const inspectionColumns = [
+        ["assetid", assetid],
+        ["testdate", testdate],
+        ["validdate", validdate || null],
+        ["comments", comments || ""],
+        ["status", finalStatus],
+        ["inspectiontype", inspectiontype],
+        ["inspector", inspectorProfile.full_name || req.user.full_name || ""],
+        ["tagnumber", inspectionTagNumber],
+        ["photo1", photo1],
+        ["photo2", photo2],
+        ["updateassetphotos", updatePhotos]
+      ]
+
+      if (availableInspectionColumns.has("inspector_user_id")) {
+        inspectionColumns.push(["inspector_user_id", inspectorProfile.user_id])
+      }
+      if (availableInspectionColumns.has("inspector_name")) {
+        inspectionColumns.push(["inspector_name", inspectorProfile.full_name || req.user.full_name || ""])
+      }
+      if (availableInspectionColumns.has("inspector_lmi_number")) {
+        inspectionColumns.push(["inspector_lmi_number", inspectorProfile.lmi_number || ""])
+      }
+      if (availableInspectionColumns.has("inspector_signature_image")) {
+        inspectionColumns.push(["inspector_signature_image", inspectorProfile.signature_image || ""])
+      }
+      if (availableInspectionColumns.has("inspectionfrequency")) {
+        inspectionColumns.push(["inspectionfrequency", normalizedInspectionFrequency])
+      }
+
       const inspection = await client.query(
         `
         INSERT INTO atec.tblinspection
         (
-          assetid,
-          testdate,
-          validdate,
-          comments,
-          status,
-          inspectiontype,
-          inspector,
-          inspector_user_id,
-          inspector_name,
-          inspector_lmi_number,
-          inspector_signature_image,
-          tagnumber,
-          inspectionfrequency,
-          photo1,
-          photo2,
-          updateassetphotos
+          ${inspectionColumns.map(([column]) => column).join(",\n          ")}
         )
         VALUES
-        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+        (${inspectionColumns.map((_, index) => `$${index + 1}`).join(",")})
         RETURNING testid
         `,
-        [
-          assetid,
-          testdate,
-          validdate || null,
-          comments || "",
-          finalStatus,
-          inspectiontype,
-          inspectorProfile.full_name || req.user.full_name || "",
-          inspectorProfile.user_id,
-          inspectorProfile.full_name || req.user.full_name || "",
-          inspectorProfile.lmi_number || "",
-          inspectorProfile.signature_image || "",
-          inspectionTagNumber,
-          normalizedInspectionFrequency,
-          photo1,
-          photo2,
-          updatePhotos
-        ]
+        inspectionColumns.map(([, value]) => value)
       )
 
       const testid = inspection.rows[0].testid
@@ -4218,6 +4253,12 @@ app.post("/inspections",
       if (isInspectionTagUniqueError(err)) {
         return res.status(409).json({
           error: "Inspection tag number already exists.",
+          referenceId
+        })
+      }
+      if (isInspectionSchemaMissingError(err)) {
+        return res.status(500).json({
+          error: "The inspection could not be saved because the production database is missing a required inspection update. Apply the pending database migrations, including 2026-06-23-security-access-control.sql, 2026-06-23-equipment-401-402-404-406-photos-and-critical-rule.sql, 2026-07-14-inspection-frequency.sql, and 2026-07-15-task12a-optional-inspection-tag.sql, then retry.",
           referenceId
         })
       }
@@ -5150,6 +5191,8 @@ async function getCertificatesData(testids = []) {
     `
     SELECT
       i.*,
+      TO_CHAR(i.testdate, 'YYYY-MM-DD') AS testdate,
+      TO_CHAR(i.validdate, 'YYYY-MM-DD') AS validdate,
       COALESCE(i.inspector_name, i.inspector) AS inspector,
       a.assetid,
       a.equiptypeid,
@@ -5159,7 +5202,7 @@ async function getCertificatesData(testids = []) {
       a.description,
       a.media1,
       a.media2,
-      a.manufactdate,
+      TO_CHAR(a.manufactdate, 'YYYY-MM-DD') AS manufactdate,
       a.wll,
       a.heightoflift,
       a.numberofchainfalls,
@@ -5346,7 +5389,10 @@ function formatPdfDate(value) {
   if (!value) return "-"
 
   if (value instanceof Date) {
-    return value.toISOString().split("T")[0]
+    const year = value.getFullYear()
+    const month = String(value.getMonth() + 1).padStart(2, "0")
+    const day = String(value.getDate()).padStart(2, "0")
+    return `${year}-${month}-${day}`
   }
 
   return String(value).split("T")[0]

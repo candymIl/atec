@@ -144,7 +144,10 @@ function logSafeError(context, err) {
   console.error(`${context} failed`, {
     referenceId,
     message: redactSensitiveText(err?.message || "Unknown error"),
-    code: err?.code
+    code: err?.code,
+    table: err?.table,
+    column: err?.column,
+    constraint: err?.constraint
   })
   return referenceId
 }
