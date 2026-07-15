@@ -16,6 +16,10 @@ function assetSupportsLoadTest(asset) {
   )
 }
 
+function assetSupportsCraneWizard(asset) {
+  return ['401', '402', '404', '406'].includes(String(asset.equiptypeid || ''))
+}
+
 export function renderAssetRow(asset) {
   const serialDisplay = asset.serialno || asset.hoistserialno || ''
   const canManageAssets = ['ADMIN', 'MANAGER', 'INSPECTOR'].includes(window.currentUser?.role)
@@ -48,21 +52,33 @@ export function renderAssetRow(asset) {
       <td>
         <div class="action-buttons">
           ${canManageAssets ? `
-            <button onclick="editAsset(${asset.assetid})">
-              Edit
-            </button>
+            <button onclick="editAsset(${asset.assetid})">Edit</button>
 
-            <button onclick="startInspection(${asset.assetid}, 'VISUAL', 'assets')">
-              Inspect
-            </button>
+            ${assetSupportsCraneWizard(asset) ? `
+              <button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'VISUAL', 'assets', 'wizard')">
+                Crane Wizard
+              </button>
+              <button class="secondary-small-btn" onclick="startInspection(${asset.assetid}, 'VISUAL', 'assets', 'generic')">
+                Generic Inspect
+              </button>
+            ` : `
+              <button onclick="startInspection(${asset.assetid}, 'VISUAL', 'assets')">
+                Inspect
+              </button>
+            `}
 
             ${assetSupportsLoadTest(asset) ? `
               <button
                 class="load-test-btn"
-                onclick="startInspection(${asset.assetid}, 'LOADTEST', 'assets')"
+                onclick="startInspection(${asset.assetid}, 'LOADTEST', 'assets', '${assetSupportsCraneWizard(asset) ? 'wizard' : 'auto'}')"
               >
-                Load Test
+                ${assetSupportsCraneWizard(asset) ? 'Crane Load Test' : 'Load Test'}
               </button>
+              ${assetSupportsCraneWizard(asset) ? `
+                <button class="secondary-small-btn" onclick="startInspection(${asset.assetid}, 'LOADTEST', 'assets', 'generic')">
+                  Generic Load Test
+                </button>
+              ` : ''}
             ` : ''}
           ` : ''}
 

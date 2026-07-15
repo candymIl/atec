@@ -2602,6 +2602,15 @@ app.get("/assets/:id/quick-details", searchLimiter, async (req, res) => {
         ) AS lastvisualstatus,
 
         (
+          SELECT i.validdate
+          FROM atec.tblinspection i
+          WHERE i.assetid = a.assetid
+            AND i.inspectiontype = 'VISUAL'
+          ORDER BY i.testdate DESC, i.testid DESC
+          LIMIT 1
+        ) AS lastvisualvaliddate,
+
+        (
           SELECT i.tagnumber
           FROM atec.tblinspection i
           WHERE i.assetid = a.assetid
@@ -2629,6 +2638,15 @@ app.get("/assets/:id/quick-details", searchLimiter, async (req, res) => {
         ) AS lastloadteststatus,
 
         (
+          SELECT i.validdate
+          FROM atec.tblinspection i
+          WHERE i.assetid = a.assetid
+            AND i.inspectiontype = 'LOADTEST'
+          ORDER BY i.testdate DESC, i.testid DESC
+          LIMIT 1
+        ) AS lastloadtestvaliddate,
+
+        (
           SELECT i.tagnumber
           FROM atec.tblinspection i
           WHERE i.assetid = a.assetid
@@ -2652,6 +2670,14 @@ app.get("/assets/:id/quick-details", searchLimiter, async (req, res) => {
           ORDER BY i.testdate DESC, i.testid DESC
           LIMIT 1
         ) AS lastinspectionstatus,
+
+        (
+          SELECT i.validdate
+          FROM atec.tblinspection i
+          WHERE i.assetid = a.assetid
+          ORDER BY i.testdate DESC, i.testid DESC
+          LIMIT 1
+        ) AS lastinspectionvaliddate,
 
         (
           SELECT i.inspectiontype
@@ -2680,7 +2706,8 @@ app.get("/assets/:id/quick-details", searchLimiter, async (req, res) => {
         c.clientname,
         s.sitename,
         sec.sectionname,
-        et.description AS equipmenttype
+        et.description AS equipmenttype,
+        et.equipgroupid
 
       FROM atec.tblasset a
       LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
@@ -2716,7 +2743,8 @@ app.get("/assets/:id", async (req, res) => {
         c.clientname,
         s.sitename,
         sec.sectionname,
-        et.description AS equipmenttype
+        et.description AS equipmenttype,
+        et.equipgroupid
       FROM atec.tblasset a
       LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
       LEFT JOIN atec.tblsites s ON a.siteid = s.siteid

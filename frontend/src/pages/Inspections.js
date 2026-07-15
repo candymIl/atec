@@ -17,6 +17,10 @@ function assetSupportsLoadTest(asset) {
   )
 }
 
+function assetSupportsCraneWizard(asset) {
+  return ['401', '402', '404', '406'].includes(String(asset.equiptypeid || ''))
+}
+
 function getServerPaginationState(rows, pageInfo, pageKey, pageSizeKey, defaultPageSize = 25) {
   const pageSize = window[pageSizeKey] || defaultPageSize
   const totalRows = Number(pageInfo.total || 0)
@@ -157,19 +161,32 @@ export function renderInspections(assets, pageInfo = {}) {
             <td>
   <div class="action-buttons">
 
-    <button
-          onclick="startInspection(${asset.assetid}, 'VISUAL', 'inspections')">
-          Inspection
-        </button>
+    ${assetSupportsCraneWizard(asset) ? `
+      <button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'VISUAL', 'inspections', 'wizard')">
+        Crane Wizard
+      </button>
+      <button class="secondary-small-btn" onclick="startInspection(${asset.assetid}, 'VISUAL', 'inspections', 'generic')">
+        Generic Inspection
+      </button>
+    ` : `
+      <button onclick="startInspection(${asset.assetid}, 'VISUAL', 'inspections')">
+        Inspection
+      </button>
+    `}
 
         ${
-          ['100','400','500'].includes(String(asset.equipgroupid))
+          assetSupportsLoadTest(asset)
           ? `
             <button
               class="load-test-btn"
-              onclick="startInspection(${asset.assetid}, 'LOADTEST', 'inspections')">
-              Load Test
+              onclick="startInspection(${asset.assetid}, 'LOADTEST', 'inspections', '${assetSupportsCraneWizard(asset) ? 'wizard' : 'auto'}')">
+              ${assetSupportsCraneWizard(asset) ? 'Crane Load Test' : 'Load Test'}
             </button>
+            ${assetSupportsCraneWizard(asset) ? `
+              <button class="secondary-small-btn" onclick="startInspection(${asset.assetid}, 'LOADTEST', 'inspections', 'generic')">
+                Generic Load Test
+              </button>
+            ` : ''}
           `
           : ''
         }

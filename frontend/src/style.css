@@ -1726,6 +1726,145 @@ tr:hover {
   border-top: 2px solid #d8e2ef;
 }
 
+.crane-wizard {
+  display: grid;
+  gap: 14px;
+}
+
+.crane-wizard-banner {
+  border-left: 5px solid #16a34a;
+}
+
+.crane-wizard-progress {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  background: #ffffff;
+  border: 1px solid #d8e2ef;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.crane-wizard-progress div {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.crane-wizard-progress span {
+  color: #516174;
+  font-weight: 700;
+}
+
+.crane-wizard-progress progress {
+  width: 100%;
+}
+
+.crane-wizard-step {
+  background: #ffffff;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.crane-asset-detail-grid,
+.crane-review-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.crane-asset-detail-grid div,
+.crane-review-grid div {
+  background: #f8fafc;
+  border: 1px solid #dde5ef;
+  border-radius: 6px;
+  min-width: 0;
+  padding: 9px 10px;
+}
+
+.crane-asset-detail-grid span,
+.crane-review-grid span {
+  color: #64748b;
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.crane-asset-detail-grid strong,
+.crane-review-grid strong {
+  color: #1f2937;
+  display: block;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.crane-confirm-check {
+  align-items: center;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px;
+  font-weight: 800;
+}
+
+.crane-confirm-check input {
+  height: 22px;
+  width: 22px;
+}
+
+.crane-load-test-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.crane-load-test-grid label,
+.crane-wide-field {
+  display: grid;
+  gap: 5px;
+  font-weight: 700;
+}
+
+.crane-wide-field {
+  grid-column: 1 / -1;
+  margin-top: 12px;
+}
+
+.crane-review-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.crane-review-panel ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.crane-wizard-nav {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  bottom: 10px;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.12);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 10px;
+  position: sticky;
+  z-index: 15;
+}
+
 .inspection-criteria {
     font-size: 15px;
     font-weight: 600;
@@ -3467,6 +3606,12 @@ tr:hover {
   .inspection-asset-actions {
     justify-content: flex-start;
   }
+
+  .crane-asset-detail-grid,
+  .crane-review-grid,
+  .crane-load-test-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 
@@ -4051,8 +4196,29 @@ tr:hover {
   .form-actions button,
   .action-buttons button,
   .inspection-asset-actions button,
-  .quick-result-actions button {
+  .quick-result-actions button,
+  .crane-wizard-nav button {
     flex: 1 1 140px;
+  }
+
+  .crane-wizard-progress {
+    top: 0;
+  }
+
+  .crane-asset-detail-grid,
+  .crane-review-grid,
+  .crane-load-test-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .crane-wizard-step {
+    padding: 10px;
+  }
+
+  .crane-wizard-nav {
+    align-items: stretch;
+    bottom: 0;
+    border-radius: 8px 8px 0 0;
   }
 
   table,
