@@ -42,6 +42,8 @@ Visual crane inspections use these guided steps:
 
 Criteria are still loaded from `/equipment-type-criteria` and saved through `POST /inspections`.
 
+Inspection tag number is optional in the Crane Wizard. If left blank, the existing inspection save route stores it as `NULL` and certificates display `Not Issued`.
+
 ## Load-Test Wizard Flow
 
 Crane load tests use these guided steps when load-test criteria exist for the selected equipment type:
@@ -80,6 +82,10 @@ Measured criteria continue to use existing `fieldtype = NUMBER` / `resulttype = 
 - auxiliary hoist fields added by `database/2026-06-24-overhead-crane-aux-hoist-fields.sql`
 
 The frontend rejects invalid numeric input before save and preserves entered decimal values instead of forcing trailing `.00` formatting.
+
+## Tag Number
+
+The Crane Wizard does not require an inspection tag number before moving through the setup or review steps. When a value is supplied, it is submitted unchanged through the existing `tagnumber` field so existing uniqueness/business validation can still apply. When blank, the backend uses its existing nullable representation and saves `NULL`.
 
 ## Critical Safety Logic
 

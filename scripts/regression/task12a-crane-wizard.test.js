@@ -37,6 +37,9 @@ assertIncludes(frontendMain, "craneActualTestLoad", "Actual applied load capture
 assertIncludes(frontendMain, "craneInspectorDeclaration", "Inspector declaration is missing")
 assertIncludes(frontendMain, "craneSubmitConfirmed", "Review confirmation is missing")
 assertIncludes(frontendMain, "inspectionPhotos", "Inspection photo reuse is missing")
+assertIncludes(frontendMain, "Inspection Tag No <span class=\"optional-label\">(Optional)</span>", "Crane wizard tag number must be labelled optional")
+assert(!frontendMain.includes("Enter the inspection tag number before continuing."), "Crane wizard must not require inspection tag number")
+assertIncludes(frontendMain, "Not Issued", "Crane wizard review must display a blank tag as Not Issued")
 
 assertIncludes(assetSetup, "Generic Inspect", "Asset setup generic visual fallback is missing")
 assertIncludes(assetSetup, "Generic Load Test", "Asset setup generic load-test fallback is missing")
@@ -51,6 +54,10 @@ assertIncludes(backendServer, "COMMIT", "Inspection save must commit transaction
 assertIncludes(backendServer, "ROLLBACK", "Inspection save must roll back on error")
 assertIncludes(backendServer, "lastinspectionvaliddate", "Quick details must expose previous certificate expiry")
 assertIncludes(backendServer, "et.equipgroupid", "Single asset lookups must expose equipment group for wizard/photo decisions")
+assertIncludes(backendServer, "tagnumber.trim()", "Backend must preserve supplied inspection tag values")
+assertIncludes(backendServer, ": null", "Backend must continue saving blank inspection tags as null")
+assertIncludes(backendServer, "certificateTagNumberDisplay", "Certificates must render blank inspection tags explicitly")
+assertIncludes(read("backend/services/certificateRenderer.js"), "certificateTagNumberDisplay", "Rendered certificate service must render blank inspection tags explicitly")
 
 assertIncludes(craneCriteriaMigration, "target_equipment_types(equiptypeid)", "Crane criteria migration target type audit is missing")
 assertIncludes(craneCriteriaMigration, "'CRITICAL'", "Crane critical criteria configuration is missing")

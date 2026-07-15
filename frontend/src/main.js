@@ -5317,8 +5317,8 @@ function renderCraneWizard(asset, assetCriteria, inspectiontype, quickDetails, r
               <input id="inspectionTestDate" type="date" value="${dateInputValue()}" onchange="updateInspectionValidDateFromTestDate('${inspectiontype}')">
             </div>
             <div class="form-group">
-              <label>Inspection Tag No</label>
-              <input id="inspectionTagNo" class="inspection-tag-input" type="text" placeholder="ENTER TAG NUMBER">
+              <label>Inspection Tag No <span class="optional-label">(Optional)</span></label>
+              <input id="inspectionTagNo" class="inspection-tag-input" type="text" placeholder="Not issued yet">
             </div>
             <div class="form-group">
               <label>Certificate Expiry Date</label>
@@ -5666,12 +5666,6 @@ function validateCraneWizardStep(stepIndex) {
     return false
   }
 
-  if (step.querySelector("#inspectionTagNo") && !document.querySelector("#inspectionTagNo")?.value.trim()) {
-    alert("Enter the inspection tag number before continuing.")
-    document.querySelector("#inspectionTagNo")?.focus()
-    return false
-  }
-
   const badNumber = Array.from(step.querySelectorAll('input[type="number"], input[id^="measured-"]')).find(input =>
     input.value.trim() && !Number.isFinite(Number(input.value))
   )
@@ -5732,7 +5726,7 @@ function renderCraneWizardReview() {
       <div><span>Inspection Type</span><strong>${escapeHtml(document.querySelector("#inspectionTestDate") ? (document.querySelector(".crane-wizard")?.dataset.inspectionType || "") : "")}</strong></div>
       <div><span>Test Date</span><strong>${escapeHtml(document.querySelector("#inspectionTestDate")?.value || "-")}</strong></div>
       <div><span>Valid Date</span><strong>${escapeHtml(document.querySelector("#inspectionValidDate")?.value || "-")}</strong></div>
-      <div><span>Tag Number</span><strong>${escapeHtml(document.querySelector("#inspectionTagNo")?.value || "-")}</strong></div>
+      <div><span>Tag Number</span><strong>${escapeHtml(document.querySelector("#inspectionTagNo")?.value.trim() || "Not Issued")}</strong></div>
       <div><span>Inspector</span><strong>${escapeHtml(currentUser?.full_name || "-")}</strong></div>
       <div><span>Signature</span><strong>${currentUser?.signature_image ? "Saved" : "Not uploaded"}</strong></div>
       <div><span>Photos</span><strong>${photoCount}</strong></div>

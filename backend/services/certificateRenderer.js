@@ -66,6 +66,11 @@ function htmlEscape(value) {
     .replace(/'/g, "&#039;")
 }
 
+function certificateTagNumberDisplay(inspection) {
+  const tagNumber = String(inspection?.tagnumber || "").trim()
+  return tagNumber || "Not Issued"
+}
+
 function getProjectRoot(options = {}) {
   return path.resolve(options.projectRoot || path.join(__dirname, "..", ".."))
 }
@@ -426,7 +431,7 @@ function renderCertificateBodyHtml(certificate, imageDataUrlCache = null, option
 
       <div class="fb-cert-meta">
         <div><strong>Certificate No:</strong><span>${htmlEscape(inspection.testid || "-")}</span></div>
-        <div><strong>Tag Number:</strong><span>${htmlEscape(inspection.tagnumber || "-")}</span></div>
+        <div><strong>Tag Number:</strong><span>${htmlEscape(certificateTagNumberDisplay(inspection))}</span></div>
         <div>
           <strong>Status:</strong>
           <span class="${inspection.status === "SAFE" ? "status-safe" : "status-unsafe"}">

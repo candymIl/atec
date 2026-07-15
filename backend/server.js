@@ -5336,6 +5336,11 @@ function valueOrDash(value) {
   return value === null || value === undefined || value === "" ? "-" : String(value)
 }
 
+function certificateTagNumberDisplay(inspection) {
+  const tagNumber = String(inspection?.tagnumber || "").trim()
+  return tagNumber || "Not Issued"
+}
+
 function certificateImagePath(imagePath) {
   if (!imagePath) return null
 
@@ -5712,7 +5717,7 @@ function renderBulkCertificateHtml(certificate, imageDataUrlCache = null, option
 
         <div class="fb-cert-meta">
           <div><strong>Certificate No:</strong><span>${htmlEscape(inspection.testid || "-")}</span></div>
-          <div><strong>Tag Number:</strong><span>${htmlEscape(inspection.tagnumber || "-")}</span></div>
+          <div><strong>Tag Number:</strong><span>${htmlEscape(certificateTagNumberDisplay(inspection))}</span></div>
           <div>
             <strong>Status:</strong>
             <span class="${inspection.status === "SAFE" ? "status-safe" : "status-unsafe"}">
@@ -6428,7 +6433,7 @@ function drawCertificatePdf(doc, inspection, results, photos = []) {
 
   y = addPdfMetaValues(doc, [
     ["Certificate No", inspection.testid],
-    ["Tag Number", inspection.tagnumber],
+    ["Tag Number", certificateTagNumberDisplay(inspection)],
     ["Status", inspection.status]
   ], marginX, y, width)
 
