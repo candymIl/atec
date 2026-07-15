@@ -163,10 +163,7 @@ export function renderInspections(assets, pageInfo = {}) {
 
     ${assetSupportsCraneWizard(asset) ? `
       <button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'VISUAL', 'inspections', 'wizard')">
-        Crane Wizard
-      </button>
-      <button class="secondary-small-btn" onclick="startInspection(${asset.assetid}, 'VISUAL', 'inspections', 'generic')">
-        Generic Inspection
+        Wizard Inspect
       </button>
     ` : `
       <button onclick="startInspection(${asset.assetid}, 'VISUAL', 'inspections')">
@@ -180,13 +177,8 @@ export function renderInspections(assets, pageInfo = {}) {
             <button
               class="load-test-btn"
               onclick="startInspection(${asset.assetid}, 'LOADTEST', 'inspections', '${assetSupportsCraneWizard(asset) ? 'wizard' : 'auto'}')">
-              ${assetSupportsCraneWizard(asset) ? 'Crane Load Test' : 'Load Test'}
+              ${assetSupportsCraneWizard(asset) ? 'Wizard Loadtest' : 'Load Test'}
             </button>
-            ${assetSupportsCraneWizard(asset) ? `
-              <button class="secondary-small-btn" onclick="startInspection(${asset.assetid}, 'LOADTEST', 'inspections', 'generic')">
-                Generic Load Test
-              </button>
-            ` : ''}
           `
           : ''
         }

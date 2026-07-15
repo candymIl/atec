@@ -4524,13 +4524,12 @@ window.quickOpenAsset = async function (assetid) {
 
         <div class="form-actions quick-result-actions">
           ${assetSupportsCraneWizard(asset) ? `
-            <button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'VISUAL', '${returnPage}', 'wizard')">Crane Wizard</button>
-            <button class="secondary-small-btn" onclick="startInspection(${asset.assetid}, 'VISUAL', '${returnPage}', 'generic')">Generic Inspection</button>
+            <button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'VISUAL', '${returnPage}', 'wizard')">Wizard Inspect</button>
           ` : `
             <button onclick="startInspection(${asset.assetid}, 'VISUAL', '${returnPage}')">Visual Inspection</button>
           `}
 
-          <button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'LOADTEST', '${returnPage}', '${assetSupportsCraneWizard(asset) ? 'wizard' : 'auto'}')">${assetSupportsCraneWizard(asset) ? 'Crane Load Test' : 'Load Test'}</button>
+          <button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'LOADTEST', '${returnPage}', '${assetSupportsCraneWizard(asset) ? 'wizard' : 'auto'}')">${assetSupportsCraneWizard(asset) ? 'Wizard Loadtest' : 'Load Test'}</button>
 
           <button onclick="openAssetQrLabel(${asset.assetid})">QR Label</button>
         </div>
@@ -5942,7 +5941,7 @@ if (formMode !== "generic" && getInspectionWizardKey(asset, inspectiontype) === 
         <div class="inspection-asset-actions">
           ${getInspectionWizardKey(asset, inspectiontype) === "CRANE" ? `
             <button class="load-test-btn" onclick="startInspection(${asset.assetid}, '${inspectiontype}', '${returnPage}', 'wizard')">
-              Crane Wizard
+              Wizard Inspect
             </button>
           ` : ""}
 
@@ -6358,13 +6357,12 @@ window.dashboardFindAsset = async function () {
                 <td class="dashboard-search-actions">
                   ${
                     assetSupportsCraneWizard(asset)
-                      ? `<button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'VISUAL', 'quick', 'wizard')">Crane Wizard</button>
-                         <button class="secondary-small-btn" onclick="startInspection(${asset.assetid}, 'VISUAL', 'quick', 'generic')">Generic</button>`
+                      ? `<button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'VISUAL', 'quick', 'wizard')">Wizard Inspect</button>`
                       : `<button onclick="startInspection(${asset.assetid}, 'VISUAL', 'quick')">Inspect</button>`
                   }
                   ${
                     assetSupportsLoadTest(asset)
-                      ? `<button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'LOADTEST', 'quick', '${assetSupportsCraneWizard(asset) ? 'wizard' : 'auto'}')">${assetSupportsCraneWizard(asset) ? 'Crane Load Test' : 'Load Test'}</button>`
+                      ? `<button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'LOADTEST', 'quick', '${assetSupportsCraneWizard(asset) ? 'wizard' : 'auto'}')">${assetSupportsCraneWizard(asset) ? 'Wizard Loadtest' : 'Load Test'}</button>`
                       : ""
                   }
                 </td>

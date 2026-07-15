@@ -5310,11 +5310,13 @@ async function getCertificatesData(testids = []) {
 
   const fallbackEquiptypeIds = [...new Set(
     [...certificates.values()]
-      .filter(certificate =>
-        certificate.results.length === 0 &&
-        certificate.inspection?.equiptypeid &&
-        certificate.inspection?.inspectiontype !== "LOADTEST"
-      )
+      .filter(certificate => {
+        if (!certificate.inspection?.equiptypeid) return false
+        if (certificate.results.length === 0) return true
+        if (certificate.inspection?.inspectiontype !== "LOADTEST") return false
+
+        return certificate.results.every(row => isCertificateSafeServiceRow(row))
+      })
       .map(certificate => Number(certificate.inspection.equiptypeid))
       .filter(value => Number.isInteger(value) && value > 0)
   )]
@@ -5349,9 +5351,28 @@ async function getCertificatesData(testids = []) {
     }
 
     for (const certificate of certificates.values()) {
-      if (certificate.results.length || certificate.inspection?.inspectiontype === "LOADTEST") continue
+      if (
+        certificate.results.length &&
+        (
+          certificate.inspection?.inspectiontype !== "LOADTEST" ||
+          !certificate.results.every(row => isCertificateSafeServiceRow(row))
+        )
+      ) continue
 
-      const criteriaRows = criteriaByEquiptype.get(String(certificate.inspection?.equiptypeid)) || []
+      const inspectionType = String(certificate.inspection?.inspectiontype || "").toUpperCase()
+      const existingCriteriaIds = new Set(
+        certificate.results
+          .map(row => Number(row.criteriaid))
+          .filter(value => Number.isInteger(value) && value > 0)
+      )
+      const criteriaRows = (criteriaByEquiptype.get(String(certificate.inspection?.equiptypeid)) || [])
+        .filter(row => !existingCriteriaIds.has(Number(row.criteriaid)))
+        .filter(row => {
+          if (inspectionType !== "LOADTEST") return true
+
+          const category = String(row.inspection_category || "").toUpperCase()
+          return category === "LOADTEST" || isCertificateSafeServiceRow(row)
+        })
       const inspectionIsSafe = certificate.inspection?.status === "SAFE"
 
       certificate.results.push(...criteriaRows.map(row => ({
@@ -5365,7 +5386,9 @@ async function getCertificatesData(testids = []) {
         severity: row.severity,
         assetvalue: "",
         measuredvalue: "",
-        result: inspectionIsSafe
+        result: inspectionType === "LOADTEST" && !isCertificateSafeServiceRow(row)
+          ? ""
+          : inspectionIsSafe
           ? isSafeForContinuedOperation(row.criterianame) ? "YES" : "PASS"
           : "",
         remarks: ""
