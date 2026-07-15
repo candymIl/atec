@@ -634,6 +634,13 @@ function isInspectionTagNotNullError(err) {
     )
 }
 
+function isInspectionTagUniqueError(err) {
+  if (err?.code !== "23505") return false
+
+  const text = `${err.constraint || ""} ${err.message || ""} ${err.detail || ""}`.toLowerCase()
+  return text.includes("tagnumber")
+}
+
 function duplicateAssetResponse(res, duplicateType, duplicateAssetId) {
   const message = duplicateType === "serial"
     ? "Serial number already exists for this customer."
@@ -4201,13 +4208,20 @@ app.post("/inspections",
 
     } catch (err) {
       await client.query("ROLLBACK")
-      console.error(err)
+      const referenceId = logSafeError("Inspection save", err)
       if (isInspectionTagNotNullError(err)) {
         return res.status(500).json({
-          error: "Inspection tag number is optional, but the database still requires it. Apply database/2026-07-15-task12a-optional-inspection-tag.sql and retry."
+          error: "Inspection tag number is optional, but the database still requires it. Apply database/2026-07-15-task12a-optional-inspection-tag.sql and retry.",
+          referenceId
         })
       }
-      res.status(500).json({ error: "An unexpected server error occurred" })
+      if (isInspectionTagUniqueError(err)) {
+        return res.status(409).json({
+          error: "Inspection tag number already exists.",
+          referenceId
+        })
+      }
+      res.status(500).json({ error: "An unexpected server error occurred", referenceId })
     } finally {
       client.release()
     }

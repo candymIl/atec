@@ -6974,7 +6974,9 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
   }
 
   if (!response.ok) {
-    alert("Error saving inspection: " + savedInspection.error)
+    const errorMessage = savedInspection.error || "An unexpected server error occurred"
+    const referenceMessage = savedInspection.referenceId ? `\nReference: ${savedInspection.referenceId}` : ""
+    alert("Error saving inspection: " + errorMessage + referenceMessage)
     window.inspectionSaveInProgress = false
     document.querySelectorAll(".crane-wizard-nav button, .filter-card button").forEach(button => {
       button.disabled = false

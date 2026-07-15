@@ -41,6 +41,7 @@ assertIncludes(frontendMain, "inspectionPhotos", "Inspection photo reuse is miss
 assertIncludes(frontendMain, "Inspection Tag No <span class=\"optional-label\">(Optional)</span>", "Crane wizard tag number must be labelled optional")
 assert(!frontendMain.includes("Enter the inspection tag number before continuing."), "Crane wizard must not require inspection tag number")
 assertIncludes(frontendMain, "Not Issued", "Crane wizard review must display a blank tag as Not Issued")
+assertIncludes(frontendMain, "savedInspection.referenceId", "Inspection save errors must show server reference IDs")
 
 assertIncludes(assetSetup, "Generic Inspect", "Asset setup generic visual fallback is missing")
 assertIncludes(assetSetup, "Generic Load Test", "Asset setup generic load-test fallback is missing")
@@ -59,6 +60,8 @@ assertIncludes(backendServer, "tagnumber.trim()", "Backend must preserve supplie
 assertIncludes(backendServer, ": null", "Backend must continue saving blank inspection tags as null")
 assertIncludes(backendServer, "certificateTagNumberDisplay", "Certificates must render blank inspection tags explicitly")
 assertIncludes(backendServer, "isInspectionTagNotNullError", "Backend must report unapplied optional-tag migration clearly")
+assertIncludes(backendServer, "isInspectionTagUniqueError", "Backend must preserve duplicate inspection-tag validation")
+assertIncludes(backendServer, "logSafeError(\"Inspection save\"", "Inspection save errors must be traceable in server logs")
 assertIncludes(read("backend/services/certificateRenderer.js"), "certificateTagNumberDisplay", "Rendered certificate service must render blank inspection tags explicitly")
 assertIncludes(optionalTagMigration, "ALTER COLUMN tagnumber DROP NOT NULL", "Optional tag migration must make inspection tag nullable")
 assertIncludes(optionalTagMigration, "Read-only audit", "Optional tag migration must document its audit query")
