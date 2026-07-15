@@ -1,5 +1,10 @@
 import { sortHeader, sortTableRows } from '../tableSort.js'
 import { escapeHtml } from '../utils/security.js'
+import {
+  assetSupportsCraneWizard,
+  assetSupportsInspectionWizard,
+  wizardActionLabel
+} from '../inspectionWizard/wizardRegistry.js'
 
 function assetSupportsLoadTest(asset) {
   if (['100', '400', '500'].includes(String(asset.equipgroupid || ''))) {
@@ -14,10 +19,6 @@ function assetSupportsLoadTest(asset) {
     row.active !== false &&
     row.active !== 'false'
   )
-}
-
-function assetSupportsCraneWizard(asset) {
-  return ['401', '402', '404', '406'].includes(String(asset.equiptypeid || ''))
 }
 
 export function renderAssetRow(asset) {
@@ -54,9 +55,9 @@ export function renderAssetRow(asset) {
           ${canManageAssets ? `
             <button onclick="editAsset(${asset.assetid})">Edit</button>
 
-            ${assetSupportsCraneWizard(asset) ? `
+            ${assetSupportsInspectionWizard(asset, window.atecCriteria || [], 'VISUAL') ? `
               <button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'VISUAL', 'assets', 'wizard')">
-                Wizard Inspect
+                ${wizardActionLabel(asset, window.atecCriteria || [], 'VISUAL')}
               </button>
             ` : `
               <button onclick="startInspection(${asset.assetid}, 'VISUAL', 'assets')">
@@ -69,7 +70,7 @@ export function renderAssetRow(asset) {
                 class="load-test-btn"
                 onclick="startInspection(${asset.assetid}, 'LOADTEST', 'assets', '${assetSupportsCraneWizard(asset) ? 'wizard' : 'auto'}')"
               >
-                ${assetSupportsCraneWizard(asset) ? 'Wizard Loadtest' : 'Load Test'}
+                ${wizardActionLabel(asset, window.atecCriteria || [], 'LOADTEST')}
               </button>
             ` : ''}
           ` : ''}

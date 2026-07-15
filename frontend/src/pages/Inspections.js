@@ -1,6 +1,11 @@
 import { getPaginationState, renderPaginationControls } from '../pagination.js'
 import { sortHeader, sortTableRows } from '../tableSort.js'
 import { escapeHtml } from '../utils/security.js'
+import {
+  assetSupportsCraneWizard,
+  assetSupportsInspectionWizard,
+  wizardActionLabel
+} from '../inspectionWizard/wizardRegistry.js'
 
 function assetSupportsLoadTest(asset) {
   if (['100', '400', '500'].includes(String(asset.equipgroupid || ''))) {
@@ -15,10 +20,6 @@ function assetSupportsLoadTest(asset) {
     row.active !== false &&
     row.active !== 'false'
   )
-}
-
-function assetSupportsCraneWizard(asset) {
-  return ['401', '402', '404', '406'].includes(String(asset.equiptypeid || ''))
 }
 
 function getServerPaginationState(rows, pageInfo, pageKey, pageSizeKey, defaultPageSize = 25) {
@@ -161,9 +162,9 @@ export function renderInspections(assets, pageInfo = {}) {
             <td>
   <div class="action-buttons">
 
-    ${assetSupportsCraneWizard(asset) ? `
+    ${assetSupportsInspectionWizard(asset, window.atecCriteria || [], 'VISUAL') ? `
       <button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'VISUAL', 'inspections', 'wizard')">
-        Wizard Inspect
+        ${wizardActionLabel(asset, window.atecCriteria || [], 'VISUAL')}
       </button>
     ` : `
       <button onclick="startInspection(${asset.assetid}, 'VISUAL', 'inspections')">
@@ -177,7 +178,7 @@ export function renderInspections(assets, pageInfo = {}) {
             <button
               class="load-test-btn"
               onclick="startInspection(${asset.assetid}, 'LOADTEST', 'inspections', '${assetSupportsCraneWizard(asset) ? 'wizard' : 'auto'}')">
-              ${assetSupportsCraneWizard(asset) ? 'Wizard Loadtest' : 'Load Test'}
+              ${wizardActionLabel(asset, window.atecCriteria || [], 'LOADTEST')}
             </button>
           `
           : ''

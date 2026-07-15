@@ -16,6 +16,22 @@ import { getPaginationState, renderPaginationControls } from './pagination.js'
 import { getTableSortState, sortTableRows } from './tableSort.js'
 import { API_BASE, assetUrl, uploadUrl } from './api.js'
 import { escapeHtml, safeAttr } from './utils/security.js'
+import {
+  assetSupportsInspectionWizard,
+  assetSupportsCraneWizard,
+  getInspectionWizardKey,
+  wizardActionLabel
+} from './inspectionWizard/wizardRegistry.js'
+import {
+  groupCriteriaRows,
+  inspectionCriteriaText,
+  normalizeCriteriaName
+} from './inspectionWizard/wizardCriteria.js'
+import { craneWizardConfig } from './inspectionWizard/configurations/craneWizardConfig.js'
+import { chainBlockWizardConfig } from './inspectionWizard/configurations/chainBlockWizardConfig.js'
+import { harnessWizardConfig } from './inspectionWizard/configurations/harnessWizardConfig.js'
+import { slingWizardConfig } from './inspectionWizard/configurations/slingWizardConfig.js'
+import { inspectionTagDisplay } from './inspectionWizard/WizardReview.js'
 
 if (window.location.pathname.toLowerCase().startsWith('/atec/atec')) {
   window.history.replaceState({}, '', '/atec/')
@@ -4523,7 +4539,7 @@ window.quickOpenAsset = async function (assetid) {
         </div>
 
         <div class="form-actions quick-result-actions">
-          ${assetSupportsCraneWizard(asset) ? `
+          ${assetSupportsInspectionWizard(asset, criteria, 'VISUAL') ? `
             <button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'VISUAL', '${returnPage}', 'wizard')">Wizard Inspect</button>
           ` : `
             <button onclick="startInspection(${asset.assetid}, 'VISUAL', '${returnPage}')">Visual Inspection</button>
@@ -4693,13 +4709,6 @@ const criteriaAssetMap = {
   "Steel Wire Rope mm": "steelwireropemm"
 }
 
-function normalizeCriteriaName(criteriaName = "") {
-  return String(criteriaName)
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim()
-}
-
 function formatStandardNumber(value) {
   const numericValue = Number(value)
 
@@ -4736,12 +4745,6 @@ window.updateInspectionValidDateFromTestDate = function (inspectiontype = "VISUA
 
   if (!validDateInput || !testDate) return
   validDateInput.value = calculateValidDateFromTestDate(testDate, inspectiontype, inspectionFrequency)
-}
-
-const craneWizardEquipTypeIds = new Set(["401", "402", "404", "406"])
-
-function assetSupportsCraneWizard(asset) {
-  return craneWizardEquipTypeIds.has(String(asset?.equiptypeid || ""))
 }
 
 window.assetSupportsCraneWizard = assetSupportsCraneWizard
@@ -5117,60 +5120,6 @@ window.updateInspectionSafetyWarning = function () {
     : ""
 }
 
-function getInspectionWizardKey(asset, inspectiontype = "VISUAL") {
-  if (inspectiontype !== "VISUAL" && inspectiontype !== "LOADTEST") return "GENERIC"
-
-  if (assetSupportsCraneWizard(asset)) {
-    return "CRANE"
-  }
-
-  const equipmentText = normalizeCriteriaName([
-    asset?.equipmenttype,
-    asset?.equipmenttypedescription,
-    asset?.description
-  ].filter(Boolean).join(" "))
-
-  if (
-    equipmentText.includes("manual chain hoist") ||
-    equipmentText.includes("manual lever hoist") ||
-    equipmentText.includes("chain block") ||
-    equipmentText.includes("lever hoist")
-  ) {
-    return "CHAIN_BLOCK_LEVER_HOIST"
-  }
-
-  return "GENERIC"
-}
-
-function getCraneWizardSection(row, inspectiontype = "VISUAL") {
-  const text = normalizeCriteriaName(inspectionCriteriaText(row))
-
-  if (isSafeContinuationCriteria(row) || text.includes("defect") || text.includes("recommendation") || text.includes("comment")) {
-    return "Defects and Final Safety"
-  }
-
-  if (inspectiontype === "LOADTEST") {
-    if (text.includes("load mass") || text.includes("proof load") || text.includes("test load") || text.includes("loadcell")) return "Rated Capacity and Test Load"
-    if (text.includes("deflection")) return "Deflection Measurements"
-    if (text.includes("brake") || text.includes("hold")) return "Brake and Holding Test"
-    if (text.includes("static")) return "Static Test"
-    if (text.includes("dynamic") || text.includes("travel") || text.includes("function")) return "Dynamic Test"
-    if (text.includes("visual") || text.includes("structure") || text.includes("hook") || text.includes("rope") || text.includes("chain")) return "Pre/Post Test Inspection"
-    return "Test Equipment and Calibration"
-  }
-
-  if (text.includes("structure") || text.includes("girder") || text.includes("carriage") || text.includes("rail") || text.includes("corrosion") || text.includes("crack") || text.includes("deformation")) return "Crane Structure"
-  if (text.includes("hoist") || text.includes("motor") || text.includes("gearbox") || text.includes("brake")) return "Hoist and Lifting Mechanism"
-  if (text.includes("hook") || text.includes("latch") || text.includes("load-bearing")) return "Hooks and Load-Bearing Components"
-  if (text.includes("rope") || text.includes("chain") || text.includes("drum") || text.includes("sheave")) return "Ropes, Chains and Drums"
-  if (text.includes("electrical") || text.includes("isolator") || text.includes("cable") || text.includes("earth") || text.includes("pendant") || text.includes("remote")) return "Electrical and Control Systems"
-  if (text.includes("limit") || text.includes("emergency") || text.includes("warning") || text.includes("overload") || text.includes("safety")) return "Safety Devices"
-  if (text.includes("travel") || text.includes("wheel") || text.includes("bearing") || text.includes("end stop") || text.includes("buffer")) return "Travel System and End Stops"
-  if (text.includes("operate") || text.includes("function") || text.includes("raising") || text.includes("lowering")) return "Operational Checks"
-
-  return "Inspection Setup"
-}
-
 function renderCraneAssetDetailGrid(asset, quickDetails = {}) {
   const detailRows = [
     ["Asset ID", asset.assetid],
@@ -5193,6 +5142,68 @@ function renderCraneAssetDetailGrid(asset, quickDetails = {}) {
     ["Previous Visual", [quickDetails.lastvisualdate, quickDetails.lastvisualstatus].filter(Boolean).join(" / ")],
     ["Previous Load Test", [quickDetails.lastloadtestdate, quickDetails.lastloadteststatus].filter(Boolean).join(" / ")],
     ["Previous Expiry", quickDetails.lastinspectionvaliddate || quickDetails.lastvisualvaliddate || quickDetails.lastloadtestvaliddate]
+  ]
+
+  return `
+    <div class="crane-asset-detail-grid">
+      ${detailRows.map(([label, value]) => `
+        <div>
+          <span>${escapeHtml(label)}</span>
+          <strong>${escapeHtml(value || "-")}</strong>
+        </div>
+      `).join("")}
+    </div>
+  `
+}
+
+function renderHarnessAssetDetailGrid(asset, quickDetails = {}) {
+  const detailRows = [
+    ["Asset ID", asset.assetid],
+    ["Asset Tag", asset.assettagno],
+    ["Customer", asset.clientname || quickDetails.clientname],
+    ["Site", asset.sitename || quickDetails.sitename],
+    ["Section", asset.sectionname || quickDetails.sectionname],
+    ["Equipment Type", asset.equipmenttype || quickDetails.equipmenttype],
+    ["Description", asset.description],
+    ["Manufacturer", asset.manufacturer],
+    ["Model", asset.model],
+    ["Serial / Batch No", asset.serialno],
+    ["Size", asset.size],
+    ["Manufacture Date", asset.manufactdate],
+    ["Previous Inspection", [quickDetails.lastvisualdate, quickDetails.lastvisualstatus].filter(Boolean).join(" / ")],
+    ["Previous Valid Date", quickDetails.lastinspectionvaliddate || quickDetails.lastvisualvaliddate]
+  ]
+
+  return `
+    <div class="crane-asset-detail-grid">
+      ${detailRows.map(([label, value]) => `
+        <div>
+          <span>${escapeHtml(label)}</span>
+          <strong>${escapeHtml(value || "-")}</strong>
+        </div>
+      `).join("")}
+    </div>
+  `
+}
+
+function renderSlingAssetDetailGrid(asset, quickDetails = {}) {
+  const detailRows = [
+    ["Asset ID", asset.assetid],
+    ["Asset Tag", asset.assettagno],
+    ["Customer", asset.clientname || quickDetails.clientname],
+    ["Site", asset.sitename || quickDetails.sitename],
+    ["Section", asset.sectionname || quickDetails.sectionname],
+    ["Equipment Type", asset.equipmenttype || quickDetails.equipmenttype],
+    ["Description", asset.description],
+    ["Manufacturer", asset.manufacturer],
+    ["Model", asset.model],
+    ["Serial / ID", asset.serialno],
+    ["WLL/SWL", asset.wll ? `${asset.wll} kg` : ""],
+    ["Length", asset.effectivelength ? `${asset.effectivelength} mm` : ""],
+    ["Diameter", asset.steelwireropemm ? `${asset.steelwireropemm} mm` : ""],
+    ["Hook Size", asset.hooksize ? `${asset.hooksize} mm` : ""],
+    ["Previous Inspection", [quickDetails.lastvisualdate, quickDetails.lastvisualstatus].filter(Boolean).join(" / ")],
+    ["Previous Valid Date", quickDetails.lastinspectionvaliddate || quickDetails.lastvisualvaliddate]
   ]
 
   return `
@@ -5237,43 +5248,267 @@ function renderCraneWizardCriteriaStep(stepTitle, rows, asset, inspectiontype) {
   `
 }
 
+function renderHarnessSetupQuestions() {
+  return `
+    <div class="harness-setup-fields">
+      ${harnessWizardConfig.setupQuestions.map(question => question.type === "text" ? `
+        <label class="crane-wide-field">${escapeHtml(question.label)}
+          <input id="${safeAttr(question.id)}" type="text">
+        </label>
+      ` : `
+        <label>${escapeHtml(question.label)}
+          <select id="${safeAttr(question.id)}" class="harness-setup-answer">
+            <option value="">Select</option>
+            <option value="YES">YES</option>
+            <option value="NO">NO</option>
+            <option value="UNKNOWN">UNKNOWN</option>
+          </select>
+        </label>
+      `).join("")}
+    </div>
+  `
+}
+
+function renderSlingSetupQuestions() {
+  return `
+    <div class="harness-setup-fields sling-setup-fields">
+      ${slingWizardConfig.setupQuestions.map(question => question.type === "text" ? `
+        <label class="crane-wide-field">${escapeHtml(question.label)}
+          <input id="${safeAttr(question.id)}" type="text">
+        </label>
+      ` : `
+        <label>${escapeHtml(question.label)}
+          <select id="${safeAttr(question.id)}" class="sling-setup-answer">
+            <option value="">Select</option>
+            <option value="YES">YES</option>
+            <option value="NO">NO</option>
+            <option value="UNKNOWN">UNKNOWN</option>
+          </select>
+        </label>
+      `).join("")}
+    </div>
+  `
+}
+
+function renderHarnessWizard(asset, assetCriteria, inspectiontype, quickDetails, returnPage) {
+  const criteriaSteps = groupCriteriaRows(assetCriteria, harnessWizardConfig, inspectiontype)
+
+  return `
+    <div class="crane-wizard harness-wizard" data-return-page="${safeAttr(returnPage)}" data-wizard-name="harness" data-inspection-type="${safeAttr(inspectiontype)}">
+      <div class="inspection-wizard-banner crane-wizard-banner">
+        <div>
+          <span>Guided Harness / Fall-Arrest Inspection</span>
+          <strong>${escapeHtml(asset.equipmenttype || "Harness / Fall-Arrest")} - Asset ${escapeHtml(asset.assetid)}</strong>
+        </div>
+        <p>Uses live equipment criteria, the existing save route, photos, signature, and certificate renderer.</p>
+      </div>
+
+      <div class="crane-wizard-progress">
+        <div><strong id="craneWizardStepLabel">Step 1</strong><span id="craneWizardStepTitle">Asset confirmation</span></div>
+        <progress id="craneWizardProgress" value="1" max="${criteriaSteps.length + 5}"></progress>
+      </div>
+
+      <section class="crane-wizard-step" data-step-title="Asset confirmation">
+        ${renderHarnessAssetDetailGrid(asset, quickDetails)}
+        <div class="quick-photo-grid">
+          ${asset.media1 ? `<div class="quick-photo-card"><img src="${safeAttr(uploadUrl(asset.media1))}"></div>` : ""}
+          ${asset.media2 ? `<div class="quick-photo-card"><img src="${safeAttr(uploadUrl(asset.media2))}"></div>` : ""}
+        </div>
+        <label class="crane-confirm-check">
+          <input id="craneAssetConfirmed" type="checkbox">
+          I confirm this is the correct harness or fall-arrest item.
+        </label>
+      </section>
+
+      <section class="crane-wizard-step" data-step-title="Inspection setup">
+        <div class="inspection-tag-card">
+          <div class="inspection-tag-title">INSPECTION SETUP</div>
+          <div class="inspector-identity-card">
+            <div><span>Logged-in Inspector</span><strong>${escapeHtml(currentUser?.full_name || "-")}</strong></div>
+            <div><span>Inspector ID</span><strong>${escapeHtml(currentUser?.user_id || "-")}</strong></div>
+            <div><span>Signature</span><strong>${currentUser?.signature_image ? "Saved" : "Not uploaded"}</strong></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Inspection Date</label>
+              <input id="inspectionTestDate" type="date" value="${dateInputValue()}" onchange="updateInspectionValidDateFromTestDate('${inspectiontype}')">
+            </div>
+            <div class="form-group">
+              <label>Inspection Tag No <span class="optional-label">(Optional)</span></label>
+              <input id="inspectionTagNo" class="inspection-tag-input" type="text" placeholder="Not issued yet">
+            </div>
+            <div class="form-group">
+              <label>Certificate Expiry Date</label>
+              <input id="inspectionValidDate" type="date" value="${calculateValidDateFromTestDate(dateInputValue(), inspectiontype, "ANNUAL")}">
+            </div>
+            <div class="form-group">
+              <label>Inspection Frequency</label>
+              <select id="inspectionFrequency" onchange="updateInspectionValidDateFromTestDate('${inspectiontype}')">
+                <option value="ANNUAL" selected>Annual</option>
+                <option value="FREQUENT">Frequent</option>
+              </select>
+            </div>
+          </div>
+          ${renderHarnessSetupQuestions()}
+          <label class="crane-wide-field">Defect / rejection summary<textarea id="inspectionComments" rows="3"></textarea></label>
+        </div>
+      </section>
+
+      ${criteriaSteps.map(([section, rows]) => renderCraneWizardCriteriaStep(section, rows, asset, inspectiontype)).join("")}
+
+      <section class="crane-wizard-step" data-step-title="Photos">
+        <h3>Photos</h3>
+        <p class="muted-text">${escapeHtml(harnessWizardConfig.photoPrompts.join(", "))}</p>
+        <input id="inspectionPhotoFiles" type="file" accept="image/*" multiple onchange="handleInspectionPhotoSelection(event)">
+        <div id="inspectionPhotoPreview" class="inspection-photo-preview-grid">
+          <p class="muted-text">No inspection photos selected.</p>
+        </div>
+      </section>
+
+      <section class="crane-wizard-step" data-step-title="Inspector declaration">
+        <div id="inspectionCriticalWarning" class="inspection-critical-warning" style="display:none;"></div>
+        <label class="crane-confirm-check">
+          <input id="craneInspectorDeclaration" type="checkbox">
+          I examined the relevant accessible components, recorded known defects and limitations, and confirm the final decision reflects this inspection.
+        </label>
+      </section>
+
+      <section class="crane-wizard-step" data-step-title="Review and submit">
+        <div id="craneWizardReview" class="crane-review-panel"></div>
+        <label class="crane-confirm-check">
+          <input id="craneSubmitConfirmed" type="checkbox">
+          I confirm this harness / fall-arrest inspection is ready to save.
+        </label>
+      </section>
+
+      <div class="crane-wizard-nav">
+        <button type="button" class="secondary-btn" onclick="startInspection(${asset.assetid}, '${inspectiontype}', '${returnPage}', 'generic')">Use Generic Form</button>
+        <button type="button" class="secondary-btn" onclick="craneWizardBack()">Back</button>
+        <button type="button" onclick="craneWizardNext()">Next</button>
+        <button type="button" class="load-test-btn" id="craneWizardSubmit" onclick="saveInspection(${asset.assetid}, '${inspectiontype}', '${returnPage}')" hidden>Save ${inspectiontype}</button>
+        <button type="button" onclick="returnToInspectionOrigin('${returnPage}')">Cancel</button>
+      </div>
+    </div>
+  `
+}
+
+function renderSlingWizard(asset, assetCriteria, inspectiontype, quickDetails, returnPage) {
+  const setupTitle = inspectiontype === "LOADTEST" ? "Load-Test Setup" : "Inspection Setup"
+  const criteriaSteps = groupCriteriaRows(assetCriteria, slingWizardConfig, inspectiontype)
+
+  return `
+    <div class="crane-wizard sling-wizard" data-return-page="${safeAttr(returnPage)}" data-wizard-name="sling" data-inspection-type="${safeAttr(inspectiontype)}">
+      <div class="inspection-wizard-banner crane-wizard-banner">
+        <div>
+          <span>Guided Sling ${inspectiontype === "LOADTEST" ? "Load Test" : "Inspection"}</span>
+          <strong>${escapeHtml(asset.equipmenttype || "Sling")} - Asset ${escapeHtml(asset.assetid)}</strong>
+        </div>
+        <p>Uses live equipment criteria, the existing save route, photos, signature, and certificate renderer.</p>
+      </div>
+
+      <div class="crane-wizard-progress">
+        <div><strong id="craneWizardStepLabel">Step 1</strong><span id="craneWizardStepTitle">Asset confirmation</span></div>
+        <progress id="craneWizardProgress" value="1" max="${criteriaSteps.length + 5}"></progress>
+      </div>
+
+      <section class="crane-wizard-step" data-step-title="Asset confirmation">
+        ${renderSlingAssetDetailGrid(asset, quickDetails)}
+        <div class="quick-photo-grid">
+          ${asset.media1 ? `<div class="quick-photo-card"><img src="${safeAttr(uploadUrl(asset.media1))}"></div>` : ""}
+          ${asset.media2 ? `<div class="quick-photo-card"><img src="${safeAttr(uploadUrl(asset.media2))}"></div>` : ""}
+        </div>
+        <label class="crane-confirm-check">
+          <input id="craneAssetConfirmed" type="checkbox">
+          I confirm this is the correct sling asset.
+        </label>
+      </section>
+
+      <section class="crane-wizard-step" data-step-title="${escapeAttribute(setupTitle)}">
+        <div class="inspection-tag-card">
+          <div class="inspection-tag-title">${escapeHtml(setupTitle.toUpperCase())}</div>
+          <div class="inspector-identity-card">
+            <div><span>Logged-in Inspector</span><strong>${escapeHtml(currentUser?.full_name || "-")}</strong></div>
+            <div><span>Inspector ID</span><strong>${escapeHtml(currentUser?.user_id || "-")}</strong></div>
+            <div><span>Signature</span><strong>${currentUser?.signature_image ? "Saved" : "Not uploaded"}</strong></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>${inspectiontype === "LOADTEST" ? "Load Test Date" : "Inspection Date"}</label>
+              <input id="inspectionTestDate" type="date" value="${dateInputValue()}" onchange="updateInspectionValidDateFromTestDate('${inspectiontype}')">
+            </div>
+            <div class="form-group">
+              <label>Inspection Tag No <span class="optional-label">(Optional)</span></label>
+              <input id="inspectionTagNo" class="inspection-tag-input" type="text" placeholder="Not issued yet">
+            </div>
+            <div class="form-group">
+              <label>Certificate Expiry Date</label>
+              <input id="inspectionValidDate" type="date" value="${calculateValidDateFromTestDate(dateInputValue(), inspectiontype, inspectiontype === "LOADTEST" ? "" : "ANNUAL")}">
+            </div>
+            ${inspectiontype !== "LOADTEST" ? `
+              <div class="form-group">
+                <label>Inspection Frequency</label>
+                <select id="inspectionFrequency" onchange="updateInspectionValidDateFromTestDate('${inspectiontype}')">
+                  <option value="ANNUAL" selected>Annual</option>
+                  <option value="FREQUENT">Frequent</option>
+                </select>
+              </div>
+            ` : ""}
+          </div>
+          ${inspectiontype === "LOADTEST" ? `
+            <div class="crane-load-test-grid">
+              <label>Rated WLL<input id="craneRatedCapacity" type="text" value="${escapeAttribute(asset.wll || "")}" readonly></label>
+              <label>Intended Test Load<input id="craneIntendedTestLoad" type="number" step="0.01" min="0" placeholder="Manual capture required"></label>
+              <label>Actual Applied Load<input id="craneActualTestLoad" type="number" step="0.01" min="0"></label>
+              <label>Test Duration<input id="craneTestDuration" type="text"></label>
+              <label class="crane-wide-field">Reason if full test could not be completed<input id="craneLoadExceptionReason" type="text"></label>
+            </div>
+          ` : ""}
+          ${renderSlingSetupQuestions()}
+          <label class="crane-wide-field">Defect / rejection summary<textarea id="inspectionComments" rows="3"></textarea></label>
+        </div>
+      </section>
+
+      ${criteriaSteps.map(([section, rows]) => renderCraneWizardCriteriaStep(section, rows, asset, inspectiontype)).join("")}
+
+      <section class="crane-wizard-step" data-step-title="Photos">
+        <h3>Photos</h3>
+        <p class="muted-text">${escapeHtml(slingWizardConfig.photoPrompts.join(", "))}</p>
+        <input id="inspectionPhotoFiles" type="file" accept="image/*" multiple onchange="handleInspectionPhotoSelection(event)">
+        <div id="inspectionPhotoPreview" class="inspection-photo-preview-grid">
+          <p class="muted-text">No inspection photos selected.</p>
+        </div>
+      </section>
+
+      <section class="crane-wizard-step" data-step-title="Inspector declaration">
+        <div id="inspectionCriticalWarning" class="inspection-critical-warning" style="display:none;"></div>
+        <label class="crane-confirm-check">
+          <input id="craneInspectorDeclaration" type="checkbox">
+          I examined the accessible load-bearing components, recorded known defects and limitations, and confirm the final decision reflects this inspection.
+        </label>
+      </section>
+
+      <section class="crane-wizard-step" data-step-title="Review and submit">
+        <div id="craneWizardReview" class="crane-review-panel"></div>
+        <label class="crane-confirm-check">
+          <input id="craneSubmitConfirmed" type="checkbox">
+          I confirm this sling ${inspectiontype === "LOADTEST" ? "load test" : "inspection"} is ready to save.
+        </label>
+      </section>
+
+      <div class="crane-wizard-nav">
+        <button type="button" class="secondary-btn" onclick="startInspection(${asset.assetid}, '${inspectiontype}', '${returnPage}', 'generic')">Use Generic Form</button>
+        <button type="button" class="secondary-btn" onclick="craneWizardBack()">Back</button>
+        <button type="button" onclick="craneWizardNext()">Next</button>
+        <button type="button" class="load-test-btn" id="craneWizardSubmit" onclick="saveInspection(${asset.assetid}, '${inspectiontype}', '${returnPage}')" hidden>Save ${inspectiontype}</button>
+        <button type="button" onclick="returnToInspectionOrigin('${returnPage}')">Cancel</button>
+      </div>
+    </div>
+  `
+}
+
 function renderCraneWizard(asset, assetCriteria, inspectiontype, quickDetails, returnPage) {
   const setupTitle = inspectiontype === "LOADTEST" ? "Test Setup" : "Inspection Setup"
-  const groupedRows = new Map()
-  const preferredSections = inspectiontype === "LOADTEST"
-    ? [
-        "Pre/Post Test Inspection",
-        "Test Equipment and Calibration",
-        "Rated Capacity and Test Load",
-        "Static Test",
-        "Dynamic Test",
-        "Brake and Holding Test",
-        "Deflection Measurements",
-        "Defects and Final Safety"
-      ]
-    : [
-        "Inspection Setup",
-        "Crane Structure",
-        "Hoist and Lifting Mechanism",
-        "Hooks and Load-Bearing Components",
-        "Ropes, Chains and Drums",
-        "Electrical and Control Systems",
-        "Safety Devices",
-        "Travel System and End Stops",
-        "Operational Checks",
-        "Defects and Final Safety"
-      ]
-
-  preferredSections.forEach(section => groupedRows.set(section, []))
-  assetCriteria.forEach(row => {
-    const section = getCraneWizardSection(row, inspectiontype)
-    if (!groupedRows.has(section)) groupedRows.set(section, [])
-    groupedRows.get(section).push(row)
-  })
-
-  const criteriaSteps = preferredSections
-    .map(section => [section, groupedRows.get(section) || []])
-    .filter(([, rows]) => rows.length)
+  const criteriaSteps = groupCriteriaRows(assetCriteria, craneWizardConfig, inspectiontype)
 
   return `
     <div class="crane-wizard" data-return-page="${safeAttr(returnPage)}">
@@ -5382,10 +5617,6 @@ function renderCraneWizard(asset, assetCriteria, inspectiontype, quickDetails, r
       </div>
     </div>
   `
-}
-
-function inspectionCriteriaText(row) {
-  return String(row?.criteriadescription || row?.criterianame || "")
 }
 
 function renderMeasurementCriteriaRow(row, asset, inspectiontype) {
@@ -5527,60 +5758,8 @@ function renderGenericInspectionCriteria(asset, measurementCriteria, visualCrite
   `
 }
 
-function getChainBlockWizardSection(row) {
-  const text = normalizeCriteriaName(inspectionCriteriaText(row))
-
-  if (isSafeContinuationCriteria(row) || text.includes("defect") || text.includes("recommendation") || text.includes("comment")) {
-    return "Final Result"
-  }
-
-  if (text.includes("hook") || text.includes("latch") || text.includes("throat")) {
-    return "Hooks"
-  }
-
-  if (text.includes("chain") || text.includes("link")) {
-    return "Load Chain"
-  }
-
-  if (text.includes("brake") || text.includes("load holding") || text.includes("proof load") || text.includes("load limiter") || text.includes("loadcell")) {
-    return "Brake / Load Holding"
-  }
-
-  if (text.includes("marking") || text.includes("swl") || text.includes("wll") || text.includes("identification") || text.includes("serial")) {
-    return "Markings"
-  }
-
-  if (text.includes("body") || text.includes("casing") || text.includes("cover") || text.includes("frame") || text.includes("structure")) {
-    return "Body / Casing"
-  }
-
-  if (text.includes("function") || text.includes("operate") || text.includes("movement") || text.includes("raising") || text.includes("lowering") || text.includes("test")) {
-    return "Functional Test"
-  }
-
-  return "Identification"
-}
-
 function renderChainBlockWizard(asset, assetCriteria, inspectiontype) {
-  const wizardSections = [
-    "Identification",
-    "Hooks",
-    "Load Chain",
-    "Body / Casing",
-    "Brake / Load Holding",
-    "Markings",
-    "Functional Test",
-    "Final Result"
-  ]
-
-  const groupedRows = wizardSections.reduce((sections, section) => {
-    sections[section] = []
-    return sections
-  }, {})
-
-  assetCriteria.forEach(row => {
-    groupedRows[getChainBlockWizardSection(row)].push(row)
-  })
+  const groupedSections = groupCriteriaRows(assetCriteria, chainBlockWizardConfig, inspectiontype)
 
   return `
     <div class="inspection-wizard-banner">
@@ -5591,10 +5770,7 @@ function renderChainBlockWizard(asset, assetCriteria, inspectiontype) {
       <p>Guided sections use the same saved criteria and certificate output as the normal inspection form.</p>
     </div>
 
-    ${wizardSections.map(section => {
-      const rows = groupedRows[section] || []
-      if (!rows.length) return ""
-
+    ${groupedSections.map(([section, rows]) => {
       const measurementRows = rows.filter(row => row.fieldtype === "NUMBER")
       const visualRows = rows.filter(row => row.fieldtype !== "NUMBER")
 
@@ -5627,7 +5803,7 @@ function renderChainBlockWizard(asset, assetCriteria, inspectiontype) {
 }
 
 function renderInspectionCriteriaLayout(asset, assetCriteria, measurementCriteria, visualCriteria, inspectiontype) {
-  const wizardKey = getInspectionWizardKey(asset, inspectiontype)
+  const wizardKey = getInspectionWizardKey(asset, assetCriteria, inspectiontype)
 
   if (wizardKey === "CRANE") {
     return renderGenericInspectionCriteria(asset, measurementCriteria, visualCriteria, inspectiontype)
@@ -5661,7 +5837,58 @@ function validateCraneWizardStep(stepIndex) {
   if (!step) return true
 
   if (step.querySelector("#craneAssetConfirmed") && !document.querySelector("#craneAssetConfirmed")?.checked) {
-    alert("Confirm the correct crane asset before continuing.")
+    alert("Confirm the correct asset before continuing.")
+    return false
+  }
+
+  const testDateInput = step.querySelector("#inspectionTestDate")
+  const validDateInput = step.querySelector("#inspectionValidDate")
+  if (testDateInput && !testDateInput.value) {
+    alert("Select an inspection date before continuing.")
+    testDateInput.focus()
+    return false
+  }
+  if (validDateInput && !validDateInput.value) {
+    alert("Select a valid date before continuing.")
+    validDateInput.focus()
+    return false
+  }
+  if (testDateInput?.value && validDateInput?.value && new Date(validDateInput.value) < new Date(testDateInput.value)) {
+    alert("Valid date cannot be before the inspection date.")
+    validDateInput.focus()
+    return false
+  }
+
+  const unansweredHarnessSetup = Array.from(step.querySelectorAll(".harness-setup-answer")).find(input => !input.value)
+  if (unansweredHarnessSetup) {
+    alert("Complete the harness inspection setup questions before continuing.")
+    unansweredHarnessSetup.focus()
+    return false
+  }
+
+  const harnessIncompleteReason = document.querySelector("#harnessInspectionIncompleteReason")
+  const needsIncompleteReason = [
+    "#harnessAvailableForFullExamination",
+    "#harnessCleanEnoughForInspection"
+  ].some(selector => document.querySelector(selector)?.value === "NO")
+  if (step.querySelector("#harnessInspectionIncompleteReason") && needsIncompleteReason && !harnessIncompleteReason?.value.trim()) {
+    alert("Enter a reason when the harness inspection could not be fully completed.")
+    harnessIncompleteReason?.focus()
+    return false
+  }
+
+  const unansweredSlingSetup = Array.from(step.querySelectorAll(".sling-setup-answer")).find(input => !input.value)
+  if (unansweredSlingSetup) {
+    alert("Complete the sling inspection setup questions before continuing.")
+    unansweredSlingSetup.focus()
+    return false
+  }
+
+  const slingIncompleteReason = document.querySelector("#slingInspectionIncompleteReason")
+  const needsSlingIncompleteReason = document.querySelector("#slingCleanAvailable")?.value === "NO"
+  if (step.querySelector("#slingInspectionIncompleteReason") && needsSlingIncompleteReason && !slingIncompleteReason?.value.trim()) {
+    alert("Enter a reason when the sling inspection could not be fully completed.")
+    slingIncompleteReason?.focus()
     return false
   }
 
@@ -5704,6 +5931,24 @@ function validateCraneWizardStep(stepIndex) {
   return true
 }
 
+function getHarnessSetupReviewRows() {
+  if (!document.querySelector(".harness-wizard")) return []
+
+  return harnessWizardConfig.setupQuestions.map(question => {
+    const value = document.querySelector(`#${question.id}`)?.value || ""
+    return [question.label, value || "-"]
+  })
+}
+
+function getSlingSetupReviewRows() {
+  if (!document.querySelector(".sling-wizard")) return []
+
+  return slingWizardConfig.setupQuestions.map(question => {
+    const value = document.querySelector(`#${question.id}`)?.value || ""
+    return [question.label, value || "-"]
+  })
+}
+
 function renderCraneWizardReview() {
   const review = document.querySelector("#craneWizardReview")
   if (!review) return
@@ -5719,18 +5964,22 @@ function renderCraneWizardReview() {
   const criticalRows = getCraneFailedCriticalCriteria()
   const finalStatus = criticalRows.length || failedRows.some(isSafeContinuationCriteria) ? "NOT SAFE" : "SAFE"
   const photoCount = (window.pendingInspectionPhotos || []).length
+  const harnessRows = getHarnessSetupReviewRows()
+  const slingRows = getSlingSetupReviewRows()
 
   review.innerHTML = `
     <div class="crane-review-grid">
       <div><span>Inspection Type</span><strong>${escapeHtml(document.querySelector("#inspectionTestDate") ? (document.querySelector(".crane-wizard")?.dataset.inspectionType || "") : "")}</strong></div>
       <div><span>Test Date</span><strong>${escapeHtml(document.querySelector("#inspectionTestDate")?.value || "-")}</strong></div>
       <div><span>Valid Date</span><strong>${escapeHtml(document.querySelector("#inspectionValidDate")?.value || "-")}</strong></div>
-      <div><span>Tag Number</span><strong>${escapeHtml(document.querySelector("#inspectionTagNo")?.value.trim() || "Not Issued")}</strong></div>
+      <div><span>Tag Number</span><strong>${escapeHtml(inspectionTagDisplay(document.querySelector("#inspectionTagNo")?.value))}</strong></div>
       <div><span>Inspector</span><strong>${escapeHtml(currentUser?.full_name || "-")}</strong></div>
       <div><span>Signature</span><strong>${currentUser?.signature_image ? "Saved" : "Not uploaded"}</strong></div>
       <div><span>Photos</span><strong>${photoCount}</strong></div>
       <div><span>Final Status</span><strong class="${finalStatus === "SAFE" ? "status-safe" : "status-unsafe"}">${finalStatus}</strong></div>
     </div>
+    ${harnessRows.length ? `<h3>Fall-Arrest History / Inspection Conditions</h3><ul>${harnessRows.map(([label, value]) => `<li>${escapeHtml(label)}: ${escapeHtml(value)}</li>`).join("")}</ul>` : ""}
+    ${slingRows.length ? `<h3>Sling Setup / Load History</h3><ul>${slingRows.map(([label, value]) => `<li>${escapeHtml(label)}: ${escapeHtml(value)}</li>`).join("")}</ul>` : ""}
     ${criticalRows.length ? `<div class="inspection-critical-warning"><strong>Forced NOT SAFE:</strong> ${criticalRows.map(inspectionCriteriaText).map(escapeHtml).join("; ")}</div>` : ""}
     ${failedRows.length ? `<h3>Failed / Not Safe Criteria</h3><ul>${failedRows.map(row => `<li>${escapeHtml(inspectionCriteriaText(row))}</li>`).join("")}</ul>` : "<p>No failed criteria recorded.</p>"}
     ${measuredRows.length ? `<h3>Measured Values</h3><ul>${measuredRows.map(row => `<li>${escapeHtml(inspectionCriteriaText(row))}: ${escapeHtml(document.querySelector(`#measured-${row.criteriaid}`)?.value || "")}</li>`).join("")}</ul>` : ""}
@@ -5912,9 +6161,25 @@ const showInspectionFrequency = showInspectionPhotoUpload && inspectiontype !== 
 const defaultInspectionFrequency = showInspectionFrequency ? "ANNUAL" : ""
 const defaultValidDate = calculateValidDateFromTestDate(defaultTestDate, inspectiontype, defaultInspectionFrequency)
 
-if (formMode !== "generic" && getInspectionWizardKey(asset, inspectiontype) === "CRANE") {
+const inspectionWizardKey = getInspectionWizardKey(asset, assetCriteria, inspectiontype)
+
+if (formMode !== "generic" && inspectionWizardKey === "CRANE") {
   document.querySelector('#page').innerHTML = renderCraneWizard(asset, assetCriteria, inspectiontype, quickDetails, returnPage)
   document.querySelector(".crane-wizard")?.setAttribute("data-inspection-type", inspectiontype)
+  window.craneWizardCurrentStep = 0
+  updateCraneWizardStep()
+  return
+}
+
+if (formMode !== "generic" && inspectionWizardKey === "HARNESS_FALL_ARREST") {
+  document.querySelector('#page').innerHTML = renderHarnessWizard(asset, assetCriteria, inspectiontype, quickDetails, returnPage)
+  window.craneWizardCurrentStep = 0
+  updateCraneWizardStep()
+  return
+}
+
+if (formMode !== "generic" && inspectionWizardKey === "SLING") {
+  document.querySelector('#page').innerHTML = renderSlingWizard(asset, assetCriteria, inspectiontype, quickDetails, returnPage)
   window.craneWizardCurrentStep = 0
   updateCraneWizardStep()
   return
@@ -5939,9 +6204,9 @@ if (formMode !== "generic" && getInspectionWizardKey(asset, inspectiontype) === 
         </div>
 
         <div class="inspection-asset-actions">
-          ${getInspectionWizardKey(asset, inspectiontype) === "CRANE" ? `
+          ${assetSupportsInspectionWizard(asset, assetCriteria, inspectiontype) ? `
             <button class="load-test-btn" onclick="startInspection(${asset.assetid}, '${inspectiontype}', '${returnPage}', 'wizard')">
-              Wizard Inspect
+              ${escapeHtml(wizardActionLabel(asset, assetCriteria, inspectiontype))}
             </button>
           ` : ""}
 
@@ -6356,8 +6621,8 @@ window.dashboardFindAsset = async function () {
                 <td>${escapeHtml(asset.equipmenttype || "")}</td>
                 <td class="dashboard-search-actions">
                   ${
-                    assetSupportsCraneWizard(asset)
-                      ? `<button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'VISUAL', 'quick', 'wizard')">Wizard Inspect</button>`
+                    assetSupportsInspectionWizard(asset, criteria, 'VISUAL')
+                      ? `<button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'VISUAL', 'quick', 'wizard')">${escapeHtml(wizardActionLabel(asset, criteria, 'VISUAL'))}</button>`
                       : `<button onclick="startInspection(${asset.assetid}, 'VISUAL', 'quick')">Inspect</button>`
                   }
                   ${
@@ -6899,9 +7164,21 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
         `Load exception reason: ${document.querySelector("#craneLoadExceptionReason")?.value || "-"}`
       ].join("\n")
     : ""
+  const harnessNotes = document.querySelector(".harness-wizard")
+    ? getHarnessSetupReviewRows()
+        .map(([label, value]) => `${label}: ${value || "-"}`)
+        .join("\n")
+    : ""
+  const slingNotes = document.querySelector(".sling-wizard")
+    ? getSlingSetupReviewRows()
+        .map(([label, value]) => `${label}: ${value || "-"}`)
+        .join("\n")
+    : ""
   const inspectionComments = [
     document.querySelector("#inspectionComments")?.value || "",
-    loadTestNotes
+    loadTestNotes,
+    harnessNotes,
+    slingNotes
   ].filter(value => String(value || "").trim()).join("\n\n")
 
   formData.append("assetid", assetid)
