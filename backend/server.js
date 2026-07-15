@@ -626,6 +626,14 @@ function isDuplicateActiveMasterDataError(err) {
   return null
 }
 
+function isInspectionTagNotNullError(err) {
+  return err?.code === "23502" &&
+    (
+      err.column === "tagnumber" ||
+      String(err.message || "").toLowerCase().includes("tagnumber")
+    )
+}
+
 function duplicateAssetResponse(res, duplicateType, duplicateAssetId) {
   const message = duplicateType === "serial"
     ? "Serial number already exists for this customer."
@@ -4194,6 +4202,11 @@ app.post("/inspections",
     } catch (err) {
       await client.query("ROLLBACK")
       console.error(err)
+      if (isInspectionTagNotNullError(err)) {
+        return res.status(500).json({
+          error: "Inspection tag number is optional, but the database still requires it. Apply database/2026-07-15-task12a-optional-inspection-tag.sql and retry."
+        })
+      }
       res.status(500).json({ error: "An unexpected server error occurred" })
     } finally {
       client.release()

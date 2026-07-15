@@ -87,6 +87,8 @@ The frontend rejects invalid numeric input before save and preserves entered dec
 
 The Crane Wizard does not require an inspection tag number before moving through the setup or review steps. When a value is supplied, it is submitted unchanged through the existing `tagnumber` field so existing uniqueness/business validation can still apply. When blank, the backend uses its existing nullable representation and saves `NULL`.
 
+Production databases must allow `atec.tblinspection.tagnumber` to be nullable for this refinement. Use `database/2026-07-15-task12a-optional-inspection-tag.sql` after normal backup/change approval.
+
 ## Critical Safety Logic
 
 The wizard reuses the existing critical-safety implementation:
@@ -135,11 +137,15 @@ No new certificate renderer was added.
 
 ## Database And Configuration Changes
 
-No new database migration was added for Task 12A. The wizard uses existing migration-backed fields and criteria metadata:
+The initial wizard uses existing migration-backed fields and criteria metadata:
 
 - `database/2026-06-23-equipment-401-402-404-406-photos-and-critical-rule.sql`
 - `database/2026-06-24-overhead-crane-aux-hoist-fields.sql`
 - `database/2026-06-26-add-additional-comments-criteria-401-402-404-406.sql`
+
+The optional inspection tag refinement adds:
+
+- `database/2026-07-15-task12a-optional-inspection-tag.sql`
 
 ## Local Testing
 

@@ -18,6 +18,7 @@ const inspections = read("frontend/src/pages/Inspections.js")
 const backendServer = read("backend/server.js")
 const craneDocs = read("docs/crane-inspection-wizard.md")
 const craneCriteriaMigration = read("database/2026-06-23-equipment-401-402-404-406-photos-and-critical-rule.sql")
+const optionalTagMigration = read("database/2026-07-15-task12a-optional-inspection-tag.sql")
 
 for (const id of ["401", "402", "404", "406"]) {
   assertIncludes(frontendMain, `"${id}"`, `Crane wizard must detect equipment type ${id}`)
@@ -57,7 +58,10 @@ assertIncludes(backendServer, "et.equipgroupid", "Single asset lookups must expo
 assertIncludes(backendServer, "tagnumber.trim()", "Backend must preserve supplied inspection tag values")
 assertIncludes(backendServer, ": null", "Backend must continue saving blank inspection tags as null")
 assertIncludes(backendServer, "certificateTagNumberDisplay", "Certificates must render blank inspection tags explicitly")
+assertIncludes(backendServer, "isInspectionTagNotNullError", "Backend must report unapplied optional-tag migration clearly")
 assertIncludes(read("backend/services/certificateRenderer.js"), "certificateTagNumberDisplay", "Rendered certificate service must render blank inspection tags explicitly")
+assertIncludes(optionalTagMigration, "ALTER COLUMN tagnumber DROP NOT NULL", "Optional tag migration must make inspection tag nullable")
+assertIncludes(optionalTagMigration, "Read-only audit", "Optional tag migration must document its audit query")
 
 assertIncludes(craneCriteriaMigration, "target_equipment_types(equiptypeid)", "Crane criteria migration target type audit is missing")
 assertIncludes(craneCriteriaMigration, "'CRITICAL'", "Crane critical criteria configuration is missing")
