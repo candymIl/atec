@@ -15,6 +15,7 @@ VITE_API_URL="${VITE_API_URL:-$SITE_URL/api}"
 ENV_FILE="$PROJECT_DIR/backend/.env"
 ENV_BACKUP="$PROJECT_DIR/backend/.env.live.backup"
 NPM_LOCK_DRIFT_FILES=(
+  "node_modules"
   "backend/node_modules/.package-lock.json"
   "backend/package-lock.json"
   "frontend/package-lock.json"
@@ -74,9 +75,9 @@ echo "Bulk certificate PDF limit set to 500."
 echo "Installing frontend packages..."
 cd "$PROJECT_DIR/frontend"
 if [ -f package-lock.json ]; then
-  npm ci
+  npm ci --include=dev
 else
-  npm install
+  npm install --include=dev
 fi
 
 echo "Building frontend..."
