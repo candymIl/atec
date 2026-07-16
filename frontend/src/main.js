@@ -5451,6 +5451,35 @@ function calculateValidDateFromTestDate(testDateValue, inspectiontype = "VISUAL"
   return dateInputValue(validDate)
 }
 
+function canSelectInspectionFrequency(asset, inspectiontype = "VISUAL") {
+  return inspectiontype !== "LOADTEST" && String(asset?.equipgroupid || "") === "400"
+}
+
+function defaultInspectionFrequencyForAsset(asset, inspectiontype = "VISUAL") {
+  if (inspectiontype === "LOADTEST") return ""
+  return canSelectInspectionFrequency(asset, inspectiontype) ? "ANNUAL" : "FREQUENT"
+}
+
+function renderInspectionFrequencyControl(asset, inspectiontype = "VISUAL") {
+  if (inspectiontype === "LOADTEST") {
+    return `<input id="inspectionFrequency" type="hidden" value="">`
+  }
+
+  if (!canSelectInspectionFrequency(asset, inspectiontype)) {
+    return `<input id="inspectionFrequency" type="hidden" value="FREQUENT">`
+  }
+
+  return `
+    <div class="form-group">
+      <label>Inspection Frequency</label>
+      <select id="inspectionFrequency" onchange="updateInspectionValidDateFromTestDate('${inspectiontype}')">
+        <option value="ANNUAL" selected>Annual</option>
+        <option value="FREQUENT">Frequent</option>
+      </select>
+    </div>
+  `
+}
+
 window.updateInspectionValidDateFromTestDate = function (inspectiontype = "VISUAL") {
   const testDate = document.querySelector("#inspectionTestDate")?.value || ""
   const validDateInput = document.querySelector("#inspectionValidDate")
@@ -5978,11 +6007,11 @@ function renderHarnessSetupQuestions() {
   return `
     <div class="harness-setup-fields">
       ${harnessWizardConfig.setupQuestions.map(question => question.type === "text" ? `
-        <label class="crane-wide-field">${escapeHtml(question.label)}
+        <label class="harness-setup-field harness-setup-field-wide">${escapeHtml(question.label)}
           <input id="${safeAttr(question.id)}" type="text">
         </label>
       ` : `
-        <label>${escapeHtml(question.label)}
+        <label class="harness-setup-field">${escapeHtml(question.label)}
           <select id="${safeAttr(question.id)}" class="harness-setup-answer">
             <option value="">Select</option>
             <option value="YES">YES</option>
@@ -5999,11 +6028,11 @@ function renderSlingSetupQuestions() {
   return `
     <div class="harness-setup-fields sling-setup-fields">
       ${slingWizardConfig.setupQuestions.map(question => question.type === "text" ? `
-        <label class="crane-wide-field">${escapeHtml(question.label)}
+        <label class="harness-setup-field harness-setup-field-wide">${escapeHtml(question.label)}
           <input id="${safeAttr(question.id)}" type="text">
         </label>
       ` : `
-        <label>${escapeHtml(question.label)}
+        <label class="harness-setup-field">${escapeHtml(question.label)}
           <select id="${safeAttr(question.id)}" class="sling-setup-answer">
             <option value="">Select</option>
             <option value="YES">YES</option>
@@ -6061,22 +6090,16 @@ function renderHarnessWizard(asset, assetCriteria, inspectiontype, quickDetails,
             </div>
             <div class="form-group">
               <label>Inspection Tag No <span class="optional-label">(Optional)</span></label>
-              <input id="inspectionTagNo" class="inspection-tag-input" type="text" placeholder="Not issued yet">
+              <input id="inspectionTagNo" class="inspection-tag-input" type="text" placeholder="Not issued yet" autocomplete="off">
             </div>
             <div class="form-group">
               <label>Certificate Expiry Date</label>
-              <input id="inspectionValidDate" type="date" value="${calculateValidDateFromTestDate(dateInputValue(), inspectiontype, "ANNUAL")}">
+              <input id="inspectionValidDate" type="date" value="${calculateValidDateFromTestDate(dateInputValue(), inspectiontype, defaultInspectionFrequencyForAsset(asset, inspectiontype))}">
             </div>
-            <div class="form-group">
-              <label>Inspection Frequency</label>
-              <select id="inspectionFrequency" onchange="updateInspectionValidDateFromTestDate('${inspectiontype}')">
-                <option value="ANNUAL" selected>Annual</option>
-                <option value="FREQUENT">Frequent</option>
-              </select>
-            </div>
+            ${renderInspectionFrequencyControl(asset, inspectiontype)}
           </div>
           ${renderHarnessSetupQuestions()}
-          <label class="crane-wide-field">Defect / rejection summary<textarea id="inspectionComments" rows="3"></textarea></label>
+          <label class="harness-setup-field harness-setup-field-wide">Defect / rejection summary<textarea id="inspectionComments" rows="3"></textarea></label>
         </div>
       </section>
 
@@ -6110,7 +6133,7 @@ function renderHarnessWizard(asset, assetCriteria, inspectiontype, quickDetails,
       <div class="crane-wizard-nav">
         <button type="button" class="secondary-btn" onclick="startInspection(${asset.assetid}, '${inspectiontype}', '${returnPage}', 'generic')">Use Generic Form</button>
         <button type="button" class="secondary-btn" onclick="craneWizardBack()">Back</button>
-        <button type="button" onclick="craneWizardNext()">Next</button>
+        <button type="button" id="craneWizardNextButton" onclick="craneWizardNext()">Next</button>
         <button type="button" class="load-test-btn" id="craneWizardSubmit" onclick="saveInspection(${asset.assetid}, '${inspectiontype}', '${returnPage}')" hidden>Save ${inspectiontype}</button>
         <button type="button" onclick="returnToInspectionOrigin('${returnPage}')">Cancel</button>
       </div>
@@ -6164,21 +6187,13 @@ function renderSlingWizard(asset, assetCriteria, inspectiontype, quickDetails, r
             </div>
             <div class="form-group">
               <label>Inspection Tag No <span class="optional-label">(Optional)</span></label>
-              <input id="inspectionTagNo" class="inspection-tag-input" type="text" placeholder="Not issued yet">
+              <input id="inspectionTagNo" class="inspection-tag-input" type="text" placeholder="Not issued yet" autocomplete="off">
             </div>
             <div class="form-group">
               <label>Certificate Expiry Date</label>
-              <input id="inspectionValidDate" type="date" value="${calculateValidDateFromTestDate(dateInputValue(), inspectiontype, inspectiontype === "LOADTEST" ? "" : "ANNUAL")}">
+              <input id="inspectionValidDate" type="date" value="${calculateValidDateFromTestDate(dateInputValue(), inspectiontype, defaultInspectionFrequencyForAsset(asset, inspectiontype))}">
             </div>
-            ${inspectiontype !== "LOADTEST" ? `
-              <div class="form-group">
-                <label>Inspection Frequency</label>
-                <select id="inspectionFrequency" onchange="updateInspectionValidDateFromTestDate('${inspectiontype}')">
-                  <option value="ANNUAL" selected>Annual</option>
-                  <option value="FREQUENT">Frequent</option>
-                </select>
-              </div>
-            ` : ""}
+            ${renderInspectionFrequencyControl(asset, inspectiontype)}
           </div>
           ${inspectiontype === "LOADTEST" ? `
             <div class="crane-load-test-grid">
@@ -6190,7 +6205,7 @@ function renderSlingWizard(asset, assetCriteria, inspectiontype, quickDetails, r
             </div>
           ` : ""}
           ${renderSlingSetupQuestions()}
-          <label class="crane-wide-field">Defect / rejection summary<textarea id="inspectionComments" rows="3"></textarea></label>
+          <label class="harness-setup-field harness-setup-field-wide">Defect / rejection summary<textarea id="inspectionComments" rows="3"></textarea></label>
         </div>
       </section>
 
@@ -6224,7 +6239,7 @@ function renderSlingWizard(asset, assetCriteria, inspectiontype, quickDetails, r
       <div class="crane-wizard-nav">
         <button type="button" class="secondary-btn" onclick="startInspection(${asset.assetid}, '${inspectiontype}', '${returnPage}', 'generic')">Use Generic Form</button>
         <button type="button" class="secondary-btn" onclick="craneWizardBack()">Back</button>
-        <button type="button" onclick="craneWizardNext()">Next</button>
+        <button type="button" id="craneWizardNextButton" onclick="craneWizardNext()">Next</button>
         <button type="button" class="load-test-btn" id="craneWizardSubmit" onclick="saveInspection(${asset.assetid}, '${inspectiontype}', '${returnPage}')" hidden>Save ${inspectiontype}</button>
         <button type="button" onclick="returnToInspectionOrigin('${returnPage}')">Cancel</button>
       </div>
@@ -6278,21 +6293,13 @@ function renderCraneWizard(asset, assetCriteria, inspectiontype, quickDetails, r
             </div>
             <div class="form-group">
               <label>Inspection Tag No <span class="optional-label">(Optional)</span></label>
-              <input id="inspectionTagNo" class="inspection-tag-input" type="text" placeholder="Not issued yet">
+              <input id="inspectionTagNo" class="inspection-tag-input" type="text" placeholder="Not issued yet" autocomplete="off">
             </div>
             <div class="form-group">
               <label>Certificate Expiry Date</label>
-              <input id="inspectionValidDate" type="date" value="${calculateValidDateFromTestDate(dateInputValue(), inspectiontype, inspectiontype === "LOADTEST" ? "" : "ANNUAL")}">
+              <input id="inspectionValidDate" type="date" value="${calculateValidDateFromTestDate(dateInputValue(), inspectiontype, defaultInspectionFrequencyForAsset(asset, inspectiontype))}">
             </div>
-            ${inspectiontype !== "LOADTEST" ? `
-              <div class="form-group">
-                <label>Inspection Frequency</label>
-                <select id="inspectionFrequency" onchange="updateInspectionValidDateFromTestDate('${inspectiontype}')">
-                  <option value="ANNUAL" selected>Annual</option>
-                  <option value="FREQUENT">Frequent</option>
-                </select>
-              </div>
-            ` : ""}
+            ${renderInspectionFrequencyControl(asset, inspectiontype)}
           </div>
           ${inspectiontype === "LOADTEST" ? `
             <div class="crane-load-test-grid">
@@ -6337,7 +6344,7 @@ function renderCraneWizard(asset, assetCriteria, inspectiontype, quickDetails, r
       <div class="crane-wizard-nav">
         <button type="button" class="secondary-btn" onclick="startInspection(${asset.assetid}, '${inspectiontype}', '${returnPage}', 'generic')">Use Generic Form</button>
         <button type="button" class="secondary-btn" onclick="craneWizardBack()">Back</button>
-        <button type="button" onclick="craneWizardNext()">Next</button>
+        <button type="button" id="craneWizardNextButton" onclick="craneWizardNext()">Next</button>
         <button type="button" class="load-test-btn" id="craneWizardSubmit" onclick="saveInspection(${asset.assetid}, '${inspectiontype}', '${returnPage}')" hidden>Save ${inspectiontype}</button>
         <button type="button" onclick="returnToInspectionOrigin('${returnPage}')">Cancel</button>
       </div>
@@ -6698,7 +6705,7 @@ function renderCraneWizardReview() {
       <div><span>Inspection Type</span><strong>${escapeHtml(document.querySelector("#inspectionTestDate") ? (document.querySelector(".crane-wizard")?.dataset.inspectionType || "") : "")}</strong></div>
       <div><span>Test Date</span><strong>${escapeHtml(document.querySelector("#inspectionTestDate")?.value || "-")}</strong></div>
       <div><span>Valid Date</span><strong>${escapeHtml(document.querySelector("#inspectionValidDate")?.value || "-")}</strong></div>
-      <div><span>Tag Number</span><strong>${escapeHtml(inspectionTagDisplay(document.querySelector("#inspectionTagNo")?.value))}</strong></div>
+      <div><span>Inspection Tag Number</span><strong>${escapeHtml(inspectionTagDisplay(document.querySelector("#inspectionTagNo")?.value))}</strong></div>
       <div><span>Inspector</span><strong>${escapeHtml(currentUser?.full_name || "-")}</strong></div>
       <div><span>Signature</span><strong>${currentUser?.signature_image ? "Saved" : "Not uploaded"}</strong></div>
       <div><span>Photos</span><strong>${photoCount}</strong></div>
@@ -6726,7 +6733,7 @@ function updateCraneWizardStep() {
   const titleNode = document.querySelector("#craneWizardStepTitle")
   const progress = document.querySelector("#craneWizardProgress")
   const submit = document.querySelector("#craneWizardSubmit")
-  const navNext = document.querySelector(".crane-wizard-nav button[onclick='craneWizardNext()']")
+  const navNext = document.querySelector("#craneWizardNextButton")
 
   if (label) label.textContent = `Step ${window.craneWizardCurrentStep + 1} of ${steps.length}`
   if (titleNode) titleNode.textContent = title
@@ -6885,8 +6892,7 @@ const visualCriteria = assetCriteria.filter(row => row.fieldtype !== "NUMBER")
 window.currentInspectionCriteria = assetCriteria
 window.currentInspectionType = inspectiontype
 const showInspectionPhotoUpload = String(asset.equipgroupid || "") === "400"
-const showInspectionFrequency = showInspectionPhotoUpload && inspectiontype !== "LOADTEST"
-const defaultInspectionFrequency = showInspectionFrequency ? "ANNUAL" : ""
+const defaultInspectionFrequency = defaultInspectionFrequencyForAsset(asset, inspectiontype)
 const defaultValidDate = calculateValidDateFromTestDate(defaultTestDate, inspectiontype, defaultInspectionFrequency)
 
 const inspectionWizardKey = getInspectionWizardKey(asset, assetCriteria, inspectiontype)
@@ -7042,6 +7048,7 @@ if (formMode !== "generic" && inspectionWizardKey === "SLING") {
         id="inspectionTagNo"
         class="inspection-tag-input"
         type="text"
+        autocomplete="off"
         placeholder="ENTER TAG NUMBER"
       >
     </div>
@@ -7055,18 +7062,7 @@ if (formMode !== "generic" && inspectionWizardKey === "SLING") {
       >
     </div>
 
-    ${showInspectionFrequency ? `
-      <div class="form-group">
-        <label>Inspection Frequency</label>
-        <select
-          id="inspectionFrequency"
-          onchange="updateInspectionValidDateFromTestDate('${inspectiontype}')"
-        >
-          <option value="ANNUAL" selected>Annual</option>
-          <option value="FREQUENT">Frequent</option>
-        </select>
-      </div>
-    ` : ""}
+    ${renderInspectionFrequencyControl(asset, inspectiontype)}
 
   </div>
 

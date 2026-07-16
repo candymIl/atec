@@ -715,6 +715,13 @@ function blankToNull(value) {
   return value === "" || value === undefined ? null : value
 }
 
+function truncateDbText(value, maxLength = 255) {
+  const text = String(value || "")
+  if (text.length <= maxLength) return text
+
+  return `${text.slice(0, Math.max(0, maxLength - 3))}...`
+}
+
 function pushAvailableColumn(columns, availableColumns, column, value) {
   if (availableColumns.has(column)) {
     columns.push([column, value])
@@ -5522,14 +5529,43 @@ app.post("/inspections",
         finalStatus = String(status).toUpperCase()
       }
 
-      const inspectionTagNumber =
+      const assetInspectionContextResult = await client.query(
+        `
+        SELECT
+          a.assettagno,
+          et.equipgroupid
+        FROM atec.tblasset a
+        LEFT JOIN atec.tblequiptype et
+          ON a.equiptypeid = et.equiptypeid
+        WHERE a.assetid = $1
+        `,
+        [assetid]
+      )
+      const assetInspectionContext = assetInspectionContextResult.rows[0] || {}
+
+      let inspectionTagNumber =
         typeof tagnumber === "string" && tagnumber.trim()
           ? tagnumber.trim()
           : null
+
+      if (inspectionTagNumber) {
+        const assetTagNumber = assetInspectionContext.assettagno
+
+        if (
+          assetTagNumber &&
+          normalizeAssetLookupValue(inspectionTagNumber) === normalizeAssetLookupValue(assetTagNumber)
+        ) {
+          inspectionTagNumber = null
+        }
+      }
+
+      const assetEquipGroupId = String(assetInspectionContext.equipgroupid || "")
       const normalizedInspectionFrequency =
-        ["FREQUENT", "ANNUAL"].includes(String(inspectionfrequency || "").toUpperCase())
+        String(inspectiontype || "").toUpperCase() === "LOADTEST"
+          ? null
+          : assetEquipGroupId === "400" && ["FREQUENT", "ANNUAL"].includes(String(inspectionfrequency || "").toUpperCase())
           ? String(inspectionfrequency).toUpperCase()
-          : null
+          : "FREQUENT"
 
       const optionalInspectionColumnResult = await client.query(
         `
@@ -5559,7 +5595,7 @@ app.post("/inspections",
         ["assetid", assetid],
         ["testdate", testdate],
         ["validdate", validdate || null],
-        ["comments", comments || ""],
+        ["comments", truncateDbText(comments || "")],
         ["status", finalStatus],
         ["inspectiontype", inspectiontype],
         ["inspector", inspectorProfile.full_name || req.user.full_name || ""]

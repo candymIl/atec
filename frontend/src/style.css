@@ -208,6 +208,11 @@ button:hover {
   background: #1d4ed8;
 }
 
+button[hidden],
+[hidden] {
+  display: none !important;
+}
+
 .cert-action-link {
   display: inline-flex;
   align-items: center;
@@ -1987,9 +1992,8 @@ tr:hover {
   background: #fff8dc;
   border: 3px solid #d4af37;
   border-radius: 10px;
-  padding: 10px;
+  padding: 14px 18px 18px;
   margin-bottom: 15px;
-  text-align: center;
 }
 
 .inspection-tag-title {
@@ -1998,6 +2002,7 @@ tr:hover {
   letter-spacing: 2px;
   color: #1d3557;
   margin-bottom: 12px;
+  text-align: center;
 }
 
 .inspection-tag-input {
@@ -2010,6 +2015,60 @@ tr:hover {
   padding: 8px;
   border: 3px solid #1d3557;
   border-radius: 8px;
+}
+
+.inspection-tag-card .form-row {
+  align-items: flex-start;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.inspection-tag-card .form-group {
+  min-width: 0;
+}
+
+.inspection-tag-card .form-group label,
+.harness-setup-field {
+  color: #111827;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.inspection-tag-card input,
+.inspection-tag-card select,
+.inspection-tag-card textarea {
+  margin: 0;
+  max-width: none;
+  width: 100%;
+}
+
+.harness-setup-fields {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  text-align: left;
+}
+
+.harness-setup-field {
+  display: grid;
+  gap: 6px;
+}
+
+.harness-setup-field-wide {
+  grid-column: 1 / -1;
+}
+
+.harness-setup-field input,
+.harness-setup-field select,
+.harness-setup-field textarea {
+  min-height: 34px;
+}
+
+.harness-setup-field textarea {
+  min-height: 76px;
+  resize: vertical;
 }
 
 .inspection-history-card {
@@ -3706,6 +3765,10 @@ tr:hover {
   .crane-load-test-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .inspection-tag-card .form-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 
@@ -4301,7 +4364,9 @@ tr:hover {
 
   .crane-asset-detail-grid,
   .crane-review-grid,
-  .crane-load-test-grid {
+  .crane-load-test-grid,
+  .harness-setup-fields,
+  .inspection-tag-card .form-row {
     grid-template-columns: 1fr;
   }
 

@@ -42,6 +42,12 @@ function sourceBetween(source, startNeedle, endNeedle) {
 
 const server = read("backend/server.js")
 const customerReportPage = read("frontend/src/pages/CustomerDetailedReport.js")
+const ownershipRepairMigration = read(
+  "database/2026-07-16-assign-deterministic-missing-section-responsible-persons.sql"
+)
+const ownershipRepairRollback = read(
+  "database/2026-07-16-rollback-assign-deterministic-missing-section-responsible-persons.sql"
+)
 const packageJson = JSON.parse(read("package.json"))
 
 const reportBody = sourceBetween(
@@ -135,6 +141,51 @@ assertIncludes(
 assert.strictEqual(
   packageJson.scripts["test:customer-report-responsible"],
   "node scripts/regression/customer-report-responsible-ownership.test.js"
+)
+
+assertIncludes(
+  ownershipRepairMigration,
+  "expected_section_count constant integer := 309",
+  "Milestone 1C migration must fail safely if the deterministic candidate count changes"
+)
+assertIncludes(
+  ownershipRepairMigration,
+  "sf.active_distinct_legacy_count = 1",
+  "Milestone 1C migration must only assign sections with exactly one legacy responsible person candidate"
+)
+assertIncludes(
+  ownershipRepairMigration,
+  "sec.responsibleid IS NULL",
+  "Milestone 1C migration must not overwrite existing section responsible persons"
+)
+assertIncludes(
+  ownershipRepairMigration,
+  "COALESCE(p.archived, false) = false",
+  "Milestone 1C migration must not assign archived responsible people"
+)
+assertIncludes(
+  ownershipRepairMigration,
+  "a.clientid IS DISTINCT FROM sec.clientid",
+  "Milestone 1C migration must exclude hierarchy-conflicted assets"
+)
+assertIncludes(
+  ownershipRepairMigration,
+  "atec.responsible_person_ownership_repair_audit",
+  "Milestone 1C migration must persist section-level rollback evidence"
+)
+assert(
+  !ownershipRepairMigration.includes("UPDATE atec.tblasset"),
+  "Milestone 1C migration must not update stale asset-level responsible persons"
+)
+assertIncludes(
+  ownershipRepairRollback,
+  "sec.responsibleid IS DISTINCT FROM audit.assigned_responsibleid",
+  "Milestone 1C rollback must refuse to overwrite later ownership changes"
+)
+assertIncludes(
+  ownershipRepairRollback,
+  "SET responsibleid = audit.previous_responsibleid",
+  "Milestone 1C rollback must restore only audited previous section ownership values"
 )
 
 console.log("Customer report responsible ownership regression checks passed.")
