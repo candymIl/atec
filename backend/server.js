@@ -790,6 +790,27 @@ function isInspectionSchemaMissingError(err) {
   ].some(name => text.includes(name))
 }
 
+async function getExistingColumnSet(tableName, columnNames) {
+  const result = await pool.query(
+    `
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'atec'
+      AND table_name = $1
+      AND column_name = ANY($2::text[])
+    `,
+    [tableName, columnNames]
+  )
+
+  return new Set(result.rows.map(row => row.column_name))
+}
+
+function optionalColumnSql(columns, alias, columnName, fallbackSql, outputName = columnName) {
+  return columns.has(columnName)
+    ? `${alias}.${columnName}`
+    : `${fallbackSql} AS ${outputName}`
+}
+
 function duplicateAssetResponse(res, duplicateType, duplicateAssetId) {
   const message = duplicateType === "serial"
     ? "Serial number already exists for this customer."
@@ -3036,6 +3057,24 @@ app.get("/assets/:id/qr-label.pdf", pdfLimiter, async (req, res) => {
 app.get("/assets/:id/quick-details", searchLimiter, async (req, res) => {
   try {
     const { id } = req.params
+    const assetOptionalColumns = await getExistingColumnSet("tblasset", [
+      "nfc_enabled",
+      "nfc_issued_at",
+      "nfc_revoked_at",
+      "nfc_last_scanned_at",
+      "nfc_scan_count"
+    ])
+    const inspectionOptionalColumns = await getExistingColumnSet("tblinspection", [
+      "inspector",
+      "inspector_name"
+    ])
+    const lastInspectorSql = inspectionOptionalColumns.has("inspector_name") && inspectionOptionalColumns.has("inspector")
+      ? "COALESCE(i.inspector_name, i.inspector)"
+      : inspectionOptionalColumns.has("inspector_name")
+        ? "i.inspector_name"
+        : inspectionOptionalColumns.has("inspector")
+          ? "i.inspector"
+          : "NULL"
 
     const result = await pool.query(`
       SELECT 
@@ -3050,11 +3089,11 @@ app.get("/assets/:id/quick-details", searchLimiter, async (req, res) => {
         a.qrcode,
         a.manufactdate,
         a.archived,
-        a.nfc_enabled,
-        a.nfc_issued_at,
-        a.nfc_revoked_at,
-        a.nfc_last_scanned_at,
-        a.nfc_scan_count,
+        ${optionalColumnSql(assetOptionalColumns, "a", "nfc_enabled", "false")},
+        ${optionalColumnSql(assetOptionalColumns, "a", "nfc_issued_at", "NULL")},
+        ${optionalColumnSql(assetOptionalColumns, "a", "nfc_revoked_at", "NULL")},
+        ${optionalColumnSql(assetOptionalColumns, "a", "nfc_last_scanned_at", "NULL")},
+        ${optionalColumnSql(assetOptionalColumns, "a", "nfc_scan_count", "0")},
 
         (
           SELECT i.testdate
@@ -3169,7 +3208,7 @@ app.get("/assets/:id/quick-details", searchLimiter, async (req, res) => {
         ) AS lastinspectiontag,
 
         (
-          SELECT i.inspector
+          SELECT ${lastInspectorSql}
           FROM atec.tblinspection i
           WHERE i.assetid = a.assetid
           ORDER BY i.testdate DESC, i.testid DESC

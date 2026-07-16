@@ -2431,7 +2431,19 @@ async function loadAssetNfcStatus(assetid) {
 }
 
 function renderNfcManagementPanel(asset, nfcStatus) {
-  if (!canManageNfcTokens() || !nfcStatus) return ""
+  if (!canManageNfcTokens()) return ""
+
+  if (!nfcStatus) {
+    return `
+      <div class="nfc-management-panel">
+        <div class="nfc-management-header">
+          <h4>NFC Tag</h4>
+          <strong>Unavailable</strong>
+        </div>
+        <p class="nfc-writing-note">NFC management could not be loaded. Confirm the NFC database migration has been applied and try again.</p>
+      </div>
+    `
+  }
 
   const enabled = Boolean(nfcStatus.nfc_enabled && nfcStatus.nfc_url)
   const issueDate = nfcStatus.nfc_issued_at ? nfcStatus.nfc_issued_at.split("T")[0] : "-"
@@ -2466,6 +2478,14 @@ function renderNfcManagementPanel(asset, nfcStatus) {
 }
 
 async function refreshNfcPanelAsset(assetid) {
+  const editPanel = document.querySelector('#editAssetNfcPanel')
+  if (editPanel) {
+    const asset = await getAssetForAction(assetid)
+    const nfcStatus = await loadAssetNfcStatus(assetid)
+    editPanel.innerHTML = renderNfcManagementPanel(asset, nfcStatus)
+    return
+  }
+
   await quickOpenAsset(assetid)
 }
 
@@ -3907,6 +3927,7 @@ window.editAsset = async function (assetid) {
 
   const groupid = String(selectedType?.equipgroupid || '')
   const dynamicEditFields = buildEditAssetDynamicFields(groupid, asset)
+  const nfcStatus = await loadAssetNfcStatus(asset.assetid)
   const showManufactureDate = groupid === '400'
   const equipmentTypeOptions = [...equipmentTypes]
     .sort((a, b) => (a.description || '').localeCompare(b.description || ''))
@@ -3936,7 +3957,7 @@ window.editAsset = async function (assetid) {
         </div>
 
         <div class="form-group">
-          <label>Asset Number(QR/NFC) <span class="optional-label">(Optional)</span></label>
+          <label>Asset Tag Number <span class="optional-label">(Optional)</span></label>
           <input id="editAssetTagNo" type="text" value="${safeAttr(asset.assettagno || '')}" placeholder="Customer tag / plant number if available">
         </div>
 
@@ -3993,6 +4014,12 @@ window.editAsset = async function (assetid) {
 
       </div>
     </div>
+
+    ${canManageNfcTokens() ? `
+      <div id="editAssetNfcPanel" class="filter-card">
+        ${renderNfcManagementPanel(asset, nfcStatus)}
+      </div>
+    ` : ''}
 
     <div class="photo-preview-grid">
       ${asset.media1 ? `
