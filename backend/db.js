@@ -1,5 +1,5 @@
 const { Pool } = require("pg");
-require("dotenv").config();
+require("dotenv").config({ override: true });
 const { dbPoolConfig } = require("./services/runtimeConfig")
 
 const poolConfig = dbPoolConfig(process.env)

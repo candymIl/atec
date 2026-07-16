@@ -81,8 +81,8 @@ export function assetSupportsInspectionWizard(asset = {}, criteria = [], inspect
 export function wizardActionLabel(asset = {}, criteria = [], inspectiontype = "VISUAL") {
   const config = resolveInspectionWizard(asset, criteria, inspectiontype)
   if (!config) return inspectiontype === "LOADTEST" ? "Load Test" : "Inspect"
-  if (config.id === craneWizardConfig.id) return inspectiontype === "LOADTEST" ? "Wizard Loadtest" : "Wizard Inspect"
-  if (config.id === harnessWizardConfig.id) return "Wizard Inspect"
-  if (config.id === slingWizardConfig.id) return inspectiontype === "LOADTEST" ? "Wizard Loadtest" : "Wizard Inspect"
-  return "Wizard Inspect"
+  if (config.id === craneWizardConfig.id) return inspectiontype === "LOADTEST" ? "Wizard Load Test" : "Wizard Inspect"
+  if (config.id === harnessWizardConfig.id) return inspectiontype === "LOADTEST" ? "Load Test" : "Wizard Inspect"
+  if (config.id === slingWizardConfig.id) return inspectiontype === "LOADTEST" ? "Wizard Load Test" : "Wizard Inspect"
+  return inspectiontype === "LOADTEST" ? "Load Test" : "Wizard Inspect"
 }

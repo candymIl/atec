@@ -8,7 +8,7 @@ const rateLimit = require("express-rate-limit")
 const bcrypt = require("bcryptjs")
 const crypto = require("crypto")
 const pool = require("./db");
-require("dotenv").config();
+require("dotenv").config({ override: true });
 const app = express();
 const backendStartedAt = new Date()
 const multer = require("multer");

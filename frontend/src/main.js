@@ -5222,7 +5222,7 @@ window.quickOpenAsset = async function (assetid) {
           ` : ""}
 
           ${canCreateAssetInspection ? `
-            <button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'LOADTEST', '${returnPage}', '${assetSupportsCraneWizard(asset) ? 'wizard' : 'auto'}')">${assetSupportsCraneWizard(asset) ? 'Wizard Loadtest' : 'Load Test'}</button>
+            <button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'LOADTEST', '${returnPage}', '${assetSupportsCraneWizard(asset) ? 'wizard' : 'auto'}')">${assetSupportsCraneWizard(asset) ? 'Wizard Load Test' : 'Load Test'}</button>
           ` : ""}
 
           <button onclick="openAssetQrLabel(${asset.assetid})">QR Label</button>
@@ -7344,7 +7344,7 @@ window.dashboardFindAsset = async function () {
                   }
                   ${
                     assetSupportsLoadTest(asset)
-                      ? `<button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'LOADTEST', 'quick', '${assetSupportsCraneWizard(asset) ? 'wizard' : 'auto'}')">${assetSupportsCraneWizard(asset) ? 'Wizard Loadtest' : 'Load Test'}</button>`
+                      ? `<button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'LOADTEST', 'quick', '${assetSupportsCraneWizard(asset) ? 'wizard' : 'auto'}')">${assetSupportsCraneWizard(asset) ? 'Wizard Load Test' : 'Load Test'}</button>`
                       : ""
                   }
                 </td>
