@@ -117,7 +117,10 @@ function resolveUploadFilePath(uploadPath, options = {}) {
   const uploadRelativePath = rawPath
     .replace(/^\/?uploads\//, "")
     .replace(/^\/+/, "")
-  const normalizedPath = path.posix.normalize(uploadRelativePath)
+  const assetRelativePath = uploadRelativePath.includes("/")
+    ? uploadRelativePath
+    : `assets/${uploadRelativePath}`
+  const normalizedPath = path.posix.normalize(assetRelativePath)
 
   if (
     !normalizedPath ||

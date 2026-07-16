@@ -551,15 +551,27 @@ function dueReasonForAsset(visualDue, loadDue, visualOverdue, loadOverdue) {
 function resolveUploadFilePath(uploadPath) {
   if (!uploadPath) return null
 
+  const rawPath = String(uploadPath).trim().replace(/\\/g, "/")
+  const uploadRelativePath = rawPath
+    .replace(/^\/?uploads\//, "")
+    .replace(/^\/+/, "")
+  const assetRelativePath = uploadRelativePath.includes("/")
+    ? uploadRelativePath
+    : `assets/${uploadRelativePath}`
   const normalizedPath = path.posix.normalize(
-    String(uploadPath).replace(/\\/g, "/")
+    assetRelativePath
   )
 
-  if (!normalizedPath.startsWith("/uploads/") || normalizedPath.includes("/../")) {
+  if (
+    !normalizedPath ||
+    normalizedPath.startsWith("../") ||
+    normalizedPath === ".." ||
+    path.posix.isAbsolute(normalizedPath)
+  ) {
     return null
   }
 
-  const fullPath = path.resolve(uploadsRoot, normalizedPath.replace(/^\/uploads\//, ""))
+  const fullPath = path.resolve(uploadsRoot, normalizedPath)
 
   return fullPath.startsWith(uploadsRoot + path.sep) ? fullPath : null
 }
@@ -6943,10 +6955,9 @@ function certificateTagNumberDisplay(inspection) {
 function certificateImagePath(imagePath) {
   if (!imagePath) return null
 
-  const normalizedPath = imagePath.replace(/^\/+/, "")
-  const fullPath = path.join(__dirname, normalizedPath)
+  const fullPath = resolveUploadFilePath(imagePath)
 
-  return fs.existsSync(fullPath) ? fullPath : null
+  return fullPath && fs.existsSync(fullPath) ? fullPath : null
 }
 
 function getCertificateTitle(inspection) {
