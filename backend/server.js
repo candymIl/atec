@@ -715,6 +715,12 @@ function blankToNull(value) {
   return value === "" || value === undefined ? null : value
 }
 
+function pushAvailableColumn(columns, availableColumns, column, value) {
+  if (availableColumns.has(column)) {
+    columns.push([column, value])
+  }
+}
+
 function normalizeAssetLookupValue(value) {
   return String(value || "").trim().toLowerCase()
 }
@@ -743,6 +749,40 @@ async function getActiveResponsibleSection(client, sectionid) {
     LIMIT 1
     `,
     [sectionid]
+  )
+
+  return result.rows[0] || null
+}
+
+async function getActiveVisitLocation(client, { clientid, siteid, sectionid = null }) {
+  if (!clientid || !siteid) return null
+
+  const result = await client.query(
+    `
+    SELECT
+      c.clientid,
+      s.siteid,
+      sec.sectionid
+    FROM atec.tblclients c
+    JOIN atec.tblsites s
+      ON s.clientid = c.clientid
+    LEFT JOIN atec.tblsection sec
+      ON sec.sectionid = $3::int
+     AND sec.siteid = s.siteid
+     AND sec.clientid = c.clientid
+    WHERE c.clientid = $1
+      AND s.siteid = $2
+      AND COALESCE(c.archived, false) = false
+      AND COALESCE(s.archived, false) = false
+      AND (
+        $3::int IS NULL OR (
+          sec.sectionid IS NOT NULL
+          AND COALESCE(sec.archived, false) = false
+        )
+      )
+    LIMIT 1
+    `,
+    [clientid, siteid, sectionid || null]
   )
 
   return result.rows[0] || null
@@ -4172,6 +4212,9 @@ async function buildVisitWorklistRows(client, {
       AND a.siteid = $2
       AND ($3::int IS NULL OR a.sectionid = $3::int)
       AND COALESCE(a.archived, false) = false
+      AND COALESCE(c.archived, false) = false
+      AND COALESCE(s.archived, false) = false
+      AND COALESCE(sec.archived, false) = false
     ORDER BY sec.sectionname NULLS LAST, a.assettagno NULLS LAST, a.assetid
     `,
     [clientid, siteid, sectionid || null]
@@ -4225,6 +4268,16 @@ function summarizeVisitWorklist(rows) {
 app.post("/inspection-visits/preview", asyncRoute(async (req, res) => {
   if (!canCreateOrCloseVisit(req.user)) {
     return res.status(403).json({ error: "Access denied" })
+  }
+
+  const location = await getActiveVisitLocation(pool, {
+    clientid: req.body.clientid,
+    siteid: req.body.siteid,
+    sectionid: req.body.sectionid
+  })
+
+  if (!location) {
+    return res.status(400).json({ error: "Select an active customer, site, and section for this visit." })
   }
 
   const rows = await buildVisitWorklistRows(pool, {
@@ -4290,6 +4343,17 @@ app.post("/inspection-visits", asyncRoute(async (req, res) => {
     const visitType = normalizeVisitScope(req.body.visit_type)
     const visitStatus = normalizeVisitStatus(req.body.visit_status, "DRAFT")
     const dueCutoff = req.body.due_cutoff || req.body.planned_start_at || new Date().toISOString()
+    const location = await getActiveVisitLocation(client, {
+      clientid: req.body.clientid,
+      siteid: req.body.siteid,
+      sectionid: req.body.sectionid
+    })
+
+    if (!location) {
+      await client.query("ROLLBACK")
+      return res.status(400).json({ error: "Select an active customer, site, and section for this visit." })
+    }
+
     const rows = await buildVisitWorklistRows(client, {
       clientid: req.body.clientid,
       siteid: req.body.siteid,
@@ -5480,7 +5544,11 @@ app.post("/inspections",
           "inspector_name",
           "inspector_lmi_number",
           "inspector_signature_image",
-          "inspectionfrequency"
+          "inspectionfrequency",
+          "tagnumber",
+          "photo1",
+          "photo2",
+          "updateassetphotos"
         ]]
       )
       const availableInspectionColumns = new Set(
@@ -5494,28 +5562,18 @@ app.post("/inspections",
         ["comments", comments || ""],
         ["status", finalStatus],
         ["inspectiontype", inspectiontype],
-        ["inspector", inspectorProfile.full_name || req.user.full_name || ""],
-        ["tagnumber", inspectionTagNumber],
-        ["photo1", photo1],
-        ["photo2", photo2],
-        ["updateassetphotos", updatePhotos]
+        ["inspector", inspectorProfile.full_name || req.user.full_name || ""]
       ]
 
-      if (availableInspectionColumns.has("inspector_user_id")) {
-        inspectionColumns.push(["inspector_user_id", inspectorProfile.user_id])
-      }
-      if (availableInspectionColumns.has("inspector_name")) {
-        inspectionColumns.push(["inspector_name", inspectorProfile.full_name || req.user.full_name || ""])
-      }
-      if (availableInspectionColumns.has("inspector_lmi_number")) {
-        inspectionColumns.push(["inspector_lmi_number", inspectorProfile.lmi_number || ""])
-      }
-      if (availableInspectionColumns.has("inspector_signature_image")) {
-        inspectionColumns.push(["inspector_signature_image", inspectorProfile.signature_image || ""])
-      }
-      if (availableInspectionColumns.has("inspectionfrequency")) {
-        inspectionColumns.push(["inspectionfrequency", normalizedInspectionFrequency])
-      }
+      pushAvailableColumn(inspectionColumns, availableInspectionColumns, "tagnumber", inspectionTagNumber)
+      pushAvailableColumn(inspectionColumns, availableInspectionColumns, "photo1", photo1)
+      pushAvailableColumn(inspectionColumns, availableInspectionColumns, "photo2", photo2)
+      pushAvailableColumn(inspectionColumns, availableInspectionColumns, "updateassetphotos", updatePhotos)
+      pushAvailableColumn(inspectionColumns, availableInspectionColumns, "inspector_user_id", inspectorProfile.user_id)
+      pushAvailableColumn(inspectionColumns, availableInspectionColumns, "inspector_name", inspectorProfile.full_name || req.user.full_name || "")
+      pushAvailableColumn(inspectionColumns, availableInspectionColumns, "inspector_lmi_number", inspectorProfile.lmi_number || "")
+      pushAvailableColumn(inspectionColumns, availableInspectionColumns, "inspector_signature_image", inspectorProfile.signature_image || "")
+      pushAvailableColumn(inspectionColumns, availableInspectionColumns, "inspectionfrequency", normalizedInspectionFrequency)
 
       const inspection = await client.query(
         `
@@ -5571,29 +5629,49 @@ app.post("/inspections",
         )
       }
 
+      const optionalResultColumnResult = await client.query(
+        `
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'atec'
+          AND table_name = 'tblinspectionresult'
+          AND column_name = ANY($1::text[])
+        `,
+        [[
+          "remarks",
+          "comments",
+          "assetvalue",
+          "measuredvalue",
+          "criteriadescription"
+        ]]
+      )
+      const availableResultColumns = new Set(
+        optionalResultColumnResult.rows.map(row => row.column_name)
+      )
+
       for (const row of parsedResults) {
+        const resultColumns = [
+          ["testid", testid],
+          ["criteriaid", row.criteriaid || null],
+          ["result", row.result || ""]
+        ]
+
+        pushAvailableColumn(resultColumns, availableResultColumns, "remarks", row.remarks || "")
+        pushAvailableColumn(resultColumns, availableResultColumns, "comments", row.remarks || "")
+        pushAvailableColumn(resultColumns, availableResultColumns, "assetvalue", blankToNull(row.assetvalue))
+        pushAvailableColumn(resultColumns, availableResultColumns, "measuredvalue", blankToNull(row.measuredvalue))
+        pushAvailableColumn(resultColumns, availableResultColumns, "criteriadescription", row.criteriadescription || row.criterianame || "")
+
         await client.query(
           `
           INSERT INTO atec.tblinspectionresult
           (
-            testid,
-            criteriaid,
-            result,
-            remarks,
-            assetvalue,
-            measuredvalue
+            ${resultColumns.map(([column]) => column).join(",\n            ")}
           )
           VALUES
-          ($1,$2,$3,$4,$5,$6)
+          (${resultColumns.map((_, index) => `$${index + 1}`).join(",")})
           `,
-          [
-            testid,
-            row.criteriaid || null,
-            row.result || "",
-            row.remarks || "",
-            row.assetvalue || null,
-            row.measuredvalue || null
-          ]
+          resultColumns.map(([, value]) => value)
         )
       }
 
@@ -9268,8 +9346,12 @@ function customerReportFilters(query = {}) {
 function customerScopedReportFilters(req) {
   const filters = customerReportFilters(req.query)
 
-  if (req.user.role === "CUSTOMER") {
+  if (["CUSTOMER", "VIEWER"].includes(req.user.role) && req.user.clientid) {
     filters.clientid = req.user.clientid || "-1"
+  }
+
+  if (["CUSTOMER", "VIEWER"].includes(req.user.role) && !req.user.clientid) {
+    filters.clientid = "-1"
   }
 
   return filters
@@ -9354,12 +9436,14 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
     customerWhere += ` AND EXISTS (
       SELECT 1
       FROM atec.tblasset customer_asset
+      LEFT JOIN atec.tblsection customer_section
+        ON customer_asset.sectionid = customer_section.sectionid
       WHERE customer_asset.clientid = c.clientid
-        AND customer_asset.responsibleid = $${customerValues.length}
+        AND customer_section.responsibleid = $${customerValues.length}
     )`
 
     values.push(responsibleid)
-    assetWhere += ` AND a.responsibleid = $${values.length}`
+    assetWhere += ` AND sec.responsibleid = $${values.length}`
   }
 
   if (equiptypeid) {
@@ -9399,14 +9483,14 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
       c.archived,
       COUNT(DISTINCT s.siteid) AS sitecount,
       COUNT(DISTINCT sec.sectionid) AS sectioncount,
-      COUNT(DISTINCT p.personid) AS responsiblecount
+      COUNT(DISTINCT section_person.personid) AS responsiblecount
     FROM atec.tblclients c
     LEFT JOIN atec.tblsites s
       ON c.clientid = s.clientid
     LEFT JOIN atec.tblsection sec
       ON c.clientid = sec.clientid
-    LEFT JOIN atec.tblpeople p
-      ON c.clientid = p.clientid
+    LEFT JOIN atec.tblpeople section_person
+      ON sec.responsibleid = section_person.personid
     ${customerWhere}
     GROUP BY c.clientid, c.clientname, c.clientaddr, c.archived
     ORDER BY c.clientname
@@ -9454,7 +9538,7 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
       a.archived,
       s.sitename,
       sec.sectionname,
-      p.name AS responsiblename,
+      section_person.name AS responsiblename,
       et.description AS equipmenttype,
       lv.testid AS visualtestid,
       lv.testdate AS visualtestdate,
@@ -9491,8 +9575,8 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
       ON a.siteid = s.siteid
     LEFT JOIN atec.tblsection sec
       ON a.sectionid = sec.sectionid
-    LEFT JOIN atec.tblpeople p
-      ON a.responsibleid = p.personid
+    LEFT JOIN atec.tblpeople section_person
+      ON sec.responsibleid = section_person.personid
     LEFT JOIN atec.tblequiptype et
       ON a.equiptypeid = et.equiptypeid
     LEFT JOIN latest_visual lv

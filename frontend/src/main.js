@@ -2570,6 +2570,10 @@ function canCreateInspectionVisits() {
   return ['ADMIN', 'MANAGER'].includes(currentUser?.role)
 }
 
+function isActiveRecord(row) {
+  return !(row?.archived === true || row?.archived === "true")
+}
+
 window.showInspectionVisits = async function () {
   if (!ensurePageAccess('visits')) return
 
@@ -2585,7 +2589,7 @@ window.showInspectionVisits = async function () {
             <label>Customer</label>
             <select id="visitClientId" onchange="renderVisitSiteOptions()">
               <option value="">Select customer</option>
-              ${customers.map(customer => `<option value="${safeAttr(customer.clientid)}">${escapeHtml(customer.clientname || '')}</option>`).join('')}
+              ${activeRecords(customers).map(customer => `<option value="${safeAttr(customer.clientid)}">${escapeHtml(customer.clientname || '')}</option>`).join('')}
             </select>
           </div>
           <div class="form-group">
@@ -2637,7 +2641,12 @@ window.renderVisitSiteOptions = function () {
   const siteSelect = document.querySelector('#visitSiteId')
   if (!siteSelect) return
 
-  const matchingSites = sites.filter(site => String(site.clientid) === String(clientid))
+  const matchingSites = sites
+    .filter(site =>
+      String(site.clientid) === String(clientid) &&
+      isActiveRecord(site)
+    )
+    .sort((a, b) => (a.sitename || '').localeCompare(b.sitename || ''))
   siteSelect.innerHTML = `<option value="">Select site</option>` + matchingSites
     .map(site => `<option value="${safeAttr(site.siteid)}">${escapeHtml(site.sitename || '')}</option>`)
     .join('')
@@ -2652,8 +2661,10 @@ window.renderVisitSectionOptions = function () {
 
   const matchingSections = sections.filter(section =>
     String(section.clientid) === String(clientid) &&
-    String(section.siteid) === String(siteid)
+    String(section.siteid) === String(siteid) &&
+    isActiveRecord(section)
   )
+    .sort((a, b) => (a.sectionname || '').localeCompare(b.sectionname || ''))
   sectionSelect.innerHTML = `<option value="">All sections</option>` + matchingSections
     .map(section => `<option value="${safeAttr(section.sectionid)}">${escapeHtml(section.sectionname || '')}</option>`)
     .join('')
