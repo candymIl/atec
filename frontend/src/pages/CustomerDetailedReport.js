@@ -19,7 +19,13 @@ export function renderCustomerDetailedReport(customers = [], equipmentTypes = []
     (a.sectionname || "").localeCompare(b.sectionname || "")
   )
 
-  const sortedResponsiblePersons = [...responsiblePersons].sort((a, b) =>
+  const seenResponsiblePersonIds = new Set()
+  const sortedResponsiblePersons = [...responsiblePersons].filter(person => {
+    const key = String(person.personid)
+    if (seenResponsiblePersonIds.has(key)) return false
+    seenResponsiblePersonIds.add(key)
+    return true
+  }).sort((a, b) =>
     (a.name || "").localeCompare(b.name || "")
   )
 

@@ -14,6 +14,8 @@ export function renderResponsiblePersons(responsiblePersons, responsibleArchiveM
   const sortedPeople = sortTableRows(visiblePeople, 'responsible', {
     personid: person => person.personid,
     clientname: person => person.clientname,
+    sitename: person => person.sitename,
+    sectionname: person => person.sectionname,
     name: person => person.name,
     archived: person => person.archived ? 'Archived' : 'Active'
   }, 'name')
@@ -72,8 +74,10 @@ export function renderResponsiblePersons(responsiblePersons, responsibleArchiveM
       <thead>
         <tr>
           <th>${sortHeader('Person ID', 'responsible', 'personid', 'showResponsiblePersons')}</th>
-          <th>${sortHeader('Client', 'responsible', 'clientname', 'showResponsiblePersons')}</th>
-          <th>${sortHeader('Name', 'responsible', 'name', 'showResponsiblePersons')}</th>
+          <th>${sortHeader('Customer', 'responsible', 'clientname', 'showResponsiblePersons')}</th>
+          <th>${sortHeader('Site', 'responsible', 'sitename', 'showResponsiblePersons')}</th>
+          <th>${sortHeader('Section', 'responsible', 'sectionname', 'showResponsiblePersons')}</th>
+          <th>${sortHeader('Responsible Person', 'responsible', 'name', 'showResponsiblePersons')}</th>
           <th>${sortHeader('Status', 'responsible', 'archived', 'showResponsiblePersons')}</th>
           <th>Actions</th>
         </tr>
@@ -84,10 +88,12 @@ export function renderResponsiblePersons(responsiblePersons, responsibleArchiveM
           <tr>
             <td>${escapeHtml(person.personid)}</td>
             <td>${escapeHtml(person.clientname || '')}</td>
+            <td>${escapeHtml(person.sitename || '')}</td>
+            <td>${escapeHtml(person.sectionname || 'Not assigned')}</td>
             <td>${escapeHtml(person.name || '')}</td>
             <td>${person.archived ? 'Archived' : 'Active'}</td>
             <td>
-              <button onclick="editResponsiblePerson(${person.personid})">
+              <button onclick="editResponsiblePerson(${person.personid}, ${person.sectionid || 'null'})">
                 Edit
               </button>
               ${canArchiveResponsiblePersons ? `

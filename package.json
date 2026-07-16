@@ -12,9 +12,17 @@
     "backup:retention:dry-run": "node scripts/atec-backup.js backup:retention",
     "backup:retention:apply": "node scripts/atec-backup.js backup:retention --apply",
     "backup:status": "node scripts/atec-backup.js backup:status",
+    "test:task7": "node scripts/regression/task7-performance-regression.test.js",
+    "test:task9": "node scripts/regression/task9-system-health.test.js",
+    "test:task13": "node scripts/regression/task13-nfc-assets.test.js",
+    "test:task14": "node scripts/regression/task14-onsite-visit-coverage.test.js",
     "test:task12a": "node scripts/regression/task12a-crane-wizard.test.js",
+    "test:task12-framework": "node scripts/regression/task12-wizard-framework.test.js",
+    "test:task12b": "node scripts/regression/task12b-harness-wizard.test.js",
+    "test:task12c": "node scripts/regression/task12c-sling-wizard.test.js",
     "test:task10": "node scripts/regression/task10-backup-dr.test.js",
-    "test:task11": "node scripts/regression/task11-performance-capacity.test.js"
+    "test:task11": "node scripts/regression/task11-performance-capacity.test.js",
+    "test:responsible-ownership": "node scripts/regression/responsible-person-ownership.test.js"
   },
   "dependencies": {
     "multer": "^2.1.1"

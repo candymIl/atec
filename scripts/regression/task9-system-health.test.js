@@ -127,7 +127,7 @@ async function main() {
       JWT_SECRET: "should-not-appear",
       SMTP_PASS: "should-not-appear",
       ATEC_BACKUP_ROOT: backupDir,
-      BACKUP_MAX_AGE_HOURS: "26",
+      BACKUP_MAX_AGE_HOURS: "72",
       BUILD_DATE: "2026-07-14T08:00:00.000Z"
     },
     startedAt: new Date("2026-07-14T09:00:00.000Z"),

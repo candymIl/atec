@@ -15,20 +15,24 @@ function assertIncludes(file, text, message) {
 const frontendMain = read("frontend/src/main.js")
 const assetSetup = read("frontend/src/pages/AssetSetup.js")
 const inspections = read("frontend/src/pages/Inspections.js")
+const wizardRegistry = read("frontend/src/inspectionWizard/wizardRegistry.js")
+const craneWizardConfig = read("frontend/src/inspectionWizard/configurations/craneWizardConfig.js")
+const wizardReview = read("frontend/src/inspectionWizard/WizardReview.js")
 const backendServer = read("backend/server.js")
 const craneDocs = read("docs/crane-inspection-wizard.md")
 const craneCriteriaMigration = read("database/2026-06-23-equipment-401-402-404-406-photos-and-critical-rule.sql")
 const optionalTagMigration = read("database/2026-07-15-task12a-optional-inspection-tag.sql")
 
 for (const id of ["401", "402", "404", "406"]) {
-  assertIncludes(frontendMain, `"${id}"`, `Crane wizard must detect equipment type ${id}`)
-  assertIncludes(assetSetup, `'${id}'`, `Asset setup must expose crane wizard for ${id}`)
-  assertIncludes(inspections, `'${id}'`, `Inspection list must expose crane wizard for ${id}`)
+  assertIncludes(craneWizardConfig, `"${id}"`, `Crane wizard must detect equipment type ${id}`)
   assertIncludes(craneDocs, `| ${id} |`, `Docs must list supported equipment type ${id}`)
 }
+assertIncludes(assetSetup, "assetSupportsCraneWizard", "Asset setup must expose crane wizard through the registry")
+assertIncludes(inspections, "assetSupportsCraneWizard", "Inspection list must expose crane wizard through the registry")
 
 assertIncludes(frontendMain, "function renderCraneWizard(", "Crane wizard renderer is missing")
-assertIncludes(frontendMain, "function getCraneWizardSection(", "Dynamic crane criteria grouping is missing")
+assertIncludes(craneWizardConfig, "getCriteriaSection", "Dynamic crane criteria grouping is missing")
+assertIncludes(wizardRegistry, "resolveInspectionWizard", "Wizard registry resolver is missing")
 assertIncludes(frontendMain, "startInspection(${asset.assetid}, '${inspectiontype}', '${returnPage}', 'generic')", "Generic fallback action is missing")
 assertIncludes(frontendMain, "validateCraneWizardStep", "Step validation is missing")
 assertIncludes(frontendMain, "window.inspectionSaveInProgress", "Double-submit protection is missing")
@@ -40,7 +44,7 @@ assertIncludes(frontendMain, "craneSubmitConfirmed", "Review confirmation is mis
 assertIncludes(frontendMain, "inspectionPhotos", "Inspection photo reuse is missing")
 assertIncludes(frontendMain, "Inspection Tag No <span class=\"optional-label\">(Optional)</span>", "Crane wizard tag number must be labelled optional")
 assert(!frontendMain.includes("Enter the inspection tag number before continuing."), "Crane wizard must not require inspection tag number")
-assertIncludes(frontendMain, "Not Issued", "Crane wizard review must display a blank tag as Not Issued")
+assertIncludes(wizardReview, "Not Issued", "Crane wizard review must display a blank tag as Not Issued")
 assertIncludes(frontendMain, "savedInspection.referenceId", "Inspection save errors must show server reference IDs")
 
 assertIncludes(frontendMain, "Use Generic Form", "Crane wizard must keep the internal generic form fallback")

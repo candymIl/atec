@@ -84,6 +84,7 @@ const pageAccess = {
   sections: ['ADMIN', 'MANAGER', 'INSPECTOR'],
   assets: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER'],
   inspections: ['ADMIN', 'MANAGER', 'INSPECTOR'],
+  visits: ['ADMIN', 'MANAGER', 'INSPECTOR'],
   'quick-inspection': ['ADMIN', 'MANAGER', 'INSPECTOR'],
   certificates: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER'],
   'customer-report': ['ADMIN', 'MANAGER', 'VIEWER', 'CUSTOMER'],
@@ -126,6 +127,10 @@ function canManageAssetRecords() {
 
 function canArchiveOrMoveAssetRecords() {
   return currentUser?.role === 'ADMIN'
+}
+
+function canManageNfcTokens() {
+  return ['ADMIN', 'MANAGER'].includes(currentUser?.role)
 }
 
 function canArchiveSetupRecords() {
@@ -874,6 +879,7 @@ async function loadData() {
     ${menuButton('sections', 'Sections', 'showSections()')}
     ${menuButton('assets', 'Assets', 'showAssetSetup()')}
     ${menuButton('inspections', 'Inspection/Testing', 'showInspections()')}
+    ${menuButton('visits', 'On-Site Visits', 'showInspectionVisits()')}
     ${menuButton('quick-inspection', 'Quick Inspection/Testing', 'showQuickInspection()')}
     ${menuButton('certificates', 'Certificates', 'showCertificateSearch()')}
     ${menuButton('customer-report', 'Reports', 'showCustomerDetailedReport()')}
@@ -1169,6 +1175,102 @@ window.unarchiveClient = async function (clientid) {
 
 let responsibleArchiveMode = localStorage.getItem("responsibleArchiveMode") || "active"
 
+function activeRecords(rows) {
+  return rows.filter(row => !(row.archived === true || row.archived === "true"))
+}
+
+function uniqueResponsiblePeopleForClient(clientid, selectedPersonId = '') {
+  const seen = new Set()
+
+  return responsiblePersons
+    .filter(person =>
+      String(person.clientid) === String(clientid) &&
+      (
+        !(person.archived === true || person.archived === "true") ||
+        String(person.personid) === String(selectedPersonId)
+      )
+    )
+    .filter(person => {
+      const key = String(person.personid)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+}
+
+function responsibleCustomerOptions(selectedClientId = '') {
+  return [...customers]
+    .sort((a, b) => (a.clientname || '').localeCompare(b.clientname || ''))
+    .map(client => `
+      <option value="${safeAttr(client.clientid)}" ${String(client.clientid) === String(selectedClientId) ? 'selected' : ''}>
+        ${escapeHtml(client.clientname)}
+      </option>
+    `)
+    .join('')
+}
+
+function updateResponsibleSiteOptions(selectedSiteId = '') {
+  const clientid = document.querySelector('#responsibleClient')?.value || ''
+  const siteSelect = document.querySelector('#responsibleSite')
+  const sectionSelect = document.querySelector('#responsibleSection')
+
+  if (!siteSelect || !sectionSelect) return
+
+  sectionSelect.innerHTML = `<option value="">Select Site First</option>`
+
+  if (!clientid) {
+    siteSelect.innerHTML = `<option value="">Select Customer First</option>`
+    return
+  }
+
+  const filteredSites = activeRecords(sites)
+    .filter(site => String(site.clientid) === String(clientid))
+    .sort((a, b) => (a.sitename || '').localeCompare(b.sitename || ''))
+
+  siteSelect.innerHTML = `
+    <option value="">Select Site</option>
+    ${filteredSites.map(site => `
+      <option value="${safeAttr(site.siteid)}" ${String(site.siteid) === String(selectedSiteId) ? 'selected' : ''}>
+        ${escapeHtml(site.sitename)}
+      </option>
+    `).join('')}
+  `
+}
+
+function updateResponsibleSectionOptions(selectedSectionId = '') {
+  const siteid = document.querySelector('#responsibleSite')?.value || ''
+  const sectionSelect = document.querySelector('#responsibleSection')
+
+  if (!sectionSelect) return
+
+  if (!siteid) {
+    sectionSelect.innerHTML = `<option value="">Select Site First</option>`
+    return
+  }
+
+  const filteredSections = activeRecords(sections)
+    .filter(section => String(section.siteid) === String(siteid))
+    .sort((a, b) => (a.sectionname || '').localeCompare(b.sectionname || ''))
+
+  sectionSelect.innerHTML = `
+    <option value="">Select Section</option>
+    ${filteredSections.map(section => `
+      <option value="${safeAttr(section.sectionid)}" ${String(section.sectionid) === String(selectedSectionId) ? 'selected' : ''}>
+        ${escapeHtml(section.sectionname)}
+      </option>
+    `).join('')}
+  `
+}
+
+window.filterResponsibleSites = function () {
+  updateResponsibleSiteOptions()
+}
+
+window.filterResponsibleSections = function () {
+  updateResponsibleSectionOptions()
+}
+
 window.showResponsiblePersons = function (mode = responsibleArchiveMode) {
   if (!ensurePageAccess('responsible')) return
 
@@ -1179,23 +1281,23 @@ window.showResponsiblePersons = function (mode = responsibleArchiveMode) {
 }
 
 window.showAddResponsiblePersonForm = function () {
-
-  const sortedCustomers = [...customers].sort((a, b) =>
-    (a.clientname || '').localeCompare(b.clientname || '')
-  )
-
   document.querySelector('#page').innerHTML = `
     <h2>Add Responsible Person</h2>
 
-    <label>Client</label>
-    <select id="responsibleClient">
-      <option value="">Select Client</option>
+    <label>Customer</label>
+    <select id="responsibleClient" onchange="filterResponsibleSites()">
+      <option value="">Select Customer</option>
+      ${responsibleCustomerOptions()}
+    </select>
 
-      ${sortedCustomers.map(client => `
-        <option value="${safeAttr(client.clientid)}">
-          ${escapeHtml(client.clientname)}
-        </option>
-      `).join('')}
+    <label>Site</label>
+    <select id="responsibleSite" onchange="filterResponsibleSections()">
+      <option value="">Select Customer First</option>
+    </select>
+
+    <label>Section</label>
+    <select id="responsibleSection">
+      <option value="">Select Site First</option>
     </select>
 
     <label>Responsible Person Name</label>
@@ -1213,13 +1315,13 @@ window.showAddResponsiblePersonForm = function () {
 
 window.saveResponsiblePerson = async function () {
 
-  const clientid =
-    document.querySelector('#responsibleClient').value
+  const sectionid =
+    document.querySelector('#responsibleSection').value
 
   const name =
     document.querySelector('#responsibleName').value
 
-  if (!clientid || !name) {
+  if (!sectionid || !name) {
     alert("Please complete all fields")
     return
   }
@@ -1234,7 +1336,7 @@ window.saveResponsiblePerson = async function () {
       },
 
       body: JSON.stringify({
-        clientid,
+        sectionid,
         name
       })
     }
@@ -1254,9 +1356,12 @@ window.saveResponsiblePerson = async function () {
   showResponsiblePersons()
 }
 
-window.editResponsiblePerson = function (personid) {
+window.editResponsiblePerson = function (personid, sectionid = null) {
 
-  const person = responsiblePersons.find(
+  const person = responsiblePersons.find(p =>
+    String(p.personid) === String(personid) &&
+    String(p.sectionid || '') === String(sectionid || '')
+  ) || responsiblePersons.find(
     p => String(p.personid) === String(personid)
   )
 
@@ -1267,6 +1372,22 @@ window.editResponsiblePerson = function (personid) {
 
   document.querySelector('#page').innerHTML = `
     <h2>Edit Responsible Person</h2>
+
+    <label>Customer</label>
+    <select id="responsibleClient" onchange="filterResponsibleSites()">
+      <option value="">Select Customer</option>
+      ${responsibleCustomerOptions(person.clientid)}
+    </select>
+
+    <label>Site</label>
+    <select id="responsibleSite" onchange="filterResponsibleSections()">
+      <option value="">Select Customer First</option>
+    </select>
+
+    <label>Section</label>
+    <select id="responsibleSection">
+      <option value="">Select Site First</option>
+    </select>
 
     <label>Name</label>
     <input
@@ -1283,6 +1404,9 @@ window.editResponsiblePerson = function (personid) {
       Cancel
     </button>
   `
+
+  updateResponsibleSiteOptions(person.siteid)
+  updateResponsibleSectionOptions(person.sectionid)
 }
 
 window.saveResponsiblePersonChanges = async function (personid) {
@@ -1293,6 +1417,13 @@ window.saveResponsiblePersonChanges = async function (personid) {
 
   const name =
     document.querySelector('#editResponsibleName').value
+  const sectionid =
+    document.querySelector('#responsibleSection').value
+
+  if (!sectionid || !name) {
+    alert("Please complete all fields")
+    return
+  }
 
   const response = await fetch(
     `${API_BASE}/responsible-persons/${personid}`,
@@ -1304,7 +1435,8 @@ window.saveResponsiblePersonChanges = async function (personid) {
       },
 
       body: JSON.stringify({
-        clientid: person.clientid,
+        sectionid,
+        previoussectionid: person.sectionid || null,
         name
       })
     }
@@ -1341,6 +1473,8 @@ window.filterResponsiblePersons = function (resetPage = false) {
     return (
       String(person.personid || '').includes(search) ||
       (person.clientname || '').toLowerCase().includes(search) ||
+      (person.sitename || '').toLowerCase().includes(search) ||
+      (person.sectionname || '').toLowerCase().includes(search) ||
       (person.name || '').toLowerCase().includes(search)
     )
   })
@@ -1361,10 +1495,12 @@ window.filterResponsiblePersons = function (resetPage = false) {
       <tr>
         <td>${escapeHtml(person.personid)}</td>
         <td>${escapeHtml(person.clientname || '')}</td>
+        <td>${escapeHtml(person.sitename || '')}</td>
+        <td>${escapeHtml(person.sectionname || 'Not assigned')}</td>
         <td>${escapeHtml(person.name || '')}</td>
         <td>${person.archived ? 'Archived' : 'Active'}</td>
         <td>
-          <button onclick="editResponsiblePerson(${person.personid})">
+          <button onclick="editResponsiblePerson(${person.personid}, ${person.sectionid || 'null'})">
             Edit
           </button>
           ${canArchiveSetupRecords() ? `
@@ -1522,12 +1658,7 @@ window.filterSectionDropdowns = function () {
     )
     .sort((a, b) => (a.sitename || '').localeCompare(b.sitename || ''))
 
-  const filteredResponsiblePersons = responsiblePersons
-    .filter(person =>
-      String(person.clientid) === String(clientid) &&
-      !(person.archived === true || person.archived === "true")
-    )
-    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+  const filteredResponsiblePersons = uniqueResponsiblePeopleForClient(clientid)
 
   siteSelect.innerHTML = `
     <option value="">Select Site</option>
@@ -1637,15 +1768,7 @@ window.editSection = function (sectionid) {
     return
   }
 
-  const filteredResponsiblePersons = responsiblePersons
-    .filter(person =>
-      String(person.clientid) === String(section.clientid) &&
-      (
-        !(person.archived === true || person.archived === "true") ||
-        String(person.personid) === String(section.responsibleid)
-      )
-    )
-    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+  const filteredResponsiblePersons = uniqueResponsiblePeopleForClient(section.clientid, section.responsibleid)
 
   document.querySelector('#page').innerHTML = `
     <h2>Edit Section</h2>
@@ -2299,6 +2422,514 @@ window.openAssetQrLabel = function (assetid) {
   window.open(`${API_BASE}/assets/${assetid}/qr-label.pdf`, "_blank")
 }
 
+async function loadAssetNfcStatus(assetid) {
+  if (!canManageNfcTokens()) return null
+
+  const response = await fetch(`${API_BASE}/assets/${assetid}/nfc`)
+  if (!response.ok) return null
+  return response.json()
+}
+
+function renderNfcManagementPanel(asset, nfcStatus) {
+  if (!canManageNfcTokens() || !nfcStatus) return ""
+
+  const enabled = Boolean(nfcStatus.nfc_enabled && nfcStatus.nfc_url)
+  const issueDate = nfcStatus.nfc_issued_at ? nfcStatus.nfc_issued_at.split("T")[0] : "-"
+  const lastScanned = nfcStatus.nfc_last_scanned_at ? nfcStatus.nfc_last_scanned_at.split("T")[0] : "-"
+  const scanCount = Number(nfcStatus.nfc_scan_count || 0)
+
+  return `
+    <div class="nfc-management-panel">
+      <div class="nfc-management-header">
+        <h4>NFC Tag</h4>
+        <strong>${enabled ? "Enabled" : nfcStatus.nfc_revoked_at ? "Revoked" : "Not issued"}</strong>
+      </div>
+      <div class="quick-detail-grid">
+        <p><span>Issue Date</span><strong>${escapeHtml(issueDate)}</strong></p>
+        <p><span>Last Scanned</span><strong>${escapeHtml(lastScanned)}</strong></p>
+        <p><span>Scan Count</span><strong>${escapeHtml(scanCount)}</strong></p>
+        <p class="quick-wide"><span>NFC URL</span><strong>${escapeHtml(nfcStatus.nfc_url || "Generate a token to create a URL")}</strong></p>
+      </div>
+      <div class="form-actions quick-result-actions">
+        ${enabled ? `
+          <button type="button" onclick="copyAssetNfcUrl('${safeAttr(nfcStatus.nfc_url)}')">Copy NFC URL</button>
+          <button type="button" onclick="window.open('${safeAttr(nfcStatus.nfc_url)}', '_blank')">Preview Tap</button>
+          <button type="button" onclick="rotateAssetNfcToken(${asset.assetid})">Replace Token</button>
+          <button type="button" class="danger-btn" onclick="revokeAssetNfcToken(${asset.assetid})">Revoke NFC</button>
+        ` : `
+          <button type="button" onclick="generateAssetNfcToken(${asset.assetid})">Generate NFC URL</button>
+        `}
+      </div>
+      <p class="nfc-writing-note">Write the copied HTTPS URL as an NDEF URI record. Test the tag before locking it read-only.</p>
+    </div>
+  `
+}
+
+async function refreshNfcPanelAsset(assetid) {
+  await quickOpenAsset(assetid)
+}
+
+window.copyAssetNfcUrl = async function (url) {
+  if (!url) return
+  await navigator.clipboard.writeText(url)
+  alert("NFC URL copied.")
+}
+
+window.generateAssetNfcToken = async function (assetid) {
+  const response = await fetch(`${API_BASE}/assets/${assetid}/nfc`, { method: "POST" })
+  const result = await response.json()
+  if (!response.ok) {
+    alert(result.error || "Could not generate NFC URL.")
+    return
+  }
+  await refreshNfcPanelAsset(assetid)
+}
+
+window.rotateAssetNfcToken = async function (assetid) {
+  if (!confirm("Replace this NFC token? Existing written NFC tags for this asset will stop working.")) return
+
+  const response = await fetch(`${API_BASE}/assets/${assetid}/nfc/rotate`, { method: "PUT" })
+  const result = await response.json()
+  if (!response.ok) {
+    alert(result.error || "Could not replace NFC token.")
+    return
+  }
+  await refreshNfcPanelAsset(assetid)
+}
+
+window.revokeAssetNfcToken = async function (assetid) {
+  if (!confirm("Revoke NFC access for this asset? Existing written NFC tags will stop working.")) return
+
+  const response = await fetch(`${API_BASE}/assets/${assetid}/nfc`, { method: "DELETE" })
+  const result = await response.json()
+  if (!response.ok) {
+    alert(result.error || "Could not revoke NFC access.")
+    return
+  }
+  await refreshNfcPanelAsset(assetid)
+}
+
+function getStartupAssetTap() {
+  const params = new URLSearchParams(window.location.search || "")
+  const nfc = String(params.get("nfc") || "").trim()
+  const qr = String(params.get("qr") || "").trim()
+
+  if (nfc) return { type: "nfc", value: nfc }
+  if (qr) return { type: "qr", value: qr }
+  return null
+}
+
+async function resolveStartupAssetTap(tap) {
+  const resultBox = document.querySelector("#quickInspectionResult")
+  if (!tap || !resultBox) return false
+
+  resultBox.innerHTML = `<p>Opening asset...</p>`
+
+  const path = tap.type === "nfc"
+    ? `/assets/nfc/${encodeURIComponent(tap.value)}`
+    : `/assets/qr/${encodeURIComponent(tap.value)}`
+
+  const response = await fetch(`${API_BASE}${path}`)
+  const result = await response.json()
+
+  if (!response.ok) {
+    resultBox.innerHTML = `
+      <div class="filter-card">
+        <h2>Asset tag unavailable</h2>
+        <p>${escapeHtml(result.error || "This asset tag could not be opened.")}</p>
+      </div>
+    `
+    return false
+  }
+
+  quickOpenAsset(result.assetid)
+  return true
+}
+
+function canCreateInspectionVisits() {
+  return ['ADMIN', 'MANAGER'].includes(currentUser?.role)
+}
+
+window.showInspectionVisits = async function () {
+  if (!ensurePageAccess('visits')) return
+
+  localStorage.setItem("currentPage", "visits")
+  document.querySelector('#page').innerHTML = `
+    <h2>On-Site Inspection Visits</h2>
+
+    ${canCreateInspectionVisits() ? `
+      <div class="filter-card visit-create-card">
+        <h3>Create Visit</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Customer</label>
+            <select id="visitClientId" onchange="renderVisitSiteOptions()">
+              <option value="">Select customer</option>
+              ${customers.map(customer => `<option value="${safeAttr(customer.clientid)}">${escapeHtml(customer.clientname || '')}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Site</label>
+            <select id="visitSiteId" onchange="renderVisitSectionOptions()">
+              <option value="">Select site</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Section</label>
+            <select id="visitSectionId">
+              <option value="">All sections</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Scope</label>
+            <select id="visitType">
+              <option value="VISUAL">Visual inspection</option>
+              <option value="LOADTEST">Load test</option>
+              <option value="COMBINED" selected>Combined</option>
+              <option value="SURVEY">Survey / asset verification</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Due Cutoff</label>
+            <input id="visitDueCutoff" type="date" value="${dateInputValue()}">
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" onclick="previewInspectionVisit()">Preview Due Assets</button>
+          <button type="button" class="load-test-btn" onclick="createInspectionVisit()">Create Visit</button>
+        </div>
+        <div id="visitPreviewResult"></div>
+      </div>
+    ` : ""}
+
+    <div class="filter-card">
+      <h3>Open / Recent Visits</h3>
+      <div id="inspectionVisitList"><p>Loading visits...</p></div>
+    </div>
+  `
+
+  renderVisitSiteOptions()
+  await loadInspectionVisits()
+}
+
+window.renderVisitSiteOptions = function () {
+  const clientid = document.querySelector('#visitClientId')?.value || ''
+  const siteSelect = document.querySelector('#visitSiteId')
+  if (!siteSelect) return
+
+  const matchingSites = sites.filter(site => String(site.clientid) === String(clientid))
+  siteSelect.innerHTML = `<option value="">Select site</option>` + matchingSites
+    .map(site => `<option value="${safeAttr(site.siteid)}">${escapeHtml(site.sitename || '')}</option>`)
+    .join('')
+  renderVisitSectionOptions()
+}
+
+window.renderVisitSectionOptions = function () {
+  const clientid = document.querySelector('#visitClientId')?.value || ''
+  const siteid = document.querySelector('#visitSiteId')?.value || ''
+  const sectionSelect = document.querySelector('#visitSectionId')
+  if (!sectionSelect) return
+
+  const matchingSections = sections.filter(section =>
+    String(section.clientid) === String(clientid) &&
+    String(section.siteid) === String(siteid)
+  )
+  sectionSelect.innerHTML = `<option value="">All sections</option>` + matchingSections
+    .map(section => `<option value="${safeAttr(section.sectionid)}">${escapeHtml(section.sectionname || '')}</option>`)
+    .join('')
+}
+
+function visitPayloadFromForm() {
+  return {
+    clientid: document.querySelector('#visitClientId')?.value || null,
+    siteid: document.querySelector('#visitSiteId')?.value || null,
+    sectionid: document.querySelector('#visitSectionId')?.value || null,
+    visit_type: document.querySelector('#visitType')?.value || 'COMBINED',
+    due_cutoff: document.querySelector('#visitDueCutoff')?.value || dateInputValue(),
+    visit_status: 'DRAFT'
+  }
+}
+
+window.previewInspectionVisit = async function () {
+  const response = await fetch(`${API_BASE}/inspection-visits/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(visitPayloadFromForm())
+  })
+  const result = await response.json()
+  const box = document.querySelector('#visitPreviewResult')
+  if (!box) return
+
+  if (!response.ok) {
+    box.innerHTML = `<p class="login-error">${escapeHtml(result.error || 'Preview failed')}</p>`
+    return
+  }
+
+  box.innerHTML = `
+    <div class="visit-count-grid">
+      <div><span>Total</span><strong>${escapeHtml(result.summary.total)}</strong></div>
+      <div><span>Visual Due</span><strong>${escapeHtml(result.summary.visual_due)}</strong></div>
+      <div><span>Load Tests Due</span><strong>${escapeHtml(result.summary.loadtest_due)}</strong></div>
+      <div><span>Both Due</span><strong>${escapeHtml(result.summary.both_due)}</strong></div>
+      <div><span>Overdue</span><strong>${escapeHtml(result.summary.overdue)}</strong></div>
+    </div>
+  `
+}
+
+window.createInspectionVisit = async function () {
+  const response = await fetch(`${API_BASE}/inspection-visits`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(visitPayloadFromForm())
+  })
+  const result = await response.json()
+
+  if (!response.ok) {
+    alert(result.error || 'Could not create visit.')
+    return
+  }
+
+  await openInspectionVisit(result.visit.visitid)
+}
+
+async function loadInspectionVisits() {
+  const response = await fetch(`${API_BASE}/inspection-visits`)
+  const visits = await response.json()
+  const box = document.querySelector('#inspectionVisitList')
+  if (!box) return
+
+  if (!response.ok) {
+    box.innerHTML = `<p class="login-error">${escapeHtml(visits.error || 'Could not load visits')}</p>`
+    return
+  }
+
+  box.innerHTML = `
+    <div class="visit-list">
+      ${visits.map(visit => `
+        <button type="button" class="visit-list-item" onclick="openInspectionVisit(${visit.visitid})">
+          <strong>${escapeHtml(visit.visit_reference || `Visit ${visit.visitid}`)}</strong>
+          <span>${escapeHtml(visit.clientname || '')} / ${escapeHtml(visit.sitename || '')}</span>
+          <span>${escapeHtml(visit.visit_type)} | ${escapeHtml(visit.visit_status)} | Outstanding ${escapeHtml(visit.outstanding_assets || 0)}</span>
+        </button>
+      `).join('') || '<p>No visits found.</p>'}
+    </div>
+  `
+}
+
+window.openInspectionVisit = async function (visitid) {
+  localStorage.setItem("currentPage", "visits")
+  const [visitResponse, assetsResponse] = await Promise.all([
+    fetch(`${API_BASE}/inspection-visits/${visitid}`),
+    fetch(`${API_BASE}/inspection-visits/${visitid}/assets?limit=250`)
+  ])
+  const visit = await visitResponse.json()
+  const worklist = await assetsResponse.json()
+
+  if (!visitResponse.ok || !assetsResponse.ok) {
+    alert(visit.error || worklist.error || "Could not open visit.")
+    return
+  }
+
+  const visitIsClosed = ['COMPLETED', 'CANCELLED'].includes(visit.visit_status)
+
+  document.querySelector('#page').innerHTML = `
+    <div class="visit-detail-header">
+      <div>
+        <h2>${escapeHtml(visit.visit_reference || `Visit ${visit.visitid}`)}</h2>
+        <p>${escapeHtml(visit.clientname || '')} / ${escapeHtml(visit.sitename || '')} ${visit.sectionname ? `/ ${escapeHtml(visit.sectionname)}` : ''}</p>
+      </div>
+      <div class="form-actions">
+        ${canCreateInspectionVisits() && ['DRAFT','PAUSED'].includes(visit.visit_status) ? `<button onclick="startInspectionVisit(${visit.visitid})">Start Visit</button>` : ''}
+        <button onclick="printInspectionVisitReport(${visit.visitid})">Report</button>
+        ${canCreateInspectionVisits() && !visitIsClosed ? `<button class="load-test-btn" onclick="closeInspectionVisit(${visit.visitid})">Close Visit</button>` : ''}
+      </div>
+    </div>
+
+    <div class="visit-count-grid">
+      <div><span>Total Due</span><strong>${escapeHtml(worklist.counts.total || 0)}</strong></div>
+      <div><span>Completed</span><strong>${escapeHtml(worklist.counts.completed || 0)}</strong></div>
+      <div><span>Due assets still unaccounted for</span><strong>${escapeHtml(worklist.counts.outstanding || 0)}</strong></div>
+      <div><span>Overdue</span><strong>${escapeHtml(worklist.counts.overdue || 0)}</strong></div>
+      <div><span>Deferred</span><strong>${escapeHtml(worklist.counts.deferred || 0)}</strong></div>
+    </div>
+
+    <div class="filter-card">
+      <h3>Worklist</h3>
+      <div class="visit-worklist">
+        ${worklist.rows.map(row => renderVisitAssetCard(visit, row)).join('') || '<p>No due assets in this visit scope.</p>'}
+      </div>
+    </div>
+
+    ${visitIsClosed ? '' : `<div class="filter-card">
+      <h3>Newly Discovered Asset</h3>
+      <div class="form-row">
+        <input id="visitDiscoveryDescription" placeholder="Description">
+        <input id="visitDiscoverySerial" placeholder="Serial number">
+        <input id="visitDiscoveryTag" placeholder="Asset tag">
+        <input id="visitDiscoveryLocation" placeholder="Section / location">
+      </div>
+      <textarea id="visitDiscoveryNotes" placeholder="Notes"></textarea>
+      <button onclick="addVisitDiscovery(${visit.visitid})">Record Discovery</button>
+    </div>`}
+  `
+}
+
+function renderVisitAssetCard(visit, row) {
+  const safeStatus = safeAttr(row.reconciliation_status || 'OUTSTANDING')
+  const visitIsClosed = ['COMPLETED', 'CANCELLED'].includes(visit.visit_status)
+  const actions = visitIsClosed ? '<span class="muted-text">Read-only completed visit</span>' : `
+        ${row.assetid ? `<button onclick="markVisitAssetScanned(${visit.visitid}, ${row.assetid})">Scanned</button>` : ''}
+        ${row.visual_due_flag ? `<button onclick="startInspection(${row.assetid}, 'VISUAL', 'visit:${visit.visitid}', 'auto', ${visit.visitid})">Visual</button>` : ''}
+        ${row.loadtest_due_flag ? `<button class="load-test-btn" onclick="startInspection(${row.assetid}, 'LOADTEST', 'visit:${visit.visitid}', 'auto', ${visit.visitid})">Load Test</button>` : ''}
+        <select onchange="setVisitAssetDisposition(${visit.visitid}, ${row.visitassetid}, this.value, '${safeStatus}')">
+          <option value="">Disposition...</option>
+          <option value="NOT_FOUND">Not found</option>
+          <option value="OUT_OF_SERVICE">Out of service</option>
+          <option value="REMOVED_FROM_SITE">Removed from site</option>
+          <option value="INACCESSIBLE">Inaccessible</option>
+          <option value="DEFERRED">Deferred</option>
+          <option value="CUSTOMER_CONFIRMED_REMOVED">Customer confirmed removed</option>
+          <option value="DUPLICATE_RECORD">Duplicate record</option>
+          <option value="NOT_REQUIRED">Not required</option>
+          <option value="OTHER">Other</option>
+        </select>`
+
+  return `
+    <div class="visit-asset-card ${safeAttr((row.reconciliation_status || '').toLowerCase())}">
+      <div>
+        <strong>${escapeHtml(row.assettag_snapshot || row.assetid || '-')}</strong>
+        <span>${escapeHtml(row.equipmenttype_snapshot || '-')} | ${escapeHtml(row.serial_snapshot || '-')}</span>
+        <span>${escapeHtml(row.due_reason || '')}</span>
+      </div>
+      <div class="visit-asset-meta">
+        <span>${escapeHtml(row.required_inspection_scope)}</span>
+        <strong>${escapeHtml(row.reconciliation_status)}</strong>
+      </div>
+      <div class="form-actions">
+        ${actions}
+      </div>
+    </div>
+  `
+}
+
+window.startInspectionVisit = async function (visitid) {
+  const response = await fetch(`${API_BASE}/inspection-visits/${visitid}/start`, { method: 'POST' })
+  const result = await response.json()
+  if (!response.ok) {
+    alert(result.error || 'Could not start visit.')
+    return
+  }
+  await openInspectionVisit(visitid)
+}
+
+window.markVisitAssetScanned = async function (visitid, assetid) {
+  const response = await fetch(`${API_BASE}/inspection-visits/${visitid}/scan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assetid })
+  })
+  const result = await response.json()
+  if (!response.ok) {
+    alert(result.error || 'Could not mark asset scanned.')
+    return
+  }
+  await openInspectionVisit(visitid)
+}
+
+window.setVisitAssetDisposition = async function (visitid, visitassetid, status) {
+  if (!status) return
+  const comments = prompt("Enter reconciliation comments:") || ""
+  const customerConfirmation = status === 'CUSTOMER_CONFIRMED_REMOVED'
+    ? prompt("Enter customer representative or confirmation note:") || ""
+    : ""
+  const response = await fetch(`${API_BASE}/inspection-visits/${visitid}/assets/${visitassetid}/disposition`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      reconciliation_status: status,
+      disposition_reason: status,
+      disposition_comments: comments,
+      customer_confirmation: customerConfirmation
+    })
+  })
+  const result = await response.json()
+  if (!response.ok) {
+    alert(result.error || 'Could not save disposition.')
+    return
+  }
+  await openInspectionVisit(visitid)
+}
+
+window.addVisitDiscovery = async function (visitid) {
+  const response = await fetch(`${API_BASE}/inspection-visits/${visitid}/discoveries`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      description: document.querySelector('#visitDiscoveryDescription')?.value || '',
+      serialno: document.querySelector('#visitDiscoverySerial')?.value || '',
+      assettagno: document.querySelector('#visitDiscoveryTag')?.value || '',
+      section_location: document.querySelector('#visitDiscoveryLocation')?.value || '',
+      notes: document.querySelector('#visitDiscoveryNotes')?.value || ''
+    })
+  })
+  const result = await response.json()
+  if (!response.ok) {
+    alert(result.error || 'Could not record discovery.')
+    return
+  }
+  await openInspectionVisit(visitid)
+}
+
+window.closeInspectionVisit = async function (visitid) {
+  let body = {}
+  let response = await fetch(`${API_BASE}/inspection-visits/${visitid}/close`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+  let result = await response.json()
+
+  if (response.status === 409) {
+    const reason = prompt(`Due assets still unaccounted for: ${result.unresolved}. Enter override reason or cancel:`)
+    if (!reason) return
+    body = { override: true, override_reason: reason }
+    response = await fetch(`${API_BASE}/inspection-visits/${visitid}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+    result = await response.json()
+  }
+
+  if (!response.ok) {
+    alert(result.error || 'Could not close visit.')
+    return
+  }
+  await openInspectionVisit(visitid)
+}
+
+window.printInspectionVisitReport = async function (visitid) {
+  const response = await fetch(`${API_BASE}/inspection-visits/${visitid}/report`)
+  const report = await response.json()
+  if (!response.ok) {
+    alert(report.error || 'Could not load report.')
+    return
+  }
+  const win = window.open('', '_blank')
+  win.document.write(`
+    <h1>${escapeHtml(report.visit.visit_reference || `Visit ${visitid}`)}</h1>
+    <p>${escapeHtml(report.visit.clientname || '')} / ${escapeHtml(report.visit.sitename || '')}</p>
+    <h2>Summary</h2>
+    <pre>${escapeHtml(JSON.stringify(report.summary, null, 2))}</pre>
+    <h2>Assets</h2>
+    <pre>${escapeHtml(JSON.stringify(report.assets, null, 2))}</pre>
+    <h2>Discoveries</h2>
+    <pre>${escapeHtml(JSON.stringify(report.discoveries, null, 2))}</pre>
+  `)
+  win.document.close()
+  win.print()
+}
+
 window.showAddAssetForm = function () {
   if (!canManageAssetRecords()) {
     showAccessDenied()
@@ -2606,12 +3237,7 @@ function showAssetResponsibleFallback(selectedResponsibleId = '') {
 
   if (!responsibleSelect || !responsibleNameInput) return
 
-  const filteredResponsiblePersons = responsiblePersons
-    .filter(person =>
-      String(person.clientid) === String(clientid) &&
-      !(person.archived === true || person.archived === "true")
-    )
-    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+  const filteredResponsiblePersons = uniqueResponsiblePeopleForClient(clientid)
 
   responsibleNameInput.style.display = 'none'
   responsibleSelect.style.display = ''
@@ -4235,6 +4861,9 @@ function normalizeQuickAssetScan(value = '') {
   const qrParamMatch = raw.match(/[?&]qr=([^&\s]+)/i)
   if (qrParamMatch) return decodeURIComponent(qrParamMatch[1]).trim()
 
+  const nfcParamMatch = raw.match(/[?&]nfc=([^&\s]+)/i)
+  if (nfcParamMatch) return decodeURIComponent(nfcParamMatch[1]).trim()
+
   const atecCodeMatch = raw.match(/ATEC-ASSET-\d+/i)
   if (atecCodeMatch) return atecCodeMatch[0].trim()
 
@@ -4286,7 +4915,10 @@ window.quickFindAsset = async function () {
 
   if (matchedAssets.length === 0) {
     try {
-      const response = await fetch(`${API_BASE}/assets/qr/${encodeURIComponent(search)}`)
+      const lookupPath = /^nfc_[A-Za-z0-9_-]{32,64}$/.test(normalizedSearch)
+        ? `/assets/nfc/${encodeURIComponent(normalizedSearch)}`
+        : `/assets/qr/${encodeURIComponent(search)}`
+      const response = await fetch(`${API_BASE}${lookupPath}`)
 
       if (response.ok) {
         const asset = await response.json()
@@ -4494,10 +5126,15 @@ window.quickOpenAsset = async function (assetid) {
     return
   }
 
+  const nfcStatus = await loadAssetNfcStatus(asset.assetid)
+  const activeVisitMatch = await loadActiveVisitMatch(asset.assetid)
+  const archived = Boolean(asset.archived)
+  const canCreateAssetInspection = canPerformInspections() && !archived
+
   resultBox.innerHTML = `
     <div class="filter-card quick-result-card">
       <div class="quick-result-header">
-        <h3>Asset Found</h3>
+        <h3>${archived ? "Archived Asset" : "Asset Found"}</h3>
         <strong>${escapeHtml(asset.assetid)}</strong>
       </div>
 
@@ -4538,21 +5175,59 @@ window.quickOpenAsset = async function (assetid) {
         ` : ''}
         </div>
 
-        <div class="form-actions quick-result-actions">
-          ${assetSupportsInspectionWizard(asset, criteria, 'VISUAL') ? `
-            <button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'VISUAL', '${returnPage}', 'wizard')">Wizard Inspect</button>
-          ` : `
-            <button onclick="startInspection(${asset.assetid}, 'VISUAL', '${returnPage}')">Visual Inspection</button>
-          `}
+        ${archived ? `<p class="login-error">This asset is archived. Inspection and load test actions are disabled.</p>` : ""}
 
-          <button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'LOADTEST', '${returnPage}', '${assetSupportsCraneWizard(asset) ? 'wizard' : 'auto'}')">${assetSupportsCraneWizard(asset) ? 'Wizard Loadtest' : 'Load Test'}</button>
+        <div class="form-actions quick-result-actions">
+          ${activeVisitMatch.length === 1 ? `
+            <button type="button" onclick="openAssetInActiveVisit(${activeVisitMatch[0].visitid}, ${asset.assetid})">
+              Open in Visit ${escapeHtml(activeVisitMatch[0].visit_reference || activeVisitMatch[0].visitid)}
+            </button>
+          ` : activeVisitMatch.length > 1 ? `
+            <button type="button" onclick="showVisitChoicesForAsset(${asset.assetid})">
+              Choose Active Visit
+            </button>
+          ` : ""}
+
+          ${canCreateAssetInspection && assetSupportsInspectionWizard(asset, criteria, 'VISUAL') ? `
+            <button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'VISUAL', '${returnPage}', 'wizard')">Wizard Inspect</button>
+          ` : canCreateAssetInspection ? `
+            <button onclick="startInspection(${asset.assetid}, 'VISUAL', '${returnPage}')">Visual Inspection</button>
+          ` : ""}
+
+          ${canCreateAssetInspection ? `
+            <button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'LOADTEST', '${returnPage}', '${assetSupportsCraneWizard(asset) ? 'wizard' : 'auto'}')">${assetSupportsCraneWizard(asset) ? 'Wizard Loadtest' : 'Load Test'}</button>
+          ` : ""}
 
           <button onclick="openAssetQrLabel(${asset.assetid})">QR Label</button>
         </div>
 
       </div>
+      ${renderNfcManagementPanel(asset, nfcStatus)}
     </div>
   `
+}
+
+async function loadActiveVisitMatch(assetid) {
+  try {
+    const response = await fetch(`${API_BASE}/inspection-visits/active-match?assetid=${encodeURIComponent(assetid)}`)
+    if (!response.ok) return []
+    const result = await response.json()
+    return Array.isArray(result.visits) ? result.visits : []
+  } catch (err) {
+    return []
+  }
+}
+
+window.openAssetInActiveVisit = async function (visitid, assetid) {
+  await markVisitAssetScanned(visitid, assetid)
+  await openInspectionVisit(visitid)
+}
+
+window.showVisitChoicesForAsset = async function (assetid) {
+  const visits = await loadActiveVisitMatch(assetid)
+  const choice = prompt(`Choose visit ID:\n${visits.map(visit => `${visit.visitid}: ${visit.visit_reference || ''}`).join('\n')}`)
+  const selected = visits.find(visit => String(visit.visitid) === String(choice))
+  if (selected) await openAssetInActiveVisit(selected.visitid, assetid)
 }
 
 window.startQuickInspection = function (assetid, inspectiontype) {
@@ -4971,6 +5646,15 @@ function getInspectionCriteriaRows(allCriteria, inspectiontype) {
 }
 
 function returnToInspectionOrigin(returnPage = "quick") {
+  if (String(returnPage || "").startsWith("visit:")) {
+    const visitid = String(returnPage).split(":")[1]
+    if (visitid) {
+      window.currentInspectionVisitId = null
+      openInspectionVisit(visitid)
+      return
+    }
+  }
+
   if (returnPage === "quick") {
     showQuickInspection()
     return
@@ -5078,11 +5762,15 @@ function isCriticalCriteria(row) {
   return String(row?.severity || "").toUpperCase() === "CRITICAL"
 }
 
+function isFailedInspectionResultValue(result) {
+  return ["FAIL", "NO", "NOT SAFE", "UNSAFE"].includes(String(result || "").trim().toUpperCase())
+}
+
 window.updateInspectionSafetyWarning = function () {
   const inspectionCriteria = window.currentInspectionCriteria || []
   const failedCriticalCriteria = inspectionCriteria.filter(row => {
     const result = document.querySelector(`#result-${row.criteriaid}`)?.value
-    return isCriticalCriteria(row) && !isSafeContinuationCriteria(row) && ["FAIL", "NO"].includes(result)
+    return isCriticalCriteria(row) && !isSafeContinuationCriteria(row) && isFailedInspectionResultValue(result)
   })
 
   const warning = document.querySelector("#inspectionCriticalWarning")
@@ -5827,7 +6515,7 @@ function getCraneWizardSteps() {
 function getCraneFailedCriticalCriteria() {
   return (window.currentInspectionCriteria || []).filter(row => {
     const result = document.querySelector(`#result-${row.criteriaid}`)?.value
-    return isCriticalCriteria(row) && !isSafeContinuationCriteria(row) && ["FAIL", "NO"].includes(result)
+    return isCriticalCriteria(row) && !isSafeContinuationCriteria(row) && isFailedInspectionResultValue(result)
   })
 }
 
@@ -5956,13 +6644,13 @@ function renderCraneWizardReview() {
   updateInspectionSafetyWarning()
   const failedRows = (window.currentInspectionCriteria || []).filter(row => {
     const result = document.querySelector(`#result-${row.criteriaid}`)?.value
-    return ["FAIL", "NO"].includes(result)
+    return isFailedInspectionResultValue(result)
   })
   const measuredRows = (window.currentInspectionCriteria || []).filter(row =>
     document.querySelector(`#measured-${row.criteriaid}`)?.value
   )
   const criticalRows = getCraneFailedCriticalCriteria()
-  const finalStatus = criticalRows.length || failedRows.some(isSafeContinuationCriteria) ? "NOT SAFE" : "SAFE"
+  const finalStatus = failedRows.length || criticalRows.length ? "NOT SAFE" : "SAFE"
   const photoCount = (window.pendingInspectionPhotos || []).length
   const harnessRows = getHarnessSetupReviewRows()
   const slingRows = getSlingSetupReviewRows()
@@ -6110,11 +6798,13 @@ function renderInspectionPhotoPreview() {
   `).join("")
 }
 
-window.startInspection = async function (assetid, inspectiontype = "VISUAL", returnPage = "quick", formMode = "auto") {
+window.startInspection = async function (assetid, inspectiontype = "VISUAL", returnPage = "quick", formMode = "auto", visitid = null) {
   if (!canPerformInspections()) {
     alert("You do not have permission to create inspections or load tests.")
     return
   }
+
+  window.currentInspectionVisitId = visitid || null
 
   if (returnPage === "assets") {
     rememberAssetListState()
@@ -7115,11 +7805,7 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
       break
     }
 
-    if (isSafeContinuationCriteria(row) && !["PASS", "YES"].includes(result)) {
-      overallStatus = "NOT SAFE"
-    }
-
-    if (isCriticalCriteria(row) && !isSafeContinuationCriteria(row) && ["FAIL", "NO"].includes(result)) {
+    if (isFailedInspectionResultValue(result)) {
       overallStatus = "NOT SAFE"
     }
 
@@ -7190,6 +7876,9 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
   formData.append("comments", inspectionComments)
   formData.append("status", overallStatus)
   formData.append("inspectiontype", inspectiontype)
+  if (window.currentInspectionVisitId) {
+    formData.append("visitid", window.currentInspectionVisitId)
+  }
   formData.append("inspectionfrequency", document.querySelector("#inspectionFrequency")?.value || "")
   formData.append("tagnumber", tagnumber)
   formData.append("results", JSON.stringify(results))
@@ -7268,6 +7957,14 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
 
 
 
+const startupTap = getStartupAssetTap()
+if (startupTap) {
+  localStorage.setItem("currentPage", "quick-inspection")
+  showQuickInspection()
+  await resolveStartupAssetTap(startupTap)
+  return
+}
+
 let currentPage =
   localStorage.getItem("currentPage") || "dashboard"
 
@@ -7304,6 +8001,10 @@ switch (currentPage) {
 
   case "inspections":
     showInspections()
+    break
+
+  case "visits":
+    showInspectionVisits()
     break
 
   case "quick-inspection":

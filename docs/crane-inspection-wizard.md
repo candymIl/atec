@@ -6,9 +6,11 @@ Task 12A adds a guided frontend wizard for crane equipment types while preservin
 
 No production deployment or production migration was run.
 
+Task 12 Framework moved crane wizard resolution and criteria grouping into `frontend/src/inspectionWizard/configurations/craneWizardConfig.js` and `frontend/src/inspectionWizard/wizardRegistry.js`. The rendering and save integration still use the existing inspection page and backend route.
+
 ## Supported Equipment Types
 
-The wizard is enabled for the crane equipment type IDs seeded by the existing overhead-crane criteria migration:
+The wizard is enabled explicitly for the crane equipment type IDs seeded by the existing overhead-crane criteria migration:
 
 | Equipment type ID | Source |
 | --- | --- |
@@ -18,6 +20,8 @@ The wizard is enabled for the crane equipment type IDs seeded by the existing ov
 | 406 | `database/2026-06-23-equipment-401-402-404-406-photos-and-critical-rule.sql` |
 
 The local `.env` points at an external database host, so the implementation audit did not connect to live data. The supported IDs are derived from the local migration/configuration files and existing frontend/backend behavior.
+
+Unknown future group-400 equipment types do not automatically receive the crane wizard unless matching inspection criteria exist.
 
 ## Visual Wizard Flow
 
@@ -67,7 +71,9 @@ Rated capacity is displayed from the asset `wll`. No new load multiplier was int
 
 ## Criteria Grouping
 
-The wizard groups existing database criteria by stable metadata first where available in the loaded criteria rows, then by criterion text categories for display only. It does not create a separate hard-coded crane checklist. The submitted result rows still use the original `criteriaid` values.
+The wizard groups existing database criteria by stable metadata first where available in the loaded criteria rows, then by config sections, then by criterion text categories for display only. It does not create a separate hard-coded crane checklist. The submitted result rows still use the original `criteriaid` values.
+
+`inspectioncategory` controls Visual versus Load Test applicability. `inspection_category` represents classification/grouping metadata and is not the primary applicability switch.
 
 ## Measurements
 

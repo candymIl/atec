@@ -1,0 +1,94 @@
+const assert = require("assert")
+const fs = require("fs")
+const path = require("path")
+
+const root = path.resolve(__dirname, "../..")
+
+function read(relativePath) {
+  return fs.readFileSync(path.join(root, relativePath), "utf8")
+}
+
+function assertIncludes(source, needle, message) {
+  assert(
+    source.includes(needle),
+    `${message}\nMissing: ${needle}`
+  )
+}
+
+const server = read("backend/server.js")
+const frontend = read("frontend/src/main.js")
+const migration = read("database/2026-07-15-task13-nfc-asset-support.sql")
+const docs = read("docs/nfc-asset-support.md")
+const roadmap = read("docs/next-roadmap-tasks-13-16.md")
+const packageJson = JSON.parse(read("package.json"))
+
+assertIncludes(server, 'crypto.randomBytes(24).toString("base64url")', "NFC identifier generation must use random opaque tokens")
+assertIncludes(server, "function isValidNfcToken", "Invalid token rejection helper is missing")
+assertIncludes(server, "/^nfc_[A-Za-z0-9_-]{32,64}$/.test", "NFC token format must be constrained")
+assertIncludes(server, "SELECT 1 FROM atec.tblasset WHERE nfc_token = $1 LIMIT 1", "NFC uniqueness check is missing")
+assertIncludes(server, "app.get(\"/assets/nfc/:token\", searchLimiter", "NFC lookup route must be rate limited")
+assertIncludes(server, "![\"ADMIN\", \"MANAGER\"].includes(req.user?.role)", "NFC management endpoints must enforce Admin/Manager server-side")
+assertIncludes(server, "return res.status(404).json({ error: \"Asset tag not found\" })", "Public lookup should minimize not-found information")
+assertIncludes(server, "UPDATE atec.tblasset", "NFC scan count and token management updates are missing")
+assertIncludes(server, "nfc_last_scanned_at = now()", "NFC last scan timestamp must be updated")
+assertIncludes(server, "nfc_scan_count = COALESCE(nfc_scan_count, 0) + 1", "NFC scan count must increment")
+assertIncludes(server, "NFC_SCAN_DENIED", "Denied NFC scans must be audited")
+assertIncludes(server, "NFC_ARCHIVED_ASSET_TAPPED", "Archived asset NFC taps must be audited")
+assertIncludes(server, "NFC_TOKEN_ISSUED", "NFC token issue audit event is missing")
+assertIncludes(server, "NFC_TOKEN_ROTATED", "NFC token rotation audit event is missing")
+assertIncludes(server, "NFC_TOKEN_REVOKED", "NFC token revoke audit event is missing")
+assertIncludes(server, "maskLookupToken(token)", "Audit logs must not expose full NFC tokens")
+assertIncludes(server, "nfc_token: undefined", "API responses must not expose raw NFC token")
+assertIncludes(server, "app.get(\"/assets/qr/:code\", searchLimiter", "Existing QR route must remain functional")
+assertIncludes(server, "LOWER(COALESCE(a.qrcode, '')) = LOWER($1)", "QR lookup compatibility must be preserved")
+assertIncludes(server, "[\"POST\", \"PUT\", \"DELETE\"].includes(method)", "NFC management must be server-authorized")
+assertIncludes(server, "role === \"MANAGER\"", "Manager NFC management path must remain")
+
+assertIncludes(frontend, "getStartupAssetTap", "Authentication return/deep-link helper is missing")
+assertIncludes(frontend, "params.get(\"nfc\")", "NFC return-to destination must be read from URL")
+assertIncludes(frontend, "params.get(\"qr\")", "QR return-to destination must keep working")
+assertIncludes(frontend, "await resolveStartupAssetTap(startupTap)", "Startup tap resolution is missing")
+assertIncludes(frontend, "canManageNfcTokens", "NFC management UI role gate is missing")
+assertIncludes(frontend, "['ADMIN', 'MANAGER'].includes", "Inspectors/Viewers/Customers must not manage NFC in the UI")
+assertIncludes(frontend, "Generate NFC URL", "NFC issue control is missing")
+assertIncludes(frontend, "Copy NFC URL", "NFC copy control is missing")
+assertIncludes(frontend, "Preview Tap", "NFC preview control is missing")
+assertIncludes(frontend, "Replace Token", "NFC rotate control is missing")
+assertIncludes(frontend, "Revoke NFC", "NFC revoke control is missing")
+assertIncludes(frontend, "This asset is archived. Inspection and load test actions are disabled.", "Archived NFC asset handling is missing")
+assertIncludes(frontend, "startInspection", "Existing inspection wizard routes must remain callable")
+assertIncludes(frontend, "/assets/qr/", "QR route compatibility must remain in frontend")
+assertIncludes(frontend, "/assets/nfc/", "NFC route compatibility must exist in frontend")
+
+assertIncludes(migration, "ADD COLUMN IF NOT EXISTS nfc_token", "NFC token migration column is missing")
+assertIncludes(migration, "ADD COLUMN IF NOT EXISTS nfc_enabled", "NFC enabled migration column is missing")
+assertIncludes(migration, "ADD COLUMN IF NOT EXISTS nfc_issued_at", "NFC issue date migration column is missing")
+assertIncludes(migration, "ADD COLUMN IF NOT EXISTS nfc_revoked_at", "NFC revocation migration column is missing")
+assertIncludes(migration, "ADD COLUMN IF NOT EXISTS nfc_last_scanned_at", "NFC scan date migration column is missing")
+assertIncludes(migration, "ADD COLUMN IF NOT EXISTS nfc_scan_count", "NFC scan count migration column is missing")
+assertIncludes(migration, "CREATE UNIQUE INDEX IF NOT EXISTS uq_tblasset_active_nfc_token", "Unique active NFC token index is missing")
+assertIncludes(migration, "WHERE nfc_token IS NOT NULL", "NFC unique index must be partial")
+assertIncludes(migration, "nfc_revoked_at IS NULL", "Revoked NFC tokens must be excluded from active unique index")
+assertIncludes(migration, "Read-only audit", "Migration must include read-only audit queries")
+assertIncludes(migration, "Rollback guidance", "Migration must include rollback guidance")
+
+assertIncludes(docs, "NDEF URI", "NFC writing documentation must mention NDEF URI")
+assertIncludes(docs, "anti-metal NFC tags", "Steel/crane anti-metal tag guidance is missing")
+assertIncludes(docs, "Do not permanently lock a tag before testing.", "Tag locking warning is missing")
+assertIncludes(docs, "Admins and Managers", "NFC permissions documentation is missing")
+assertIncludes(docs, "Full tokens are not written", "Audit token masking documentation is missing")
+assertIncludes(docs, "Known Limitations", "Known limitations section is missing")
+
+assertIncludes(roadmap, "Task 13: NFC Asset Support", "Master roadmap must mention Task 13")
+assertIncludes(roadmap, "Task 14: On-Site Due-Asset Coverage", "Master roadmap must mention Task 14")
+assertIncludes(roadmap, "Task 15: Customer Portal", "Master roadmap must mention Task 15")
+assertIncludes(roadmap, "Task 16: Email And Notifications", "Master roadmap must mention Task 16")
+
+assert.strictEqual(packageJson.scripts["test:task13"], "node scripts/regression/task13-nfc-assets.test.js")
+assert(packageJson.scripts["test:task7"], "Task 7 regression script should remain available")
+assert(packageJson.scripts["test:task9"], "Task 9 regression script should remain available")
+assert(packageJson.scripts["test:task10"], "Task 10 regression script should remain available")
+assert(packageJson.scripts["test:task11"], "Task 11 regression script should remain available")
+assert(packageJson.scripts["test:task12a"], "Task 12a regression script should remain available")
+
+console.log("Task 13 NFC asset regression checks passed")

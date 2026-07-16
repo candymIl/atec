@@ -6,6 +6,7 @@ const cookieParser = require("cookie-parser")
 const helmet = require("helmet")
 const rateLimit = require("express-rate-limit")
 const bcrypt = require("bcryptjs")
+const crypto = require("crypto")
 const pool = require("./db");
 require("dotenv").config();
 const app = express();
@@ -447,6 +448,106 @@ function makeAssetQrCode(assetid) {
   return `ATEC-ASSET-${assetid}`
 }
 
+function generateNfcToken() {
+  return `nfc_${crypto.randomBytes(24).toString("base64url")}`
+}
+
+function isValidNfcToken(token) {
+  return /^nfc_[A-Za-z0-9_-]{32,64}$/.test(String(token || ""))
+}
+
+function maskLookupToken(token) {
+  const value = String(token || "")
+  if (value.length <= 12) return "masked"
+  return `${value.slice(0, 6)}...${value.slice(-4)}`
+}
+
+function nfcUrlForToken(token) {
+  const appUrl = (process.env.PUBLIC_APP_URL || "https://www.fbcranes.co.za/atec").replace(/\/$/, "")
+  return `${appUrl}/?nfc=${encodeURIComponent(token)}`
+}
+
+async function createUniqueNfcToken() {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const token = generateNfcToken()
+    const existing = await pool.query(
+      "SELECT 1 FROM atec.tblasset WHERE nfc_token = $1 LIMIT 1",
+      [token]
+    )
+    if (existing.rows.length === 0) return token
+  }
+  throw new Error("Unable to generate unique NFC token")
+}
+
+const VISIT_ACTIVE_STATUSES = ["DRAFT", "OPEN", "PAUSED", "RECONCILIATION_REQUIRED"]
+const VISIT_SCOPES = ["VISUAL", "LOADTEST", "COMBINED", "SURVEY"]
+const VISIT_RESOLVED_STATUSES = [
+  "COMPLETED",
+  "NOT_FOUND",
+  "OUT_OF_SERVICE",
+  "REMOVED_FROM_SITE",
+  "INACCESSIBLE",
+  "DEFERRED",
+  "CUSTOMER_CONFIRMED_REMOVED",
+  "DUPLICATE_RECORD",
+  "NOT_REQUIRED",
+  "OTHER"
+]
+const VISIT_COMMENT_REQUIRED_STATUSES = new Set(
+  VISIT_RESOLVED_STATUSES.filter(status => status !== "COMPLETED")
+)
+
+function canCreateOrCloseVisit(user) {
+  return ["ADMIN", "MANAGER"].includes(user?.role)
+}
+
+function canWorkVisit(user) {
+  return ["ADMIN", "MANAGER", "INSPECTOR"].includes(user?.role)
+}
+
+function normalizeVisitScope(value) {
+  const scope = String(value || "COMBINED").toUpperCase()
+  return VISIT_SCOPES.includes(scope) ? scope : "COMBINED"
+}
+
+function normalizeVisitStatus(value, fallback = "DRAFT") {
+  const status = String(value || fallback).toUpperCase()
+  return ["DRAFT", "OPEN", "PAUSED", "RECONCILIATION_REQUIRED", "COMPLETED", "CANCELLED"].includes(status)
+    ? status
+    : fallback
+}
+
+function normalizeVisitDisposition(value) {
+  const status = String(value || "OUTSTANDING").toUpperCase()
+  return ["OUTSTANDING", ...VISIT_RESOLVED_STATUSES].includes(status) ? status : "OUTSTANDING"
+}
+
+function activeVisitStatusSql(alias = "v") {
+  return `${alias}.visit_status = ANY($1::text[])`
+}
+
+function visitScopeMatchesInspectionSql(scopeAlias = "v.visit_type") {
+  return `(
+    ${scopeAlias} = 'COMBINED'
+    OR (${scopeAlias} = 'VISUAL' AND $3 = 'VISUAL')
+    OR (${scopeAlias} = 'LOADTEST' AND $3 = 'LOADTEST')
+  )`
+}
+
+function requiredScopeForDue(visualDue, loadDue) {
+  if (visualDue && loadDue) return "BOTH"
+  if (visualDue) return "VISUAL"
+  if (loadDue) return "LOADTEST"
+  return "NONE"
+}
+
+function dueReasonForAsset(visualDue, loadDue, visualOverdue, loadOverdue) {
+  const parts = []
+  if (visualDue) parts.push(visualOverdue ? "Visual overdue" : "Visual due")
+  if (loadDue) parts.push(loadOverdue ? "Load test overdue" : "Load test due")
+  return parts.join("; ") || "Not due"
+}
+
 function resolveUploadFilePath(uploadPath) {
   if (!uploadPath) return null
 
@@ -587,13 +688,15 @@ function isCriticalFailure(resultRow, criteriaRow) {
     return false
   }
 
+  return isFailedInspectionResult(resultRow)
+}
+
+function isFailedInspectionResult(resultRow) {
   const result = String(resultRow?.result || "").trim().toUpperCase()
   const measuredValue = String(resultRow?.measuredvalue || "").trim().toUpperCase()
 
-  return result === "FAIL" ||
-    result === "NO" ||
-    measuredValue === "FAIL" ||
-    measuredValue === "NO"
+  return ["FAIL", "NO", "NOT SAFE", "UNSAFE"].includes(result) ||
+    ["FAIL", "NO", "NOT SAFE", "UNSAFE"].includes(measuredValue)
 }
 
 function blankToNull(value) {
@@ -602,6 +705,35 @@ function blankToNull(value) {
 
 function normalizeAssetLookupValue(value) {
   return String(value || "").trim().toLowerCase()
+}
+
+async function getActiveResponsibleSection(client, sectionid) {
+  const result = await client.query(
+    `
+    SELECT
+      sec.sectionid,
+      sec.siteid,
+      sec.clientid,
+      sec.responsibleid,
+      sec.sectionname,
+      s.sitename,
+      c.clientname
+    FROM atec.tblsection sec
+    JOIN atec.tblsites s
+      ON sec.siteid = s.siteid
+     AND sec.clientid = s.clientid
+    JOIN atec.tblclients c
+      ON sec.clientid = c.clientid
+    WHERE sec.sectionid = $1
+      AND COALESCE(sec.archived, false) = false
+      AND COALESCE(s.archived, false) = false
+      AND COALESCE(c.archived, false) = false
+    LIMIT 1
+    `,
+    [sectionid]
+  )
+
+  return result.rows[0] || null
 }
 
 function isDuplicateActiveClientSerialError(err) {
@@ -738,6 +870,8 @@ function applyCriticalSafetyRule(results, criteriaRows) {
 }
 
 function getSafeContinuationStatus(results, criteriaRows) {
+  if (results.some(isFailedInspectionResult)) return "NOT SAFE"
+
   const criteriaById = new Map(
     criteriaRows.map(row => [String(row.criteriaid), row])
   )
@@ -901,11 +1035,22 @@ function authorizeRequest(req, res, next) {
       return next()
     }
 
+    if (
+      ["POST", "PUT", "DELETE"].includes(method) &&
+      /^\/assets\/[^/]+\/nfc/.test(routePath)
+    ) {
+      return next()
+    }
+
     if (method === "POST" && /^\/certificates\/[^/]+\/email$/.test(routePath)) {
       return next()
     }
 
     if (["POST", "PUT"].includes(method) && routePath.startsWith("/she/")) {
+      return next()
+    }
+
+    if (routePath.startsWith("/inspection-visits")) {
       return next()
     }
 
@@ -937,6 +1082,7 @@ function authorizeRequest(req, res, next) {
         routePath.startsWith("/dashboard") ||
         routePath.startsWith("/equipment-types") ||
         routePath.startsWith("/inspection-photos") ||
+        routePath.startsWith("/inspection-visits") ||
         routePath.startsWith("/she/")
       )
     ) {
@@ -1022,6 +1168,13 @@ function authorizeRequest(req, res, next) {
         /^\/certificates\/[^/]+\/email$/.test(routePath) ||
         routePath === "/she/risk-assessments"
       )
+    ) {
+      return next()
+    }
+
+    if (
+      routePath.startsWith("/inspection-visits") &&
+      ["GET", "POST", "PUT"].includes(method)
     ) {
       return next()
     }
@@ -2338,6 +2491,288 @@ app.get("/assets/qr/:code", searchLimiter, async (req, res) => {
   }
 })
 
+app.get("/assets/nfc/:token", searchLimiter, asyncRoute(async (req, res) => {
+  const token = String(req.params.token || "").trim()
+
+  if (!isValidNfcToken(token)) {
+    await req.logAudit("NFC_SCAN_DENIED", "assets", null, { reason: "invalid_format" })
+    return res.status(404).json({ error: "Asset tag not found" })
+  }
+
+  const result = await pool.query(
+    `
+    SELECT
+      a.assetid,
+      a.equiptypeid,
+      a.serialno,
+      a.assettagno,
+      a.manufacturer,
+      a.description,
+      a.media1,
+      a.media2,
+      a.qrcode,
+      a.manufactdate,
+      a.archived,
+      a.nfc_token,
+      a.nfc_enabled,
+      a.nfc_issued_at,
+      a.nfc_revoked_at,
+      a.nfc_last_scanned_at,
+      a.nfc_scan_count,
+
+      (
+        SELECT i.testdate
+        FROM atec.tblinspection i
+        WHERE i.assetid = a.assetid
+          AND i.inspectiontype = 'VISUAL'
+        ORDER BY i.testdate DESC, i.testid DESC
+        LIMIT 1
+      ) AS lastvisualdate,
+
+      (
+        SELECT i.status
+        FROM atec.tblinspection i
+        WHERE i.assetid = a.assetid
+          AND i.inspectiontype = 'VISUAL'
+        ORDER BY i.testdate DESC, i.testid DESC
+        LIMIT 1
+      ) AS lastvisualstatus,
+
+      (
+        SELECT i.validdate
+        FROM atec.tblinspection i
+        WHERE i.assetid = a.assetid
+          AND i.inspectiontype = 'VISUAL'
+        ORDER BY i.testdate DESC, i.testid DESC
+        LIMIT 1
+      ) AS lastvisualvaliddate,
+
+      (
+        SELECT i.testdate
+        FROM atec.tblinspection i
+        WHERE i.assetid = a.assetid
+          AND i.inspectiontype = 'LOADTEST'
+        ORDER BY i.testdate DESC, i.testid DESC
+        LIMIT 1
+      ) AS lastloadtestdate,
+
+      (
+        SELECT i.status
+        FROM atec.tblinspection i
+        WHERE i.assetid = a.assetid
+          AND i.inspectiontype = 'LOADTEST'
+        ORDER BY i.testdate DESC, i.testid DESC
+        LIMIT 1
+      ) AS lastloadteststatus,
+
+      (
+        SELECT i.validdate
+        FROM atec.tblinspection i
+        WHERE i.assetid = a.assetid
+          AND i.inspectiontype = 'LOADTEST'
+        ORDER BY i.testdate DESC, i.testid DESC
+        LIMIT 1
+      ) AS lastloadtestvaliddate,
+
+      c.clientname,
+      s.sitename,
+      sec.sectionname,
+      et.description AS equipmenttype,
+      et.equipgroupid
+    FROM atec.tblasset a
+    LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
+    LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
+    LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
+    LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
+    WHERE a.nfc_token = $1
+    LIMIT 1
+    `,
+    [token]
+  )
+
+  const asset = result.rows[0]
+
+  if (!asset || !asset.nfc_enabled || asset.nfc_revoked_at) {
+    await req.logAudit("NFC_SCAN_DENIED", "assets", asset?.assetid || null, {
+      reason: asset ? "revoked_or_disabled" : "not_found",
+      token: maskLookupToken(token)
+    })
+    return res.status(404).json({ error: "Asset tag not found" })
+  }
+
+  await pool.query(
+    `
+    UPDATE atec.tblasset
+    SET nfc_last_scanned_at = now(),
+        nfc_scan_count = COALESCE(nfc_scan_count, 0) + 1
+    WHERE assetid = $1
+    `,
+    [asset.assetid]
+  )
+
+  await req.logAudit(
+    asset.archived ? "NFC_ARCHIVED_ASSET_TAPPED" : "NFC_SCAN",
+    "assets",
+    asset.assetid,
+    { token: maskLookupToken(token) }
+  )
+
+  res.json({
+    ...asset,
+    nfc_url: nfcUrlForToken(token),
+    nfc_token: undefined
+  })
+}))
+
+app.get("/assets/:id/nfc", asyncRoute(async (req, res) => {
+  if (!["ADMIN", "MANAGER"].includes(req.user?.role)) {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  const { id } = req.params
+  const result = await pool.query(
+    `
+    SELECT
+      assetid,
+      nfc_token,
+      nfc_enabled,
+      nfc_issued_at,
+      nfc_revoked_at,
+      nfc_last_scanned_at,
+      nfc_scan_count
+    FROM atec.tblasset
+    WHERE assetid = $1
+    `,
+    [id]
+  )
+
+  if (result.rows.length === 0) {
+    return res.status(404).json({ error: "Asset not found" })
+  }
+
+  const asset = result.rows[0]
+  res.json({
+    nfc_enabled: Boolean(asset.nfc_enabled && asset.nfc_token && !asset.nfc_revoked_at),
+    nfc_issued_at: asset.nfc_issued_at,
+    nfc_revoked_at: asset.nfc_revoked_at,
+    nfc_last_scanned_at: asset.nfc_last_scanned_at,
+    nfc_scan_count: Number(asset.nfc_scan_count || 0),
+    nfc_url: asset.nfc_token && !asset.nfc_revoked_at ? nfcUrlForToken(asset.nfc_token) : null
+  })
+}))
+
+app.post("/assets/:id/nfc", asyncRoute(async (req, res) => {
+  if (!["ADMIN", "MANAGER"].includes(req.user?.role)) {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  const { id } = req.params
+  const existing = await pool.query(
+    "SELECT assetid, nfc_token, nfc_revoked_at FROM atec.tblasset WHERE assetid = $1",
+    [id]
+  )
+
+  if (existing.rows.length === 0) {
+    return res.status(404).json({ error: "Asset not found" })
+  }
+
+  const asset = existing.rows[0]
+  const token = asset.nfc_token && !asset.nfc_revoked_at
+    ? asset.nfc_token
+    : await createUniqueNfcToken()
+
+  const result = await pool.query(
+    `
+    UPDATE atec.tblasset
+    SET nfc_token = $1,
+        nfc_enabled = true,
+        nfc_issued_at = COALESCE(nfc_issued_at, now()),
+        nfc_revoked_at = NULL
+    WHERE assetid = $2
+    RETURNING assetid, nfc_token, nfc_enabled, nfc_issued_at, nfc_revoked_at,
+      nfc_last_scanned_at, nfc_scan_count
+    `,
+    [token, id]
+  )
+
+  await req.logAudit("NFC_TOKEN_ISSUED", "assets", id, { token: maskLookupToken(token) })
+
+  res.json({
+    ...result.rows[0],
+    nfc_token: undefined,
+    nfc_url: nfcUrlForToken(token)
+  })
+}))
+
+app.put("/assets/:id/nfc/rotate", asyncRoute(async (req, res) => {
+  if (!["ADMIN", "MANAGER"].includes(req.user?.role)) {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  const { id } = req.params
+  const token = await createUniqueNfcToken()
+  const result = await pool.query(
+    `
+    UPDATE atec.tblasset
+    SET nfc_token = $1,
+        nfc_enabled = true,
+        nfc_issued_at = now(),
+        nfc_revoked_at = NULL,
+        nfc_last_scanned_at = NULL,
+        nfc_scan_count = 0
+    WHERE assetid = $2
+    RETURNING assetid, nfc_token, nfc_enabled, nfc_issued_at, nfc_revoked_at,
+      nfc_last_scanned_at, nfc_scan_count
+    `,
+    [token, id]
+  )
+
+  if (result.rows.length === 0) {
+    return res.status(404).json({ error: "Asset not found" })
+  }
+
+  await req.logAudit("NFC_TOKEN_ROTATED", "assets", id, { token: maskLookupToken(token) })
+
+  res.json({
+    ...result.rows[0],
+    nfc_token: undefined,
+    nfc_url: nfcUrlForToken(token)
+  })
+}))
+
+app.delete("/assets/:id/nfc", asyncRoute(async (req, res) => {
+  if (!["ADMIN", "MANAGER"].includes(req.user?.role)) {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  const { id } = req.params
+  const result = await pool.query(
+    `
+    UPDATE atec.tblasset
+    SET nfc_enabled = false,
+        nfc_revoked_at = now()
+    WHERE assetid = $1
+    RETURNING assetid, nfc_token, nfc_enabled, nfc_issued_at, nfc_revoked_at,
+      nfc_last_scanned_at, nfc_scan_count
+    `,
+    [id]
+  )
+
+  if (result.rows.length === 0) {
+    return res.status(404).json({ error: "Asset not found" })
+  }
+
+  await req.logAudit("NFC_TOKEN_REVOKED", "assets", id, {
+    token: maskLookupToken(result.rows[0].nfc_token)
+  })
+
+  res.json({
+    ...result.rows[0],
+    nfc_token: undefined,
+    nfc_url: null
+  })
+}))
+
 app.get("/assets/:id/qr-label.pdf", pdfLimiter, async (req, res) => {
   try {
     const { id } = req.params
@@ -2614,6 +3049,12 @@ app.get("/assets/:id/quick-details", searchLimiter, async (req, res) => {
         a.media2,
         a.qrcode,
         a.manufactdate,
+        a.archived,
+        a.nfc_enabled,
+        a.nfc_issued_at,
+        a.nfc_revoked_at,
+        a.nfc_last_scanned_at,
+        a.nfc_scan_count,
 
         (
           SELECT i.testdate
@@ -3617,19 +4058,786 @@ app.delete("/equipment-type-criteria/:id", async (req, res) => {
   }
 })
 
+async function buildVisitWorklistRows(client, {
+  clientid,
+  siteid,
+  sectionid = null,
+  visitType = "COMBINED",
+  dueCutoff = null
+}) {
+  const cutoffDate = dueCutoff ? new Date(dueCutoff) : new Date()
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  const result = await client.query(
+    `
+    SELECT
+      a.assetid,
+      a.clientid,
+      a.siteid,
+      a.sectionid,
+      a.equiptypeid,
+      a.assettagno,
+      a.serialno,
+      a.description,
+      c.clientname,
+      s.sitename,
+      sec.sectionname,
+      et.description AS equipmenttype,
+      latest_visual.testid AS visual_testid,
+      latest_visual.validdate AS visual_due_date,
+      latest_load.testid AS load_testid,
+      latest_load.validdate AS load_due_date
+    FROM atec.tblasset a
+    LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
+    LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
+    LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
+    LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
+    LEFT JOIN LATERAL (
+      SELECT i.testid, i.validdate
+      FROM atec.tblinspection i
+      WHERE i.assetid = a.assetid
+        AND i.inspectiontype = 'VISUAL'
+      ORDER BY i.testdate DESC, i.testid DESC
+      LIMIT 1
+    ) latest_visual ON true
+    LEFT JOIN LATERAL (
+      SELECT i.testid, i.validdate
+      FROM atec.tblinspection i
+      WHERE i.assetid = a.assetid
+        AND i.inspectiontype = 'LOADTEST'
+      ORDER BY i.testdate DESC, i.testid DESC
+      LIMIT 1
+    ) latest_load ON true
+    WHERE a.clientid = $1
+      AND a.siteid = $2
+      AND ($3::int IS NULL OR a.sectionid = $3::int)
+      AND COALESCE(a.archived, false) = false
+    ORDER BY sec.sectionname NULLS LAST, a.assettagno NULLS LAST, a.assetid
+    `,
+    [clientid, siteid, sectionid || null]
+  )
+
+  const scope = normalizeVisitScope(visitType)
+  const includesVisual = ["VISUAL", "COMBINED"].includes(scope)
+  const includesLoad = ["LOADTEST", "COMBINED"].includes(scope)
+
+  return result.rows.map(row => {
+    const visualDate = row.visual_due_date ? new Date(row.visual_due_date) : null
+    const loadDate = row.load_due_date ? new Date(row.load_due_date) : null
+    const visualDue = includesVisual && (!visualDate || visualDate <= cutoffDate)
+    const loadDue = includesLoad && (!loadDate || loadDate <= cutoffDate)
+    const visualOverdue = includesVisual && (!visualDate || visualDate < today)
+    const loadOverdue = includesLoad && (!loadDate || loadDate < today)
+    const requiredScope = scope === "SURVEY"
+      ? "SURVEY"
+      : requiredScopeForDue(visualDue, loadDue)
+
+    return {
+      ...row,
+      visual_due_flag: visualDue,
+      loadtest_due_flag: loadDue,
+      overdue_flag: visualOverdue || loadOverdue,
+      required_inspection_scope: requiredScope,
+      due_reason: scope === "SURVEY"
+        ? "Survey / asset verification"
+        : dueReasonForAsset(visualDue, loadDue, visualOverdue, loadOverdue)
+    }
+  }).filter(row => row.required_inspection_scope !== "NONE")
+}
+
+function summarizeVisitWorklist(rows) {
+  return rows.reduce((summary, row) => {
+    summary.total += 1
+    if (row.visual_due_flag) summary.visual_due += 1
+    if (row.loadtest_due_flag) summary.loadtest_due += 1
+    if (row.visual_due_flag && row.loadtest_due_flag) summary.both_due += 1
+    if (row.overdue_flag) summary.overdue += 1
+    return summary
+  }, {
+    total: 0,
+    visual_due: 0,
+    loadtest_due: 0,
+    both_due: 0,
+    overdue: 0
+  })
+}
+
+app.post("/inspection-visits/preview", asyncRoute(async (req, res) => {
+  if (!canCreateOrCloseVisit(req.user)) {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  const rows = await buildVisitWorklistRows(pool, {
+    clientid: req.body.clientid,
+    siteid: req.body.siteid,
+    sectionid: req.body.sectionid,
+    visitType: req.body.visit_type,
+    dueCutoff: req.body.due_cutoff
+  })
+
+  res.json({
+    summary: summarizeVisitWorklist(rows),
+    assets: rows.slice(0, 100)
+  })
+}))
+
+app.get("/inspection-visits", asyncRoute(async (req, res) => {
+  if (!canWorkVisit(req.user)) {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  const result = await pool.query(
+    `
+    SELECT
+      v.*,
+      c.clientname,
+      s.sitename,
+      sec.sectionname,
+      COALESCE(count(va.visitassetid), 0)::int AS total_assets,
+      COALESCE(count(va.visitassetid) FILTER (WHERE va.reconciliation_status = 'COMPLETED'), 0)::int AS completed_assets,
+      COALESCE(count(va.visitassetid) FILTER (WHERE va.reconciliation_status = 'OUTSTANDING'), 0)::int AS outstanding_assets
+    FROM atec.tblinspectionvisit v
+    LEFT JOIN atec.tblclients c ON v.clientid = c.clientid
+    LEFT JOIN atec.tblsites s ON v.siteid = s.siteid
+    LEFT JOIN atec.tblsection sec ON v.sectionid = sec.sectionid
+    LEFT JOIN atec.tblinspectionvisitasset va ON va.visitid = v.visitid
+    GROUP BY v.visitid, c.clientname, s.sitename, sec.sectionname
+    ORDER BY v.created_at DESC, v.visitid DESC
+    LIMIT 100
+    `
+  )
+
+  res.json(result.rows)
+}))
+
+app.post("/inspection-visits", asyncRoute(async (req, res) => {
+  if (!canCreateOrCloseVisit(req.user)) {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  const client = await pool.connect()
+
+  try {
+    await client.query("BEGIN")
+
+    const visitType = normalizeVisitScope(req.body.visit_type)
+    const visitStatus = normalizeVisitStatus(req.body.visit_status, "DRAFT")
+    const dueCutoff = req.body.due_cutoff || req.body.planned_start_at || new Date().toISOString()
+    const rows = await buildVisitWorklistRows(client, {
+      clientid: req.body.clientid,
+      siteid: req.body.siteid,
+      sectionid: req.body.sectionid,
+      visitType,
+      dueCutoff
+    })
+
+    const visit = await client.query(
+      `
+      INSERT INTO atec.tblinspectionvisit
+      (
+        visit_reference,
+        clientid,
+        siteid,
+        sectionid,
+        visit_type,
+        planned_start_at,
+        actual_start_at,
+        visit_status,
+        lead_inspector_user_id,
+        created_by_user_id,
+        notes,
+        customer_representative,
+        customer_reference,
+        due_cutoff_date,
+        due_soon_days,
+        include_overdue,
+        include_already_due,
+        include_due_during_visit
+      )
+      VALUES
+      (
+        COALESCE(NULLIF($1, ''), 'VISIT-' || to_char(now(), 'YYYYMMDDHH24MISS')),
+        $2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
+      )
+      RETURNING *
+      `,
+      [
+        req.body.visit_reference || "",
+        req.body.clientid,
+        req.body.siteid,
+        req.body.sectionid || null,
+        visitType,
+        req.body.planned_start_at || null,
+        visitStatus === "OPEN" ? new Date() : null,
+        visitStatus,
+        req.body.lead_inspector_user_id || req.user.user_id,
+        req.user.user_id,
+        req.body.notes || "",
+        req.body.customer_representative || "",
+        req.body.customer_reference || "",
+        dueCutoff,
+        Number(req.body.due_soon_days || 0),
+        req.body.include_overdue !== false,
+        req.body.include_already_due !== false,
+        req.body.include_due_during_visit !== false
+      ]
+    )
+
+    const visitid = visit.rows[0].visitid
+
+    if (req.body.members && Array.isArray(req.body.members)) {
+      for (const memberUserId of req.body.members) {
+        await client.query(
+          `
+          INSERT INTO atec.tblinspectionvisitmember (visitid, user_id, role_label, assigned_by_user_id)
+          VALUES ($1,$2,'INSPECTOR',$3)
+          ON CONFLICT (visitid, user_id) DO NOTHING
+          `,
+          [visitid, memberUserId, req.user.user_id]
+        )
+      }
+    }
+
+    for (const row of rows) {
+      await client.query(
+        `
+        INSERT INTO atec.tblinspectionvisitasset
+        (
+          visitid,
+          assetid,
+          clientid_snapshot,
+          siteid_snapshot,
+          sectionid_snapshot,
+          equipmenttypeid_snapshot,
+          equipmenttype_snapshot,
+          assettag_snapshot,
+          serial_snapshot,
+          description_snapshot,
+          due_reason,
+          visual_due_date_at_start,
+          loadtest_due_date_at_start,
+          visual_due_flag,
+          loadtest_due_flag,
+          overdue_flag,
+          required_inspection_scope
+        )
+        VALUES
+        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+        ON CONFLICT (visitid, assetid, required_inspection_scope)
+        WHERE assetid IS NOT NULL
+        DO NOTHING
+        `,
+        [
+          visitid,
+          row.assetid,
+          row.clientid,
+          row.siteid,
+          row.sectionid,
+          row.equiptypeid,
+          row.equipmenttype,
+          row.assettagno,
+          row.serialno,
+          row.description,
+          row.due_reason,
+          row.visual_due_date,
+          row.load_due_date,
+          row.visual_due_flag,
+          row.loadtest_due_flag,
+          row.overdue_flag,
+          row.required_inspection_scope
+        ]
+      )
+    }
+
+    await client.query(
+      `
+      INSERT INTO atec.tblinspectionvisitactivity (visitid, user_id, activity_type, details)
+      VALUES ($1,$2,'WORKLIST_GENERATED',$3::jsonb)
+      `,
+      [visitid, req.user.user_id, JSON.stringify(summarizeVisitWorklist(rows))]
+    )
+
+    await client.query("COMMIT")
+    await req.logAudit("VISIT_CREATED", "inspection_visits", visitid, {
+      visit_type: visitType,
+      worklist_assets: rows.length
+    })
+
+    res.json({
+      visit: visit.rows[0],
+      summary: summarizeVisitWorklist(rows)
+    })
+  } catch (err) {
+    await client.query("ROLLBACK")
+    console.error("Inspection visit create error:", err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  } finally {
+    client.release()
+  }
+}))
+
+app.get("/inspection-visits/active-match", asyncRoute(async (req, res) => {
+  if (!canWorkVisit(req.user)) {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  const assetid = req.query.assetid
+  const result = await pool.query(
+    `
+    SELECT
+      v.visitid,
+      v.visit_reference,
+      v.visit_type,
+      v.visit_status,
+      va.visitassetid,
+      va.first_scanned_at,
+      va.reconciliation_status
+    FROM atec.tblinspectionvisit v
+    JOIN atec.tblinspectionvisitasset va ON va.visitid = v.visitid
+    WHERE va.assetid = $1
+      AND v.visit_status = ANY($2::text[])
+    ORDER BY v.created_at DESC
+    `,
+    [assetid, VISIT_ACTIVE_STATUSES]
+  )
+
+  res.json({ visits: result.rows })
+}))
+
+app.get("/inspection-visits/:id", asyncRoute(async (req, res) => {
+  if (!canWorkVisit(req.user)) {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  const result = await pool.query(
+    `
+    SELECT
+      v.*,
+      c.clientname,
+      s.sitename,
+      sec.sectionname
+    FROM atec.tblinspectionvisit v
+    LEFT JOIN atec.tblclients c ON v.clientid = c.clientid
+    LEFT JOIN atec.tblsites s ON v.siteid = s.siteid
+    LEFT JOIN atec.tblsection sec ON v.sectionid = sec.sectionid
+    WHERE v.visitid = $1
+    `,
+    [req.params.id]
+  )
+
+  if (result.rows.length === 0) {
+    return res.status(404).json({ error: "Visit not found" })
+  }
+
+  res.json(result.rows[0])
+}))
+
+app.get("/inspection-visits/:id/assets", asyncRoute(async (req, res) => {
+  if (!canWorkVisit(req.user)) {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  const limit = Math.min(Math.max(Number(req.query.limit || 100), 1), 250)
+  const offset = Math.max(Number(req.query.offset || 0), 0)
+  const status = String(req.query.status || "").toUpperCase()
+  const values = [req.params.id, limit, offset]
+  let statusSql = ""
+
+  if (status) {
+    values.push(status)
+    statusSql = `AND va.reconciliation_status = $${values.length}`
+  }
+
+  const result = await pool.query(
+    `
+    SELECT
+      va.*,
+      count(*) OVER()::int AS total_count
+    FROM atec.tblinspectionvisitasset va
+    WHERE va.visitid = $1
+      ${statusSql}
+    ORDER BY
+      va.sectionid_snapshot NULLS LAST,
+      va.assettag_snapshot NULLS LAST,
+      va.visual_due_date_at_start NULLS LAST,
+      va.loadtest_due_date_at_start NULLS LAST,
+      va.visitassetid
+    LIMIT $2 OFFSET $3
+    `,
+    values
+  )
+
+  const counts = await pool.query(
+    `
+    SELECT
+      count(*)::int AS total,
+      count(*) FILTER (WHERE reconciliation_status = 'COMPLETED')::int AS completed,
+      count(*) FILTER (WHERE reconciliation_status = 'OUTSTANDING')::int AS outstanding,
+      count(*) FILTER (WHERE overdue_flag)::int AS overdue,
+      count(*) FILTER (WHERE visual_due_flag)::int AS visual_due,
+      count(*) FILTER (WHERE loadtest_due_flag)::int AS loadtest_due,
+      count(*) FILTER (WHERE reconciliation_status = 'NOT_FOUND')::int AS not_found,
+      count(*) FILTER (WHERE reconciliation_status = 'INACCESSIBLE')::int AS inaccessible,
+      count(*) FILTER (WHERE reconciliation_status = 'DEFERRED')::int AS deferred,
+      count(*) FILTER (WHERE reconciliation_status IN ('REMOVED_FROM_SITE','CUSTOMER_CONFIRMED_REMOVED'))::int AS removed
+    FROM atec.tblinspectionvisitasset
+    WHERE visitid = $1
+    `,
+    [req.params.id]
+  )
+
+  res.json({
+    rows: result.rows,
+    total: Number(result.rows[0]?.total_count || 0),
+    counts: counts.rows[0] || {}
+  })
+}))
+
+app.post("/inspection-visits/:id/start", asyncRoute(async (req, res) => {
+  if (!canCreateOrCloseVisit(req.user)) {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  const result = await pool.query(
+    `
+    UPDATE atec.tblinspectionvisit
+    SET visit_status = 'OPEN',
+        actual_start_at = COALESCE(actual_start_at, now()),
+        updated_at = now()
+    WHERE visitid = $1
+      AND visit_status IN ('DRAFT','PAUSED')
+    RETURNING *
+    `,
+    [req.params.id]
+  )
+
+  if (result.rows.length === 0) {
+    return res.status(404).json({ error: "Visit not found or cannot be started" })
+  }
+
+  await req.logAudit("VISIT_STARTED", "inspection_visits", req.params.id)
+  res.json(result.rows[0])
+}))
+
+app.post("/inspection-visits/:id/scan", asyncRoute(async (req, res) => {
+  if (!canWorkVisit(req.user)) {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  const result = await pool.query(
+    `
+    UPDATE atec.tblinspectionvisitasset va
+    SET first_scanned_at = COALESCE(first_scanned_at, now())
+    FROM atec.tblinspectionvisit v
+    WHERE va.visitid = v.visitid
+      AND va.visitid = $1
+      AND va.assetid = $2
+      AND v.visit_status = ANY($3::text[])
+    RETURNING va.*
+    `,
+    [req.params.id, req.body.assetid, VISIT_ACTIVE_STATUSES]
+  )
+
+  if (result.rows.length === 0) {
+    return res.status(409).json({ error: "This asset is not in the active visit worklist." })
+  }
+
+  await req.logAudit("VISIT_ASSET_SCANNED", "inspection_visits", req.params.id, {
+    assetid: req.body.assetid
+  })
+
+  res.json(result.rows[0])
+}))
+
+app.put("/inspection-visits/:id/assets/:visitassetid/disposition", asyncRoute(async (req, res) => {
+  if (!canWorkVisit(req.user)) {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  const status = normalizeVisitDisposition(req.body.reconciliation_status)
+  const comments = String(req.body.disposition_comments || "").trim()
+
+  if (VISIT_COMMENT_REQUIRED_STATUSES.has(status) && !comments) {
+    return res.status(400).json({ error: "Comments are required for this disposition." })
+  }
+
+  if (status === "CUSTOMER_CONFIRMED_REMOVED" && !String(req.body.customer_confirmation || "").trim()) {
+    return res.status(400).json({ error: "Customer confirmation is required." })
+  }
+
+  const existing = await pool.query(
+    `
+    SELECT va.*, v.visit_status
+    FROM atec.tblinspectionvisitasset va
+    JOIN atec.tblinspectionvisit v ON v.visitid = va.visitid
+    WHERE va.visitid = $1
+      AND va.visitassetid = $2
+    `,
+    [req.params.id, req.params.visitassetid]
+  )
+
+  if (existing.rows.length === 0) {
+    return res.status(404).json({ error: "Visit asset not found" })
+  }
+
+  const row = existing.rows[0]
+  if (!VISIT_ACTIVE_STATUSES.includes(row.visit_status)) {
+    return res.status(409).json({ error: "Completed or cancelled visits are read-only." })
+  }
+
+  if (
+    status === "COMPLETED" &&
+    (
+      (row.required_inspection_scope === "VISUAL" && !row.linked_visual_testid) ||
+      (row.required_inspection_scope === "LOADTEST" && !row.linked_loadtest_testid) ||
+      (row.required_inspection_scope === "BOTH" && (!row.linked_visual_testid || !row.linked_loadtest_testid))
+    )
+  ) {
+    return res.status(400).json({ error: "Completed requires the required linked inspection or load test." })
+  }
+
+  const result = await pool.query(
+    `
+    UPDATE atec.tblinspectionvisitasset
+    SET reconciliation_status = $1,
+        disposition_reason = $2,
+        disposition_comments = $3,
+        customer_confirmation = $4,
+        deferred_follow_up_date = $5,
+        resolved_by_user_id = $6,
+        resolution_at = now()
+    WHERE visitid = $7
+      AND visitassetid = $8
+    RETURNING *
+    `,
+    [
+      status,
+      req.body.disposition_reason || status,
+      comments,
+      req.body.customer_confirmation || "",
+      req.body.deferred_follow_up_date || null,
+      req.user.user_id,
+      req.params.id,
+      req.params.visitassetid
+    ]
+  )
+
+  await req.logAudit("VISIT_ASSET_DISPOSITION_SET", "inspection_visits", req.params.id, {
+    visitassetid: req.params.visitassetid,
+    status
+  })
+
+  res.json(result.rows[0])
+}))
+
+app.post("/inspection-visits/:id/discoveries", asyncRoute(async (req, res) => {
+  if (!canWorkVisit(req.user)) {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  const visitResult = await pool.query(
+    "SELECT visit_status FROM atec.tblinspectionvisit WHERE visitid = $1",
+    [req.params.id]
+  )
+
+  if (visitResult.rows.length === 0) {
+    return res.status(404).json({ error: "Visit not found" })
+  }
+
+  if (!VISIT_ACTIVE_STATUSES.includes(visitResult.rows[0].visit_status)) {
+    return res.status(409).json({ error: "Completed or cancelled visits are read-only." })
+  }
+
+  const duplicateCheck = await pool.query(
+    `
+    SELECT assetid
+    FROM atec.tblasset
+    WHERE COALESCE(archived, false) = false
+      AND (
+        ($1 <> '' AND lower(trim(serialno)) = lower(trim($1)))
+        OR ($2 <> '' AND lower(trim(assettagno)) = lower(trim($2)))
+        OR ($3 <> '' AND lower(trim(qrcode)) = lower(trim($3)))
+      )
+    LIMIT 5
+    `,
+    [
+      String(req.body.serialno || ""),
+      String(req.body.assettagno || ""),
+      String(req.body.qrcode || "")
+    ]
+  )
+
+  const result = await pool.query(
+    `
+    INSERT INTO atec.tblinspectionvisitdiscovery
+    (
+      visitid,
+      description,
+      equiptypeid,
+      serialno,
+      assettagno,
+      section_location,
+      notes,
+      customer_comment,
+      inspection_performed,
+      duplicate_warning,
+      created_by_user_id
+    )
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+    RETURNING *
+    `,
+    [
+      req.params.id,
+      req.body.description || "",
+      req.body.equiptypeid || null,
+      req.body.serialno || "",
+      req.body.assettagno || "",
+      req.body.section_location || "",
+      req.body.notes || "",
+      req.body.customer_comment || "",
+      req.body.inspection_performed === true,
+      duplicateCheck.rows.length ? JSON.stringify(duplicateCheck.rows) : null,
+      req.user.user_id
+    ]
+  )
+
+  await req.logAudit("VISIT_ASSET_DISCOVERED", "inspection_visits", req.params.id, {
+    discoveryid: result.rows[0].discoveryid,
+    duplicate_candidates: duplicateCheck.rows.length
+  })
+
+  res.json(result.rows[0])
+}))
+
+app.post("/inspection-visits/:id/close", asyncRoute(async (req, res) => {
+  if (!canCreateOrCloseVisit(req.user)) {
+    return res.status(403).json({ error: "Only Admin or Manager users can close or override visit closure." })
+  }
+
+  const unresolved = await pool.query(
+    `
+    SELECT count(*)::int AS unresolved
+    FROM atec.tblinspectionvisitasset
+    WHERE visitid = $1
+      AND reconciliation_status = 'OUTSTANDING'
+    `,
+    [req.params.id]
+  )
+
+  const unresolvedCount = Number(unresolved.rows[0]?.unresolved || 0)
+  const override = req.body.override === true
+  const overrideReason = String(req.body.override_reason || "").trim()
+
+  if (unresolvedCount > 0 && (!override || !overrideReason)) {
+    await req.logAudit("VISIT_CLOSE_BLOCKED", "inspection_visits", req.params.id, { unresolved: unresolvedCount })
+    return res.status(409).json({
+      error: "Due assets still unaccounted for.",
+      unresolved: unresolvedCount
+    })
+  }
+
+  const result = await pool.query(
+    `
+    UPDATE atec.tblinspectionvisit
+    SET visit_status = 'COMPLETED',
+        actual_completion_at = now(),
+        closure_summary = $2::jsonb,
+        closure_override_reason = $3,
+        closed_by_user_id = $4,
+        updated_at = now()
+    WHERE visitid = $1
+      AND visit_status <> 'COMPLETED'
+    RETURNING *
+    `,
+    [
+      req.params.id,
+      JSON.stringify({ unresolved: unresolvedCount, override }),
+      overrideReason,
+      req.user.user_id
+    ]
+  )
+
+  if (result.rows.length === 0) {
+    return res.status(404).json({ error: "Visit not found or already completed" })
+  }
+
+  await req.logAudit(override ? "VISIT_CLOSURE_OVERRIDE" : "VISIT_COMPLETED", "inspection_visits", req.params.id, {
+    unresolved: unresolvedCount
+  })
+
+  res.json(result.rows[0])
+}))
+
+app.get("/inspection-visits/:id/report", asyncRoute(async (req, res) => {
+  if (!canWorkVisit(req.user)) {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  const visit = await pool.query(
+    `
+    SELECT v.*, c.clientname, s.sitename, sec.sectionname
+    FROM atec.tblinspectionvisit v
+    LEFT JOIN atec.tblclients c ON v.clientid = c.clientid
+    LEFT JOIN atec.tblsites s ON v.siteid = s.siteid
+    LEFT JOIN atec.tblsection sec ON v.sectionid = sec.sectionid
+    WHERE v.visitid = $1
+    `,
+    [req.params.id]
+  )
+
+  if (visit.rows.length === 0) {
+    return res.status(404).json({ error: "Visit not found" })
+  }
+
+  const assets = await pool.query(
+    "SELECT * FROM atec.tblinspectionvisitasset WHERE visitid = $1 ORDER BY visitassetid",
+    [req.params.id]
+  )
+  const discoveries = await pool.query(
+    "SELECT * FROM atec.tblinspectionvisitdiscovery WHERE visitid = $1 ORDER BY discoveryid",
+    [req.params.id]
+  )
+
+  res.json({
+    visit: visit.rows[0],
+    assets: assets.rows,
+    discoveries: discoveries.rows,
+    summary: {
+      total_due: assets.rows.length,
+      completed: assets.rows.filter(row => row.reconciliation_status === "COMPLETED").length,
+      outstanding: assets.rows.filter(row => row.reconciliation_status === "OUTSTANDING").length,
+      not_safe: assets.rows.filter(row => row.disposition_reason === "NOT SAFE").length,
+      newly_discovered: discoveries.rows.length
+    }
+  })
+}))
+
 app.get("/responsible-persons", async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT
         p.personid,
-        p.clientid,
+        COALESCE(sec.clientid, p.clientid) AS clientid,
+        sec.siteid,
+        sec.sectionid,
         p.name,
         COALESCE(p.archived, false) AS archived,
-        c.clientname
+        c.clientname,
+        s.sitename,
+        sec.sectionname,
+        COALESCE(sec.archived, false) AS sectionarchived,
+        COALESCE(s.archived, false) AS sitearchived,
+        COALESCE(c.archived, false) AS clientarchived
       FROM atec.tblpeople p
+      LEFT JOIN atec.tblsection sec
+        ON sec.responsibleid = p.personid
+      LEFT JOIN atec.tblsites s
+        ON sec.siteid = s.siteid
+       AND sec.clientid = s.clientid
       LEFT JOIN atec.tblclients c
-        ON p.clientid = c.clientid
-      ORDER BY c.clientname, p.name
+        ON COALESCE(sec.clientid, p.clientid) = c.clientid
+      ORDER BY c.clientname, s.sitename NULLS LAST, sec.sectionname NULLS LAST, p.name
     `);
 
     res.json(result.rows);
@@ -3640,29 +4848,42 @@ app.get("/responsible-persons", async (req, res) => {
 });
 
 app.post("/responsible-persons", async (req, res) => {
+  const client = await pool.connect()
+
   try {
-    const { clientid, name } = req.body;
+    const { sectionid, name } = req.body;
     const normalizedPersonName = normalizeAssetLookupValue(name)
 
-    if (normalizedPersonName) {
-      const duplicateCheck = await pool.query(
-        `
-        SELECT personid
-        FROM atec.tblpeople
-        WHERE clientid = $1
-          AND lower(trim(name)) = $2
-          AND COALESCE(archived, false) = false
-        LIMIT 1
-        `,
-        [clientid, normalizedPersonName]
-      )
-
-      if (duplicateCheck.rows.length > 0) {
-        return duplicateMasterDataResponse(res, "responsiblePerson", duplicateCheck.rows[0].personid)
-      }
+    if (!sectionid || !normalizedPersonName) {
+      return res.status(400).json({ error: "Section and responsible person name are required." })
     }
 
-    const result = await pool.query(
+    await client.query("BEGIN")
+
+    const section = await getActiveResponsibleSection(client, sectionid)
+    if (!section) {
+      await client.query("ROLLBACK")
+      return res.status(400).json({ error: "Select an active section." })
+    }
+
+    const duplicateCheck = await client.query(
+      `
+      SELECT personid
+      FROM atec.tblpeople
+      WHERE clientid = $1
+        AND lower(trim(name)) = $2
+        AND COALESCE(archived, false) = false
+      LIMIT 1
+      `,
+      [section.clientid, normalizedPersonName]
+    )
+
+    if (duplicateCheck.rows.length > 0) {
+      await client.query("ROLLBACK")
+      return duplicateMasterDataResponse(res, "responsiblePerson", duplicateCheck.rows[0].personid)
+    }
+
+    const result = await client.query(
       `
       INSERT INTO atec.tblpeople
       (
@@ -3673,12 +4894,39 @@ app.post("/responsible-persons", async (req, res) => {
       ($1,$2)
       RETURNING *
       `,
-      [clientid, name]
+      [section.clientid, name]
     );
 
-    res.json(result.rows[0]);
+    const person = result.rows[0]
+
+    await client.query(
+      `
+      UPDATE atec.tblsection
+      SET responsibleid = $1
+      WHERE sectionid = $2
+      `,
+      [person.personid, section.sectionid]
+    )
+
+    await client.query("COMMIT")
+
+    res.json({
+      ...person,
+      clientid: section.clientid,
+      siteid: section.siteid,
+      sectionid: section.sectionid,
+      clientname: section.clientname,
+      sitename: section.sitename,
+      sectionname: section.sectionname
+    });
 
   } catch (err) {
+    try {
+      await client.query("ROLLBACK")
+    } catch (rollbackErr) {
+      console.error("Responsible person create rollback failed", rollbackErr)
+    }
+
     console.error(err);
     const duplicateType = isDuplicateActiveMasterDataError(err)
     if (duplicateType) return duplicateMasterDataResponse(res, duplicateType)
@@ -3686,36 +4934,70 @@ app.post("/responsible-persons", async (req, res) => {
     res.status(500).json({
       error: "An unexpected server error occurred"
     });
+  } finally {
+    client.release()
   }
 });
 
 app.put("/responsible-persons/:id", async (req, res) => {
+  const client = await pool.connect()
+
   try {
 
     const { id } = req.params;
-    const { clientid, name } = req.body;
+    const { name, sectionid, previoussectionid } = req.body;
     const normalizedPersonName = normalizeAssetLookupValue(name)
 
-    if (normalizedPersonName) {
-      const duplicateCheck = await pool.query(
-        `
-        SELECT personid
-        FROM atec.tblpeople
-        WHERE clientid = $1
-          AND personid <> $2
-          AND lower(trim(name)) = $3
-          AND COALESCE(archived, false) = false
-        LIMIT 1
-        `,
-        [clientid, id, normalizedPersonName]
-      )
-
-      if (duplicateCheck.rows.length > 0) {
-        return duplicateMasterDataResponse(res, "responsiblePerson", duplicateCheck.rows[0].personid)
-      }
+    if (!sectionid || !normalizedPersonName) {
+      return res.status(400).json({ error: "Section and responsible person name are required." })
     }
 
-    const result = await pool.query(
+    await client.query("BEGIN")
+
+    const section = await getActiveResponsibleSection(client, sectionid)
+    if (!section) {
+      await client.query("ROLLBACK")
+      return res.status(400).json({ error: "Select an active section." })
+    }
+
+    const duplicateCheck = await client.query(
+      `
+      SELECT personid
+      FROM atec.tblpeople
+      WHERE clientid = $1
+        AND personid <> $2
+        AND lower(trim(name)) = $3
+        AND COALESCE(archived, false) = false
+      LIMIT 1
+      `,
+      [section.clientid, id, normalizedPersonName]
+    )
+
+    if (duplicateCheck.rows.length > 0) {
+      await client.query("ROLLBACK")
+      return duplicateMasterDataResponse(res, "responsiblePerson", duplicateCheck.rows[0].personid)
+    }
+
+    const crossCustomerLinks = await client.query(
+      `
+      SELECT COUNT(*)::int AS linked_sections
+      FROM atec.tblsection
+      WHERE responsibleid = $1
+        AND sectionid <> $2
+        AND clientid <> $3
+        AND COALESCE(archived, false) = false
+      `,
+      [id, section.sectionid, section.clientid]
+    )
+
+    if (Number(crossCustomerLinks.rows[0]?.linked_sections || 0) > 0) {
+      await client.query("ROLLBACK")
+      return res.status(400).json({
+        error: "This responsible person is linked to active sections for another customer. Review those section assignments before changing this person."
+      })
+    }
+
+    const result = await client.query(
       `
       UPDATE atec.tblpeople
       SET
@@ -3725,15 +5007,57 @@ app.put("/responsible-persons/:id", async (req, res) => {
       RETURNING *
       `,
       [
-        clientid,
+        section.clientid,
         name,
         id
       ]
     );
 
-    res.json(result.rows[0]);
+    if (result.rows.length === 0) {
+      await client.query("ROLLBACK")
+      return res.status(404).json({ error: "Responsible person not found" })
+    }
+
+    if (previoussectionid && String(previoussectionid) !== String(section.sectionid)) {
+      await client.query(
+        `
+        UPDATE atec.tblsection
+        SET responsibleid = NULL
+        WHERE sectionid = $1
+          AND responsibleid = $2
+        `,
+        [previoussectionid, id]
+      )
+    }
+
+    await client.query(
+      `
+      UPDATE atec.tblsection
+      SET responsibleid = $1
+      WHERE sectionid = $2
+      `,
+      [id, section.sectionid]
+    )
+
+    await client.query("COMMIT")
+
+    res.json({
+      ...result.rows[0],
+      clientid: section.clientid,
+      siteid: section.siteid,
+      sectionid: section.sectionid,
+      clientname: section.clientname,
+      sitename: section.sitename,
+      sectionname: section.sectionname
+    });
 
   } catch (err) {
+    try {
+      await client.query("ROLLBACK")
+    } catch (rollbackErr) {
+      console.error("Responsible person update rollback failed", rollbackErr)
+    }
+
     console.error(err);
     const duplicateType = isDuplicateActiveMasterDataError(err)
     if (duplicateType) return duplicateMasterDataResponse(res, duplicateType)
@@ -3741,6 +5065,8 @@ app.put("/responsible-persons/:id", async (req, res) => {
     res.status(500).json({
       error: "An unexpected server error occurred"
     });
+  } finally {
+    client.release()
   }
 });
 
@@ -3989,6 +5315,7 @@ app.post("/inspections",
         inspectiontype,
         inspectionfrequency,
         tagnumber,
+        visitid,
         results,
         updateassetphotos
       } = req.body
@@ -4216,14 +5543,110 @@ app.post("/inspections",
         )
       }
 
+      if (visitid) {
+        const visitAssetResult = await client.query(
+          `
+          SELECT
+            va.visitassetid,
+            va.required_inspection_scope,
+            va.linked_visual_testid,
+            va.linked_loadtest_testid,
+            v.visit_type,
+            v.visit_status
+          FROM atec.tblinspectionvisit v
+          JOIN atec.tblinspectionvisitasset va
+            ON va.visitid = v.visitid
+          WHERE v.visitid = $1
+            AND va.assetid = $2
+            AND v.visit_status = ANY($3::text[])
+          FOR UPDATE OF va
+          `,
+          [visitid, assetid, VISIT_ACTIVE_STATUSES]
+        )
+
+        const visitAsset = visitAssetResult.rows[0]
+
+        if (!visitAsset) {
+          await client.query("ROLLBACK")
+          return res.status(400).json({ error: "Inspection cannot be linked to this visit." })
+        }
+
+        const normalizedInspectionType = String(inspectiontype || "").toUpperCase()
+        const allowedByVisitType =
+          visitAsset.visit_type === "COMBINED" ||
+          (visitAsset.visit_type === "VISUAL" && normalizedInspectionType === "VISUAL") ||
+          (visitAsset.visit_type === "LOADTEST" && normalizedInspectionType === "LOADTEST")
+        const allowedByAssetScope =
+          visitAsset.required_inspection_scope === "BOTH" ||
+          visitAsset.required_inspection_scope === normalizedInspectionType
+
+        if (!allowedByVisitType || !allowedByAssetScope) {
+          await client.query("ROLLBACK")
+          return res.status(400).json({ error: "Inspection type does not match this visit scope." })
+        }
+
+        const linkedVisual = normalizedInspectionType === "VISUAL"
+          ? testid
+          : visitAsset.linked_visual_testid
+        const linkedLoad = normalizedInspectionType === "LOADTEST"
+          ? testid
+          : visitAsset.linked_loadtest_testid
+        const completed =
+          (visitAsset.required_inspection_scope === "VISUAL" && linkedVisual) ||
+          (visitAsset.required_inspection_scope === "LOADTEST" && linkedLoad) ||
+          (visitAsset.required_inspection_scope === "BOTH" && linkedVisual && linkedLoad)
+
+        await client.query(
+          `
+          UPDATE atec.tblinspectionvisitasset
+          SET linked_visual_testid = CASE WHEN $1 = 'VISUAL' THEN $2 ELSE linked_visual_testid END,
+              linked_loadtest_testid = CASE WHEN $1 = 'LOADTEST' THEN $2 ELSE linked_loadtest_testid END,
+              completed_at = CASE WHEN $3::boolean THEN now() ELSE completed_at END,
+              reconciliation_status = CASE WHEN $3::boolean THEN 'COMPLETED' ELSE reconciliation_status END,
+              resolved_by_user_id = CASE WHEN $3::boolean THEN $4 ELSE resolved_by_user_id END,
+              resolution_at = CASE WHEN $3::boolean THEN now() ELSE resolution_at END
+          WHERE visitassetid = $5
+          `,
+          [
+            normalizedInspectionType,
+            testid,
+            Boolean(completed),
+            req.user.user_id,
+            visitAsset.visitassetid
+          ]
+        )
+
+        await client.query(
+          `
+          INSERT INTO atec.tblinspectionvisitactivity (visitid, visitassetid, user_id, activity_type, details)
+          VALUES ($1,$2,$3,'INSPECTION_LINKED',$4::jsonb)
+          `,
+          [
+            visitid,
+            visitAsset.visitassetid,
+            req.user.user_id,
+            JSON.stringify({ testid, inspectiontype: normalizedInspectionType, completed: Boolean(completed) })
+          ]
+        )
+      }
+
       await client.query("COMMIT")
       await req.logAudit("CREATE", "inspections", testid, {
         assetid,
         inspectiontype,
+        visitid: visitid || null,
         inspector_user_id: inspectorProfile.user_id,
         critical_failures: criticalFailures.length,
         inspection_photos: req.files?.inspectionPhotos?.length || 0
       })
+
+      if (visitid) {
+        await req.logAudit("VISIT_INSPECTION_LINKED", "inspection_visits", visitid, {
+          assetid,
+          testid,
+          inspectiontype
+        })
+      }
 
       if (photoFiles.length) {
         await req.logAudit("UPLOAD", "inspection_photos", testid, {
@@ -9223,6 +10646,38 @@ app.get("/dashboard/alerts", async (req, res) => {
 
   }
 })
+
+app.get("/dashboard/visit-alerts", asyncRoute(async (req, res) => {
+  if (!canWorkVisit(req.user)) {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  const result = await pool.query(
+    `
+    SELECT
+      count(*) FILTER (WHERE visit_status IN ('OPEN','PAUSED'))::int AS open_visits,
+      count(*) FILTER (WHERE visit_status = 'RECONCILIATION_REQUIRED')::int AS reconciliation_required,
+      COALESCE((
+        SELECT count(*)::int
+        FROM atec.tblinspectionvisitasset va
+        JOIN atec.tblinspectionvisit v ON v.visitid = va.visitid
+        WHERE v.visit_status IN ('OPEN','PAUSED','RECONCILIATION_REQUIRED')
+          AND va.reconciliation_status = 'OUTSTANDING'
+      ), 0) AS outstanding_due_assets,
+      COALESCE((
+        SELECT count(*)::int
+        FROM atec.tblinspectionvisitasset
+        WHERE reconciliation_status = 'DEFERRED'
+          AND deferred_follow_up_date IS NOT NULL
+          AND deferred_follow_up_date <= CURRENT_DATE + INTERVAL '14 days'
+      ), 0) AS deferred_followups_due,
+      count(*) FILTER (WHERE visit_status = 'COMPLETED' AND actual_completion_at >= now() - INTERVAL '14 days')::int AS recently_completed
+    FROM atec.tblinspectionvisit
+    `
+  )
+
+  res.json(result.rows[0])
+}))
 
 app.use(errorHandler)
 
