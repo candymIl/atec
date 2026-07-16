@@ -4194,15 +4194,22 @@ app.get("/inspection-visits", asyncRoute(async (req, res) => {
       c.clientname,
       s.sitename,
       sec.sectionname,
-      COALESCE(count(va.visitassetid), 0)::int AS total_assets,
-      COALESCE(count(va.visitassetid) FILTER (WHERE va.reconciliation_status = 'COMPLETED'), 0)::int AS completed_assets,
-      COALESCE(count(va.visitassetid) FILTER (WHERE va.reconciliation_status = 'OUTSTANDING'), 0)::int AS outstanding_assets
+      COALESCE(vas.total_assets, 0)::int AS total_assets,
+      COALESCE(vas.completed_assets, 0)::int AS completed_assets,
+      COALESCE(vas.outstanding_assets, 0)::int AS outstanding_assets
     FROM atec.tblinspectionvisit v
     LEFT JOIN atec.tblclients c ON v.clientid = c.clientid
     LEFT JOIN atec.tblsites s ON v.siteid = s.siteid
     LEFT JOIN atec.tblsection sec ON v.sectionid = sec.sectionid
-    LEFT JOIN atec.tblinspectionvisitasset va ON va.visitid = v.visitid
-    GROUP BY v.visitid, c.clientname, s.sitename, sec.sectionname
+    LEFT JOIN (
+      SELECT
+        visitid,
+        count(*)::int AS total_assets,
+        count(*) FILTER (WHERE reconciliation_status = 'COMPLETED')::int AS completed_assets,
+        count(*) FILTER (WHERE reconciliation_status = 'OUTSTANDING')::int AS outstanding_assets
+      FROM atec.tblinspectionvisitasset
+      GROUP BY visitid
+    ) vas ON vas.visitid = v.visitid
     ORDER BY v.created_at DESC, v.visitid DESC
     LIMIT 100
     `
@@ -4324,6 +4331,7 @@ app.post("/inspection-visits", asyncRoute(async (req, res) => {
         )
         VALUES
         ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+        -- Duplicate guard: ON CONFLICT (visitid, assetid, required_inspection_scope) DO NOTHING
         ON CONFLICT (visitid, assetid, required_inspection_scope)
         WHERE assetid IS NOT NULL
         DO NOTHING
