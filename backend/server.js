@@ -6145,6 +6145,25 @@ app.get("/inspections/assets/search", searchLimiter, async (req, res) => {
   }
 })
 
+const failedInspectionResultSql = `
+  EXISTS (
+    SELECT 1
+    FROM atec.tblinspectionresult status_result
+    WHERE status_result.testid = i.testid
+      AND (
+        UPPER(TRIM(COALESCE(status_result.result, ''))) IN ('FAIL', 'NO', 'NOT SAFE', 'UNSAFE')
+        OR UPPER(TRIM(COALESCE(status_result.measuredvalue, ''))) IN ('FAIL', 'NO', 'NOT SAFE', 'UNSAFE')
+      )
+  )
+`
+
+const effectiveInspectionStatusSql = `
+  CASE
+    WHEN ${failedInspectionResultSql} THEN 'NOT SAFE'
+    ELSE i.status
+  END
+`
+
 const certificateSearchSortColumns = {
   testid: "i.testid",
   tagnumber: "i.tagnumber",
@@ -6154,7 +6173,7 @@ const certificateSearchSortColumns = {
   serialno: "a.serialno",
   inspectiontype: "i.inspectiontype",
   testdate: "i.testdate",
-  status: "i.status",
+  status: effectiveInspectionStatusSql,
   inspector: "COALESCE(i.inspector_name, i.inspector)"
 }
 
@@ -6203,7 +6222,7 @@ app.get("/certificates/search", searchLimiter, async (req, res) => {
 
     if (status) {
       values.push(status)
-      where += ` AND i.status = $${values.length}`
+      where += ` AND ${effectiveInspectionStatusSql} = $${values.length}`
     }
 
     const effectiveClientId =
@@ -6256,8 +6275,8 @@ app.get("/certificates/search", searchLimiter, async (req, res) => {
       `
       SELECT
         COUNT(*)::int AS total,
-        COUNT(*) FILTER (WHERE i.status = 'SAFE')::int AS safe,
-        COUNT(*) FILTER (WHERE i.status = 'NOT SAFE')::int AS not_safe,
+        COUNT(*) FILTER (WHERE ${effectiveInspectionStatusSql} = 'SAFE')::int AS safe,
+        COUNT(*) FILTER (WHERE ${effectiveInspectionStatusSql} = 'NOT SAFE')::int AS not_safe,
         COUNT(*) FILTER (WHERE i.inspectiontype = 'VISUAL')::int AS visual,
         COUNT(*) FILTER (WHERE i.inspectiontype = 'LOADTEST')::int AS load_test
       FROM atec.tblinspection i
@@ -6286,7 +6305,7 @@ app.get("/certificates/search", searchLimiter, async (req, res) => {
         TO_CHAR(i.testdate, 'YYYY-MM-DD') AS testdate,
         TO_CHAR(i.validdate, 'YYYY-MM-DD') AS validdate,
         i.inspectiontype,
-        i.status,
+        ${effectiveInspectionStatusSql} AS status,
         COALESCE(i.inspector_name, i.inspector) AS inspector,
         i.inspector_lmi_number,
         i.tagnumber,
@@ -6403,7 +6422,7 @@ async function getBulkCertificateMatches(req, includeTestIds = false) {
 
   if (status && status !== "ALL") {
     values.push(status)
-    where += ` AND i.status = $${values.length}`
+    where += ` AND ${effectiveInspectionStatusSql} = $${values.length}`
   }
 
   if (selectedTestIds.length) {
@@ -6729,6 +6748,12 @@ async function getCertificatesData(testids = []) {
   for (const row of resultsResult.rows) {
     const certificate = certificates.get(Number(row.testid))
     if (certificate) certificate.results.push(row)
+  }
+
+  for (const certificate of certificates.values()) {
+    if (certificate.results.some(isFailedInspectionResult)) {
+      certificate.inspection.status = "NOT SAFE"
+    }
   }
 
   const fallbackEquiptypeIds = [...new Set(
