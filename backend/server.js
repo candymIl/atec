@@ -2651,18 +2651,26 @@ app.get("/assets/:id/nfc", asyncRoute(async (req, res) => {
   }
 
   const { id } = req.params
+  const assetOptionalColumns = await getExistingColumnSet("tblasset", [
+    "nfc_token",
+    "nfc_enabled",
+    "nfc_issued_at",
+    "nfc_revoked_at",
+    "nfc_last_scanned_at",
+    "nfc_scan_count"
+  ])
   const result = await pool.query(
     `
     SELECT
-      assetid,
-      nfc_token,
-      nfc_enabled,
-      nfc_issued_at,
-      nfc_revoked_at,
-      nfc_last_scanned_at,
-      nfc_scan_count
-    FROM atec.tblasset
-    WHERE assetid = $1
+      a.assetid,
+      ${optionalColumnSql(assetOptionalColumns, "a", "nfc_token", "NULL")},
+      ${optionalColumnSql(assetOptionalColumns, "a", "nfc_enabled", "false")},
+      ${optionalColumnSql(assetOptionalColumns, "a", "nfc_issued_at", "NULL")},
+      ${optionalColumnSql(assetOptionalColumns, "a", "nfc_revoked_at", "NULL")},
+      ${optionalColumnSql(assetOptionalColumns, "a", "nfc_last_scanned_at", "NULL")},
+      ${optionalColumnSql(assetOptionalColumns, "a", "nfc_scan_count", "0")}
+    FROM atec.tblasset a
+    WHERE a.assetid = $1
     `,
     [id]
   )
