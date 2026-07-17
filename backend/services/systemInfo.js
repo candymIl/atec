@@ -406,7 +406,8 @@ async function buildSystemInfo(options = {}) {
     env = process.env,
     startedAt = new Date(),
     port = env.PORT || 5000,
-    appVersion = "1.0.0"
+    appVersion = "1.0.0",
+    activeUsers = { windowMinutes: 10, count: 0, users: [] }
   } = options
 
   const git = getGitInfo(projectRoot)
@@ -443,7 +444,8 @@ async function buildSystemInfo(options = {}) {
     backup,
     deployment,
     performance: safePerformanceInfo(performance),
-    pdf: safePdfInfo(pdf)
+    pdf: safePdfInfo(pdf),
+    activeUsers
   }
 }
 

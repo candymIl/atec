@@ -1155,6 +1155,35 @@ tr:hover {
   font-size: 12px;
 }
 
+.portal-asset-filters {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(220px, 1fr) 180px 130px auto;
+  margin-bottom: 12px;
+}
+
+.portal-asset-summary {
+  color: #52606d;
+  display: flex;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 14px;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.portal-asset-table td span {
+  color: #52606d;
+  display: block;
+  font-size: 12px;
+  margin-top: 3px;
+}
+
+.portal-asset-pagination {
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
 .alert-card {
   padding: 12px 14px;
   border-radius: 8px;
@@ -1199,6 +1228,22 @@ tr:hover {
   text-align: left;
 }
 
+.stat-card-action {
+  appearance: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  width: 100%;
+}
+
+.stat-card-action:hover,
+.stat-card-action:focus-visible {
+  border-color: #8fb3d9;
+  box-shadow: 0 8px 18px rgba(31, 59, 92, 0.12);
+  outline: none;
+  transform: translateY(-1px);
+}
+
 .stat-icon {
   width: 46px;
   height: 46px;
@@ -1224,6 +1269,26 @@ tr:hover {
 
 .stat-red .stat-icon {
   background: #fee2e2;
+}
+
+.dashboard-review-queue[hidden] {
+  display: none;
+}
+
+.dashboard-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dashboard-review-summary {
+  color: #52606d;
+  font-weight: 600;
+  margin: 0 0 10px;
+}
+
+.dashboard-review-table-wrap {
+  overflow-x: auto;
 }
 
 /* =======================================================
@@ -4452,6 +4517,10 @@ tr:hover {
     grid-template-columns: 1fr;
   }
 
+  .portal-asset-filters {
+    grid-template-columns: 1fr;
+  }
+
   .quick-wide {
     grid-column: span 1;
   }
@@ -4732,6 +4801,30 @@ tr:hover {
   color: #26364c;
   font-size: 14px;
   margin: 16px 0 4px;
+}
+
+.health-active-users {
+  grid-column: 1 / -1;
+}
+
+.health-active-users .section-header {
+  align-items: center;
+}
+
+.health-active-users-table td:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.health-active-users-table td:first-child span {
+  color: #5f6f82;
+  font-size: 12px;
+}
+
+.health-empty-state {
+  color: #5f6f82;
+  margin: 12px 0 0;
 }
 
 .dashboard-table {

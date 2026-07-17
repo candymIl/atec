@@ -97,6 +97,43 @@ function renderBackupEvidence(backup = {}) {
   `
 }
 
+function renderActiveUsers(activeUsers = {}) {
+  const users = Array.isArray(activeUsers.users) ? activeUsers.users : []
+  const windowMinutes = activeUsers.windowMinutes || 10
+
+  if (!users.length) {
+    return `<p class="health-empty-state">No active users in the last ${escapeHtml(windowMinutes)} minutes.</p>`
+  }
+
+  return `
+    <div class="table-scroll">
+      <table class="dashboard-table health-active-users-table">
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Role</th>
+            <th>Last Seen</th>
+            <th>Working On</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${users.map(user => `
+            <tr>
+              <td>
+                <strong>${escapeHtml(user.full_name || user.username || `User ${user.user_id}`)}</strong>
+                <span>${escapeHtml(user.username || '')}</span>
+              </td>
+              <td>${escapeHtml(user.role || '-')}</td>
+              <td>${escapeHtml(formatDate(user.lastSeenAt))}</td>
+              <td>${escapeHtml(user.lastRoute || '-')}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `
+}
+
 function renderSystemHealth(data) {
   const frontendBackendMatch =
     FRONTEND_BUILD_ID !== 'unavailable' &&
@@ -199,6 +236,15 @@ function renderSystemHealth(data) {
           ${valueRow('Recent average', `${data.performance?.recentAverageMs ?? 0} ms`)}
           ${valueRow('Recent max', `${data.performance?.recentMaxMs ?? 0} ms`)}
           ${data.performance?.lastSlowRequest ? valueRow('Last slow request', `${data.performance.lastSlowRequest.method} ${data.performance.lastSlowRequest.route} - ${data.performance.lastSlowRequest.elapsedMs} ms`) : valueRow('Last slow request', 'None')}
+        </section>
+
+        <section class="dashboard-section health-active-users">
+          <div class="section-header">
+            <h2>Active Users</h2>
+            ${badge(`${data.activeUsers?.count ?? 0} active`, (data.activeUsers?.count ?? 0) > 0 ? 'Healthy' : 'Unknown')}
+          </div>
+          ${valueRow('Activity window', `${data.activeUsers?.windowMinutes ?? 10} minutes`)}
+          ${renderActiveUsers(data.activeUsers)}
         </section>
 
         <section class="dashboard-section">

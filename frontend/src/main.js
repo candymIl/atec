@@ -7443,6 +7443,188 @@ async function loadDashboardSummary() {
   }
 }
 
+const dashboardReviewQueues = {
+  "certificate-metadata": {
+    title: "Certificate Metadata Review",
+    empty: "No certificate metadata issues found.",
+    columns: [
+      ["Asset", row => row.assetid],
+      ["Customer", row => row.clientname],
+      ["Site", row => row.sitename],
+      ["Equipment", row => row.equipmenttype],
+      ["Issue", row => row.issue],
+      ["Visual Date", row => formatDashboardReviewDate(row.visualtestdate)],
+      ["Load Date", row => formatDashboardReviewDate(row.loadtestdate)]
+    ],
+    action: row => `<button class="small-btn" onclick="showDashboardCustomerReport(${safeAttr(row.clientid)})">View Report</button>`
+  },
+  "missing-section": {
+    title: "Assets Missing Section",
+    empty: "No assets are missing a section.",
+    columns: [
+      ["Asset", row => row.assetid],
+      ["Customer", row => row.clientname],
+      ["Site", row => row.sitename],
+      ["Asset Tag", row => row.assettagno],
+      ["Serial No", row => row.serialno],
+      ["Equipment", row => row.equipmenttype],
+      ["Issue", row => row.issue]
+    ],
+    action: row => `<button class="small-btn" onclick="editAsset(${safeAttr(row.assetid)})">Edit Asset</button>`
+  },
+  "types-without-criteria": {
+    title: "Types Without Criteria",
+    empty: "Every active equipment type in use has active criteria.",
+    columns: [
+      ["Equipment Type", row => row.equipmenttype],
+      ["Assets", row => row.assets],
+      ["Customers", row => row.customers],
+      ["Sample Asset", row => row.sampleassetid],
+      ["Issue", row => row.issue]
+    ],
+    action: row => `<button class="small-btn" onclick="openCriteriaForEquipmentType(${safeAttr(row.equiptypeid)})">Open Criteria</button>`
+  },
+  overdue: {
+    title: "Overdue Assets",
+    empty: "No overdue assets found.",
+    columns: [
+      ["Asset", row => row.assetid],
+      ["Customer", row => row.clientname],
+      ["Site", row => row.sitename],
+      ["Section", row => row.sectionname],
+      ["Equipment", row => row.equipmenttype],
+      ["Issue", row => row.issue],
+      ["Visual Due", row => formatDashboardReviewDate(row.nextvisualdue)],
+      ["Load Due", row => formatDashboardReviewDate(row.nextloaddue)]
+    ],
+    action: row => `<button class="small-btn" onclick="showDashboardCustomerReport(${safeAttr(row.clientid)})">View Report</button>`
+  }
+}
+
+window.showDashboardReviewQueue = async function (queueKey) {
+  const config = dashboardReviewQueues[queueKey]
+  const panel = document.querySelector("#dashboardReviewQueue")
+  const title = document.querySelector("#dashboardReviewQueueTitle")
+  const body = document.querySelector("#dashboardReviewQueueBody")
+
+  if (!config || !panel || !title || !body) return
+
+  panel.hidden = false
+  title.textContent = config.title
+  body.innerHTML = `<div class="report-preview-empty">Loading review queue...</div>`
+  panel.scrollIntoView({ behavior: "smooth", block: "start" })
+
+  try {
+    const response = await fetch(`${API_BASE}/dashboard/review-queue/${queueKey}`)
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(data.error || "Failed to load review queue")
+    }
+
+    window.dashboardReviewQueueState = {
+      key: queueKey,
+      title: config.title,
+      rows: data.rows || []
+    }
+
+    body.innerHTML = renderDashboardReviewQueue(config, data.rows || [])
+  } catch (err) {
+    console.error("Failed to load dashboard review queue:", err)
+    body.innerHTML = `
+      <div class="alert-card warning">
+        Unable to load this review queue.
+      </div>
+    `
+  }
+}
+
+window.closeDashboardReviewQueue = function () {
+  const panel = document.querySelector("#dashboardReviewQueue")
+  if (panel) panel.hidden = true
+}
+
+window.showDashboardCustomerReport = function (clientid) {
+  showCustomerDetailedReport({ clientid, autoLoad: true })
+}
+
+window.openCriteriaForEquipmentType = function (equiptypeid) {
+  window.criteriaEquipmentFilter = String(equiptypeid || "")
+  window.criteriaCurrentPage = 1
+  showEquipmentTypeCriteria()
+}
+
+window.exportDashboardReviewQueue = function () {
+  const state = window.dashboardReviewQueueState
+  const config = dashboardReviewQueues[state?.key]
+
+  if (!state || !config || !state.rows?.length) {
+    alert("There is no review queue data to export.")
+    return
+  }
+
+  const headers = config.columns.map(([label]) => label)
+  const rows = state.rows.map(row =>
+    config.columns.map(([, value]) => dashboardCsvValue(value(row)))
+  )
+  const csv = [headers, ...rows]
+    .map(values => values.map(dashboardCsvCell).join(","))
+    .join("\n")
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
+  const link = document.createElement("a")
+  link.href = URL.createObjectURL(blob)
+  link.download = `${state.key}-review-queue.csv`
+  link.click()
+  URL.revokeObjectURL(link.href)
+}
+
+function renderDashboardReviewQueue(config, rows) {
+  if (!rows.length) {
+    return `
+      <div class="alert-card success">
+        ${escapeHtml(config.empty)}
+      </div>
+    `
+  }
+
+  return `
+    <p class="dashboard-review-summary">
+      Showing ${escapeHtml(rows.length)} items. Use the action column to open the relevant cleanup screen.
+    </p>
+    <div class="dashboard-review-table-wrap">
+      <table class="dashboard-table">
+        <thead>
+          <tr>
+            ${config.columns.map(([label]) => `<th>${escapeHtml(label)}</th>`).join("")}
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(row => `
+            <tr>
+              ${config.columns.map(([, value]) => `<td>${escapeHtml(value(row) || "-")}</td>`).join("")}
+              <td>${config.action(row)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `
+}
+
+function formatDashboardReviewDate(value) {
+  if (!value) return "-"
+  return String(value).split("T")[0]
+}
+
+function dashboardCsvValue(value) {
+  return value === null || value === undefined || value === "" ? "-" : String(value)
+}
+
+function dashboardCsvCell(value) {
+  return `"${dashboardCsvValue(value).replace(/"/g, '""')}"`
+}
+
 async function loadDashboardAlerts(preloadedData = null) {
   try {
     let data = preloadedData

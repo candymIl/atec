@@ -192,11 +192,62 @@ app.use(express.json({
 app.use(cookieParser());
 
 const logAudit = auditLogger(pool)
+const activeUserWindowMs = Number(process.env.ACTIVE_USER_WINDOW_MS || 10 * 60 * 1000)
+const activeUsers = new Map()
 
 app.use((req, res, next) => {
   req.logAudit = (...args) => logAudit(req, ...args)
   next()
 })
+
+function activeUserRouteLabel(req) {
+  const cleanPath = String(req.originalUrl || req.path || "")
+    .split("?")[0]
+    .replace(/\/\d+(?=\/|$)/g, "/:id")
+
+  return `${req.method} ${cleanPath || "/"}`
+}
+
+function recordActiveUser(req) {
+  if (!req.user?.user_id || req.path === "/health") return
+
+  activeUsers.set(String(req.user.user_id), {
+    user_id: req.user.user_id,
+    username: req.user.username || "",
+    full_name: req.user.full_name || req.user.username || "",
+    role: req.user.role || "",
+    clientid: req.user.clientid || null,
+    lastSeenAt: new Date().toISOString(),
+    lastRoute: activeUserRouteLabel(req)
+  })
+}
+
+function trackActiveUser(req, res, next) {
+  recordActiveUser(req)
+  next()
+}
+
+function forgetActiveUser(userId) {
+  if (userId === null || userId === undefined) return
+  activeUsers.delete(String(userId))
+}
+
+function activeUserSummary(now = new Date()) {
+  const cutoff = now.getTime() - activeUserWindowMs
+
+  for (const [userId, user] of activeUsers.entries()) {
+    if (new Date(user.lastSeenAt).getTime() < cutoff) {
+      activeUsers.delete(userId)
+    }
+  }
+
+  return {
+    windowMinutes: Math.round(activeUserWindowMs / 60000),
+    count: activeUsers.size,
+    users: [...activeUsers.values()]
+      .sort((a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime())
+  }
+}
 
 function requestRouteLabel(req) {
   if (req.route?.path) {
@@ -1081,25 +1132,27 @@ app.post("/auth/login", csrfProtection, loginLimiter, asyncRoute(async (req, res
 
   req.user = publicUser(user)
   await req.logAudit("LOGIN", "auth", user.user_id)
+  recordActiveUser(req)
 
   res.cookie("atec_session", signAuthToken(user), authCookieOptions())
   res.json({ user: publicUser(user) })
 }))
 
-app.post("/auth/logout", csrfProtection, asyncRoute(async (req, res) => {
+app.post("/auth/logout", requireAuth, csrfProtection, asyncRoute(async (req, res) => {
   if (req.user?.user_id) {
     await req.logAudit("LOGOUT", "auth", req.user.user_id)
+    forgetActiveUser(req.user.user_id)
   }
 
   res.clearCookie("atec_session", authCookieOptions())
   res.json({ success: true })
 }))
 
-app.get("/auth/me", requireAuth, (req, res) => {
+app.get("/auth/me", requireAuth, trackActiveUser, (req, res) => {
   res.json({ user: req.user })
 })
 
-app.get("/customer-portal/summary", requireAuth, asyncRoute(async (req, res) => {
+app.get("/customer-portal/summary", requireAuth, trackActiveUser, asyncRoute(async (req, res) => {
   if (req.user.role !== "CUSTOMER") {
     return res.status(403).json({ error: "Access denied" })
   }
@@ -1258,6 +1311,151 @@ app.get("/customer-portal/summary", requireAuth, asyncRoute(async (req, res) => 
     certificateSummary: certificateSummary.rows[0] || {},
     visitSummary,
     recentCertificates: recentCertificates.rows
+  })
+}))
+
+app.get("/customer-portal/assets", requireAuth, trackActiveUser, asyncRoute(async (req, res) => {
+  if (req.user.role !== "CUSTOMER") {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  const effectiveClientId = req.user.clientid
+
+  if (!effectiveClientId) {
+    return res.status(400).json({ error: "No customer is linked to this user." })
+  }
+
+  const requestedPage = parsePositiveInteger(req.query.page, 1, 100000)
+  const limit = parsePositiveInteger(req.query.limit, 25, 100)
+  const search = String(req.query.search || "").trim()
+  const siteid = String(req.query.siteid || "").trim()
+  const sectionid = String(req.query.sectionid || "").trim()
+  const status = String(req.query.status || "").trim().toUpperCase()
+  const values = [effectiveClientId]
+  const filters = ["a.clientid = $1", "COALESCE(a.archived, false) = false"]
+
+  if (search) {
+    values.push(`%${search}%`)
+    filters.push(`(
+      CAST(a.assetid AS text) ILIKE $${values.length}
+      OR COALESCE(a.assettagno, '') ILIKE $${values.length}
+      OR COALESCE(a.serialno, '') ILIKE $${values.length}
+      OR COALESCE(a.description, '') ILIKE $${values.length}
+      OR COALESCE(et.description, '') ILIKE $${values.length}
+      OR COALESCE(s.sitename, '') ILIKE $${values.length}
+      OR COALESCE(sec.sectionname, '') ILIKE $${values.length}
+    )`)
+  }
+
+  if (siteid) {
+    values.push(siteid)
+    filters.push(`a.siteid = $${values.length}`)
+  }
+
+  if (sectionid) {
+    values.push(sectionid)
+    filters.push(`a.sectionid = $${values.length}`)
+  }
+
+  if (["OK", "NOT SAFE", "VISUAL OVERDUE", "LOAD TEST OVERDUE", "NO VISUAL", "NO LOAD TEST"].includes(status)) {
+    values.push(status)
+    filters.push(`asset_status = $${values.length}`)
+  }
+
+  const whereSql = filters.join(" AND ")
+  const countValues = [...values]
+  const assetRowsSql = `
+    WITH latest_visual AS (
+      SELECT DISTINCT ON (i.assetid)
+        i.assetid,
+        i.testid,
+        i.testdate,
+        i.validdate,
+        ${effectiveInspectionStatusSql} AS status
+      FROM atec.tblinspection i
+      WHERE i.inspectiontype = 'VISUAL'
+      ORDER BY i.assetid, i.testdate DESC NULLS LAST, i.testid DESC
+    ),
+    latest_load AS (
+      SELECT DISTINCT ON (i.assetid)
+        i.assetid,
+        i.testid,
+        i.testdate,
+        i.validdate,
+        ${effectiveInspectionStatusSql} AS status
+      FROM atec.tblinspection i
+      WHERE i.inspectiontype = 'LOADTEST'
+      ORDER BY i.assetid, i.testdate DESC NULLS LAST, i.testid DESC
+    ),
+    scoped_assets AS (
+      SELECT
+        a.assetid,
+        a.clientid,
+        a.archived,
+        a.assettagno,
+        a.serialno,
+        a.description,
+        a.siteid,
+        a.sectionid,
+        et.description AS equipmenttype,
+        s.sitename,
+        sec.sectionname,
+        lv.testid AS visual_testid,
+        TO_CHAR(lv.testdate, 'YYYY-MM-DD') AS visual_testdate,
+        TO_CHAR(lv.validdate, 'YYYY-MM-DD') AS visual_validdate,
+        lv.status AS visual_status,
+        ll.testid AS loadtest_testid,
+        TO_CHAR(ll.testdate, 'YYYY-MM-DD') AS loadtest_testdate,
+        TO_CHAR(ll.validdate, 'YYYY-MM-DD') AS loadtest_validdate,
+        ll.status AS loadtest_status,
+        CASE
+          WHEN lv.status = 'NOT SAFE' OR ll.status = 'NOT SAFE' THEN 'NOT SAFE'
+          WHEN lv.assetid IS NULL THEN 'NO VISUAL'
+          WHEN ll.assetid IS NULL THEN 'NO LOAD TEST'
+          WHEN lv.validdate < CURRENT_DATE THEN 'VISUAL OVERDUE'
+          WHEN ll.validdate < CURRENT_DATE THEN 'LOAD TEST OVERDUE'
+          ELSE 'OK'
+        END AS asset_status
+      FROM atec.tblasset a
+      LEFT JOIN atec.tblequiptype et ON et.equiptypeid = a.equiptypeid
+      LEFT JOIN atec.tblsites s ON s.siteid = a.siteid
+      LEFT JOIN atec.tblsection sec ON sec.sectionid = a.sectionid
+      LEFT JOIN latest_visual lv ON lv.assetid = a.assetid
+      LEFT JOIN latest_load ll ON ll.assetid = a.assetid
+    )
+    SELECT *
+    FROM scoped_assets a
+    WHERE ${whereSql}
+  `
+
+  const countResult = await pool.query(
+    `SELECT count(*)::int AS total FROM (${assetRowsSql}) counted_assets`,
+    countValues
+  )
+
+  const total = Number(countResult.rows[0]?.total || 0)
+  const totalPages = Math.max(1, Math.ceil(total / limit))
+  const boundedPage = Math.min(requestedPage, totalPages)
+  const offset = (boundedPage - 1) * limit
+  const pagedValues = [...values, limit, offset]
+  const limitParam = `$${pagedValues.length - 1}`
+  const offsetParam = `$${pagedValues.length}`
+
+  const result = await pool.query(
+    `
+    ${assetRowsSql}
+    ORDER BY sitename NULLS LAST, sectionname NULLS LAST, assettagno NULLS LAST, assetid
+    LIMIT ${limitParam} OFFSET ${offsetParam}
+    `,
+    pagedValues
+  )
+
+  res.json({
+    rows: result.rows,
+    page: boundedPage,
+    limit,
+    total,
+    totalPages
   })
 }))
 
@@ -1559,8 +1757,9 @@ async function authorizeUploadRequest(req, res, next) {
   return next()
 }
 
-app.use("/uploads", requireAuth, asyncRoute(authorizeUploadRequest), express.static(uploadsRoot));
+app.use("/uploads", requireAuth, trackActiveUser, asyncRoute(authorizeUploadRequest), express.static(uploadsRoot));
 app.use(requireAuth)
+app.use(trackActiveUser)
 app.use(csrfProtection)
 app.use(authorizeRequest)
 app.use(asyncRoute(enforceInspectorInspectionOwnership))
@@ -1630,7 +1829,8 @@ app.get("/admin/system-info", asyncRoute(async (req, res) => {
     projectRoot: path.join(__dirname, ".."),
     startedAt: backendStartedAt,
     port: PORT,
-    appVersion: backendPackage.version
+    appVersion: backendPackage.version,
+    activeUsers: activeUserSummary()
   }))
 }))
 

@@ -1,6 +1,9 @@
 import { API_BASE } from '../api.js'
 import { escapeHtml } from '../utils/security.js'
 
+let portalAssetPage = 1
+let portalAssetPageSize = 25
+
 function numberValue(value) {
   return Number(value || 0)
 }
@@ -65,6 +68,121 @@ function renderRecentCertificates(rows = []) {
       </tbody>
     </table>
   `
+}
+
+function assetStatusClass(status) {
+  if (status === "OK") return "is-ok"
+  if (status === "NOT SAFE") return "is-danger"
+  if (String(status || "").includes("OVERDUE")) return "is-warning"
+  if (String(status || "").startsWith("NO ")) return "is-muted"
+  return ""
+}
+
+function certificateLink(testid, label = "PDF") {
+  if (!testid) return "-"
+
+  return `
+    <a class="cert-action-link" href="${API_BASE}/inspections/${encodeURIComponent(testid)}/certificate.pdf" download>
+      ${escapeHtml(label)}
+    </a>
+  `
+}
+
+function renderPortalAssetsTable(rows = []) {
+  if (!rows.length) {
+    return `<p>No assets match the selected filters.</p>`
+  }
+
+  return `
+    <table class="portal-asset-table">
+      <thead>
+        <tr>
+          <th>Asset</th>
+          <th>Site</th>
+          <th>Section</th>
+          <th>Equipment</th>
+          <th>Last Visual</th>
+          <th>Last Load Test</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(row => `
+          <tr>
+            <td>
+              <strong>${escapeHtml(row.assettagno || row.assetid || "-")}</strong>
+              <span>${escapeHtml(row.description || "")}</span>
+              <span>${escapeHtml(row.serialno || "")}</span>
+            </td>
+            <td>${escapeHtml(row.sitename || "-")}</td>
+            <td>${escapeHtml(row.sectionname || "-")}</td>
+            <td>${escapeHtml(row.equipmenttype || "-")}</td>
+            <td>
+              <strong class="${statusClass(row.visual_status)}">${escapeHtml(row.visual_status || "-")}</strong>
+              <span>${escapeHtml(formatDate(row.visual_testdate))} / valid ${escapeHtml(formatDate(row.visual_validdate))}</span>
+              ${certificateLink(row.visual_testid)}
+            </td>
+            <td>
+              <strong class="${statusClass(row.loadtest_status)}">${escapeHtml(row.loadtest_status || "-")}</strong>
+              <span>${escapeHtml(formatDate(row.loadtest_testdate))} / valid ${escapeHtml(formatDate(row.loadtest_validdate))}</span>
+              ${certificateLink(row.loadtest_testid)}
+            </td>
+            <td>
+              <span class="report-status-pill ${assetStatusClass(row.asset_status)}">
+                ${escapeHtml(row.asset_status || "-")}
+              </span>
+            </td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `
+}
+
+function assetQuery() {
+  const params = new URLSearchParams()
+  const search = document.querySelector("#portalAssetSearch")?.value || ""
+  const status = document.querySelector("#portalAssetStatus")?.value || ""
+
+  if (search) params.set("search", search)
+  if (status) params.set("status", status)
+  params.set("page", String(portalAssetPage))
+  params.set("limit", String(portalAssetPageSize))
+
+  return params.toString()
+}
+
+async function loadPortalAssets() {
+  const panel = document.querySelector("#portalAssetResults")
+  if (!panel) return
+
+  panel.innerHTML = `<p>Loading assets...</p>`
+
+  try {
+    const response = await fetch(`${API_BASE}/customer-portal/assets?${assetQuery()}`)
+    const payload = await response.json()
+
+    if (!response.ok) {
+      panel.innerHTML = `<p class="login-error">${escapeHtml(payload.error || "Could not load assets.")}</p>`
+      return
+    }
+
+    const page = Number(payload.page || 1)
+    const totalPages = Number(payload.totalPages || 1)
+    panel.innerHTML = `
+      <div class="portal-asset-summary">
+        <span>${escapeHtml(payload.total || 0)} assets</span>
+        <span>Page ${escapeHtml(page)} of ${escapeHtml(totalPages)}</span>
+      </div>
+      ${renderPortalAssetsTable(payload.rows || [])}
+      <div class="form-actions portal-asset-pagination">
+        <button type="button" ${page <= 1 ? "disabled" : ""} onclick="portalAssetPreviousPage()">Previous</button>
+        <button type="button" ${page >= totalPages ? "disabled" : ""} onclick="portalAssetNextPage()">Next</button>
+      </div>
+    `
+  } catch (err) {
+    panel.innerHTML = `<p class="login-error">Could not connect to the asset list.</p>`
+  }
 }
 
 export async function renderCustomerPortal(currentUser = null) {
@@ -150,8 +268,70 @@ export async function renderCustomerPortal(currentUser = null) {
         </div>
         ${renderRecentCertificates(data.recentCertificates || [])}
       </section>
+
+      <section class="filter-card">
+        <div class="customer-portal-section-heading">
+          <h3>Assets</h3>
+          <button type="button" onclick="loadPortalAssets()">Refresh</button>
+        </div>
+        <div class="portal-asset-filters">
+          <input id="portalAssetSearch" type="search" placeholder="Search tag, serial, description, site...">
+          <select id="portalAssetStatus">
+            <option value="">All statuses</option>
+            <option value="OK">OK</option>
+            <option value="NOT SAFE">Not safe</option>
+            <option value="VISUAL OVERDUE">Visual overdue</option>
+            <option value="LOAD TEST OVERDUE">Load test overdue</option>
+            <option value="NO VISUAL">No visual</option>
+            <option value="NO LOAD TEST">No load test</option>
+          </select>
+          <select id="portalAssetPageSize">
+            <option value="25">25 rows</option>
+            <option value="50">50 rows</option>
+            <option value="100">100 rows</option>
+          </select>
+          <button type="button" onclick="searchPortalAssets()">Search</button>
+        </div>
+        <div id="portalAssetResults">
+          <p>Loading assets...</p>
+        </div>
+      </section>
     `
+
+    bindPortalAssetControls()
+    loadPortalAssets()
   } catch (err) {
     content.innerHTML = `<p class="login-error">Could not connect to the customer portal.</p>`
   }
+}
+
+function bindPortalAssetControls() {
+  document.querySelector("#portalAssetSearch")?.addEventListener("keydown", event => {
+    if (event.key === "Enter") {
+      window.searchPortalAssets()
+    }
+  })
+
+  document.querySelector("#portalAssetStatus")?.addEventListener("change", window.searchPortalAssets)
+  document.querySelector("#portalAssetPageSize")?.addEventListener("change", event => {
+    portalAssetPageSize = Number(event.target.value) || 25
+    window.searchPortalAssets()
+  })
+}
+
+window.loadPortalAssets = loadPortalAssets
+
+window.searchPortalAssets = function () {
+  portalAssetPage = 1
+  loadPortalAssets()
+}
+
+window.portalAssetPreviousPage = function () {
+  portalAssetPage = Math.max(1, portalAssetPage - 1)
+  loadPortalAssets()
+}
+
+window.portalAssetNextPage = function () {
+  portalAssetPage += 1
+  loadPortalAssets()
 }

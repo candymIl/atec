@@ -20,12 +20,14 @@ Task 15 gives customer users a read-only landing page for their own ATEC records
 - Task 14 visit summary counts when visit tables exist.
 - Recent certificate list with PDF download links.
 - Shortcuts to Certificates and Detailed Report.
+- Customer asset drill-down with search, status filter, latest visual/load-test status, validity dates, and certificate PDF links.
 
 ## Not Yet In This Slice
 
 - Customer self-service preferences.
 - Customer account administration.
 - Write access to asset, inspection, visit, or disposition records.
+- Customer editing of site, section, responsible person, or asset master data.
 - Email notification preferences. These belong with Task 16.
 
 ## Verification
