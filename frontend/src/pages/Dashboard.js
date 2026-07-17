@@ -98,13 +98,13 @@ export function showDashboard(
         </div>
       </div>
 
-      <div class="stat-card stat-red">
+      <button type="button" class="stat-card stat-red stat-card-action" onclick="showDashboardReviewQueue('incomplete-inspections')">
         <div class="stat-icon">IC</div>
         <div>
           <h3>Incomplete Inspections</h3>
           <p>${stats.incompleteinspections || 0}</p>
         </div>
-      </div>
+      </button>
 
       <button type="button" class="stat-card stat-red stat-card-action" onclick="showDashboardReviewQueue('certificate-metadata')">
         <div class="stat-icon">CM</div>

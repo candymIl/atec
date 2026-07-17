@@ -21,11 +21,13 @@ Task 15 gives customer users a read-only landing page for their own ATEC records
 - Recent certificate list with PDF download links.
 - Shortcuts to Certificates and Detailed Report.
 - Customer asset drill-down with search, status filter, latest visual/load-test status, validity dates, and certificate PDF links.
+- Separate Customer Portal Users management view, distinct from internal ATEC administrators, managers, inspectors and viewers.
 
 ## Not Yet In This Slice
 
 - Customer self-service preferences.
 - Customer account administration.
+- Separate physical database table for customer logins. The current slice keeps one authenticated user table and separates management in the UI.
 - Write access to asset, inspection, visit, or disposition records.
 - Customer editing of site, section, responsible person, or asset master data.
 - Email notification preferences. These belong with Task 16.

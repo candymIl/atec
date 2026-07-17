@@ -35,6 +35,11 @@ assertIncludes(main, "renderCustomerPortal", "Customer portal renderer must be i
 assertIncludes(main, "currentUser.role === 'CUSTOMER' ? 'portal' : 'dashboard'", "Customer login must land on portal")
 assertIncludes(main, "menuButton('portal', 'Customer Portal'", "Customer Portal navigation item is missing")
 assertIncludes(main, 'case "portal":', "Portal route restore case is missing")
+assertIncludes(main, "const internalUserRoles = ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER']", "Internal ATEC user roles must be managed separately")
+assertIncludes(main, "const customerUserRoles = ['CUSTOMER']", "Customer portal user roles must be managed separately")
+assertIncludes(main, "userBelongsToManagementMode", "User management must filter internal and customer users separately")
+assertIncludes(main, "showCustomerUserManagement", "Customer portal user management view is missing")
+assertIncludes(main, "Please link this customer portal user to a customer.", "Customer portal users must require a linked customer")
 
 assertIncludes(portal, "/customer-portal/summary", "Portal page must call the scoped summary endpoint")
 assertIncludes(portal, "/customer-portal/assets", "Portal page must call the scoped asset endpoint")
@@ -52,6 +57,7 @@ assertIncludes(style, ".portal-metric-grid", "Portal metric grid styles are miss
 assertIncludes(style, ".portal-certificate-table", "Portal certificate table styles are missing")
 assertIncludes(style, ".portal-asset-filters", "Portal asset filter styles are missing")
 assertIncludes(style, ".portal-asset-table", "Portal asset table styles are missing")
+assertIncludes(style, ".user-management-mode-tabs", "User management mode tab styles are missing")
 
 assertIncludes(roadmap, "Task 15: Customer Portal - In Progress Locally", "Roadmap must mark Task 15 in progress locally")
 assert.strictEqual(packageJson.scripts["test:task15"], "node scripts/regression/task15-customer-portal.test.js")

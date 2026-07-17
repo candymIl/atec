@@ -609,6 +609,24 @@ td {
   box-shadow: 0 1px 2px rgba(15, 45, 79, 0.05);
 }
 
+.user-management-mode-tabs {
+  display: flex;
+  gap: 10px;
+}
+
+.user-management-mode-tabs button {
+  background: #eef4fb;
+  border-color: #c9d8ea;
+  color: #12345a;
+  font-weight: 800;
+}
+
+.user-management-mode-tabs button.active {
+  background: #12345a;
+  border-color: #12345a;
+  color: #ffffff;
+}
+
 .user-signature-card {
   display: flex;
   flex-wrap: wrap;

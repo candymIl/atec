@@ -330,6 +330,34 @@ function sortUserManagementRows(users) {
   })
 }
 
+const internalUserRoles = ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER']
+const customerUserRoles = ['CUSTOMER']
+
+function getUserManagementMode() {
+  const mode = localStorage.getItem('userManagementMode') || 'internal'
+  return mode === 'customers' ? 'customers' : 'internal'
+}
+
+function userRolesForManagementMode(mode) {
+  return mode === 'customers' ? customerUserRoles : internalUserRoles
+}
+
+function userBelongsToManagementMode(user, mode) {
+  return mode === 'customers'
+    ? user.role === 'CUSTOMER'
+    : user.role !== 'CUSTOMER'
+}
+
+window.showInternalUserManagement = function () {
+  localStorage.setItem('userManagementMode', 'internal')
+  showUserManagement()
+}
+
+window.showCustomerUserManagement = function () {
+  localStorage.setItem('userManagementMode', 'customers')
+  showUserManagement()
+}
+
 function userSortHeader(label, key) {
   const sort = getUserManagementSort()
   const isActive = sort.key === key
@@ -389,14 +417,40 @@ window.showUserManagement = async function () {
     sections: userSections
   }
 
-  const sortedUsers = sortUserManagementRows(users)
+  const managementMode = getUserManagementMode()
+  const modeRoles = userRolesForManagementMode(managementMode)
+  const filteredUsers = users.filter(user => userBelongsToManagementMode(user, managementMode))
+  const sortedUsers = sortUserManagementRows(filteredUsers)
+  const modeTitle = managementMode === 'customers' ? 'Customer Portal Users' : 'ATEC Users'
+  const createTitle = managementMode === 'customers' ? 'Create Customer Portal User' : 'Create ATEC User'
+  const createNote = managementMode === 'customers'
+    ? 'Customer portal users are separate from ATEC staff and must be linked to a customer.'
+    : 'ATEC users are internal administrators, managers, inspectors, and viewers.'
 
   document.querySelector('#page').innerHTML = `
     <div class="user-management-page">
-    <h1>User Management</h1>
+    <h1>${modeTitle}</h1>
+
+    <div class="filter-card user-management-mode-tabs">
+      <button
+        type="button"
+        class="${managementMode === 'internal' ? 'active' : ''}"
+        onclick="showInternalUserManagement()"
+      >
+        ATEC Users
+      </button>
+      <button
+        type="button"
+        class="${managementMode === 'customers' ? 'active' : ''}"
+        onclick="showCustomerUserManagement()"
+      >
+        Customer Portal Users
+      </button>
+    </div>
 
     <div class="filter-card user-create-card">
-      <h2>Create User</h2>
+      <h2>${createTitle}</h2>
+      <p>${createNote}</p>
       <div class="asset-form-grid">
         <div class="form-group">
           <label>Username</label>
@@ -417,11 +471,7 @@ window.showUserManagement = async function () {
         <div class="form-group">
           <label>Role</label>
           <select id="newUserRole">
-            <option value="ADMIN">ADMIN</option>
-            <option value="MANAGER">MANAGER</option>
-            <option value="INSPECTOR">INSPECTOR</option>
-            <option value="VIEWER">VIEWER</option>
-            <option value="CUSTOMER">CUSTOMER</option>
+            ${modeRoles.map(role => `<option value="${role}">${role}</option>`).join('')}
           </select>
         </div>
         <div class="form-group">
@@ -458,6 +508,7 @@ window.showUserManagement = async function () {
     </div>
 
     <div class="user-management-table-wrap">
+    <p><strong>${sortedUsers.length}</strong> ${managementMode === 'customers' ? 'customer portal user(s)' : 'ATEC user(s)'} shown.</p>
     <table class="user-management-table">
       <thead>
         <tr>
@@ -482,7 +533,7 @@ window.showUserManagement = async function () {
             <td><input id="user-name-${safeAttr(user.user_id)}" value="${safeAttr(user.full_name || '')}"></td>
             <td>
               <select id="user-role-${user.user_id}">
-                ${['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER'].map(role => `
+                ${modeRoles.map(role => `
                   <option value="${role}" ${role === user.role ? 'selected' : ''}>${role}</option>
                 `).join('')}
               </select>
@@ -527,6 +578,17 @@ window.showUserManagement = async function () {
 }
 
 window.createUser = async function () {
+  const managementMode = getUserManagementMode()
+  const role = managementMode === 'customers'
+    ? 'CUSTOMER'
+    : document.querySelector('#newUserRole').value
+  const clientid = document.querySelector('#newUserClientId').value
+
+  if (managementMode === 'customers' && !clientid) {
+    alert('Please link this customer portal user to a customer.')
+    return
+  }
+
   const response = await fetch(`${API_BASE}/users`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -535,9 +597,9 @@ window.createUser = async function () {
       email: document.querySelector('#newUserEmail').value,
       password: document.querySelector('#newUserPassword').value,
       full_name: document.querySelector('#newUserFullName').value,
-      role: document.querySelector('#newUserRole').value,
+      role,
       lmi_number: document.querySelector('#newUserLmi').value,
-      clientid: document.querySelector('#newUserClientId').value,
+      clientid,
       siteid: document.querySelector('#newUserSiteId').value,
       sectionid: document.querySelector('#newUserSectionId').value
     })
@@ -7444,6 +7506,21 @@ async function loadDashboardSummary() {
 }
 
 const dashboardReviewQueues = {
+  "incomplete-inspections": {
+    title: "Incomplete Inspections",
+    empty: "No incomplete inspections found.",
+    columns: [
+      ["Inspection", row => row.testid],
+      ["Asset", row => row.assetid],
+      ["Customer", row => row.clientname],
+      ["Site", row => row.sitename],
+      ["Type", row => row.inspectiontype],
+      ["Date", row => formatDashboardReviewDate(row.testdate)],
+      ["Inspector", row => row.inspector],
+      ["Issue", row => row.issue]
+    ],
+    action: row => `<button class="small-btn" onclick="showDashboardCustomerReport(${safeAttr(row.clientid)})">View Report</button>`
+  },
   "certificate-metadata": {
     title: "Certificate Metadata Review",
     empty: "No certificate metadata issues found.",

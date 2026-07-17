@@ -10779,6 +10779,42 @@ app.get("/dashboard/review-queue/:queue", async (req, res) => {
     `
 
     const queueQueries = {
+      "incomplete-inspections": `
+        WITH active_assets AS (
+          ${activeAssetsSql}
+        )
+        SELECT
+          i.testid,
+          i.assetid,
+          a.assettagno,
+          COALESCE(NULLIF(a.serialno, ''), a.hoistserialno) AS serialno,
+          a.clientid,
+          c.clientname,
+          a.siteid,
+          s.sitename,
+          a.sectionid,
+          sec.sectionname,
+          a.equiptypeid,
+          et.description AS equipmenttype,
+          i.inspectiontype,
+          i.testdate,
+          i.inspector,
+          i.status,
+          'No result rows recorded' AS issue
+        FROM atec.tblinspection i
+        JOIN active_assets a ON a.assetid = i.assetid
+        LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
+        LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
+        LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
+        LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM atec.tblinspectionresult r
+          WHERE r.testid = i.testid
+        )
+        ORDER BY i.testdate DESC NULLS LAST, i.testid DESC
+        LIMIT 200
+      `,
       "certificate-metadata": `
         WITH active_assets AS (
           ${activeAssetsSql}
