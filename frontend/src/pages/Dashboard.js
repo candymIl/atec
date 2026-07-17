@@ -106,38 +106,50 @@ export function showDashboard(
         </div>
       </div>
 
-      <div class="stat-card stat-red">
+      <button type="button" class="stat-card stat-red stat-card-action" onclick="showDashboardReviewQueue('certificate-metadata')">
         <div class="stat-icon">CM</div>
         <div>
           <h3>Certificate Metadata</h3>
           <p>${stats.certificateintegrityalerts || 0}</p>
         </div>
-      </div>
+      </button>
 
-      <div class="stat-card stat-orange">
+      <button type="button" class="stat-card stat-orange stat-card-action" onclick="showDashboardReviewQueue('missing-section')">
         <div class="stat-icon">SC</div>
         <div>
           <h3>Assets Missing Section</h3>
           <p>${stats.assetsmissingsection || 0}</p>
         </div>
-      </div>
+      </button>
 
-      <div class="stat-card stat-orange">
+      <button type="button" class="stat-card stat-orange stat-card-action" onclick="showDashboardReviewQueue('types-without-criteria')">
         <div class="stat-icon">CR</div>
         <div>
           <h3>Types Without Criteria</h3>
           <p>${stats.equipmenttypeswithoutcriteria || 0}</p>
         </div>
-      </div>
+      </button>
 
-      <div class="stat-card stat-red">
+      <button type="button" class="stat-card stat-red stat-card-action" onclick="showDashboardReviewQueue('overdue')">
         <div class="stat-icon">OD</div>
         <div>
           <h3>Overdue</h3>
           <p>${stats.overdue || 0}</p>
         </div>
+      </button>
+
+    </div>
+
+    <div class="dashboard-section dashboard-review-queue" id="dashboardReviewQueue" hidden>
+      <div class="section-header">
+        <h2 id="dashboardReviewQueueTitle">Review Queue</h2>
+        <div class="dashboard-review-actions">
+          <button type="button" class="secondary-btn" onclick="exportDashboardReviewQueue()">Export CSV</button>
+          <button type="button" class="secondary-btn" onclick="closeDashboardReviewQueue()">Close</button>
+        </div>
       </div>
 
+      <div id="dashboardReviewQueueBody">Select a dashboard card to review the items.</div>
     </div>
 
     <div class="dashboard-section dashboard-alerts">

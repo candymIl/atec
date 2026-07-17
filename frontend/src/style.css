@@ -1057,6 +1057,104 @@ tr:hover {
   border-left: 6px solid #dc2626;
 }
 
+/* =======================================================
+   8A. CUSTOMER PORTAL
+======================================================= */
+
+.customer-portal-page {
+  display: grid;
+  gap: 18px;
+}
+
+.customer-portal-hero {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #d9e1ec;
+  border-radius: 8px;
+  display: flex;
+  justify-content: space-between;
+  padding: 18px;
+}
+
+.customer-portal-hero h1,
+.customer-portal-heading h2 {
+  color: #12345a;
+  margin-bottom: 4px;
+}
+
+.customer-portal-hero p,
+.customer-portal-heading p {
+  color: #52606d;
+  margin: 0;
+}
+
+.customer-portal-content {
+  display: grid;
+  gap: 18px;
+}
+
+.customer-portal-heading,
+.customer-portal-section-heading {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.portal-metric-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.portal-mini-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.portal-metric {
+  background: #ffffff;
+  border: 1px solid #d9e1ec;
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  min-height: 82px;
+  padding: 12px;
+}
+
+.portal-metric span {
+  color: #52606d;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.portal-metric strong {
+  color: #12345a;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.portal-metric.warning {
+  border-color: #f59e0b;
+}
+
+.portal-metric.danger {
+  border-color: #d00000;
+}
+
+.customer-portal-panels {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.portal-certificate-table td span {
+  color: #52606d;
+  display: block;
+  font-size: 12px;
+}
+
 .alert-card {
   padding: 12px 14px;
   border-radius: 8px;
@@ -4331,6 +4429,7 @@ tr:hover {
 
   .dashboard-row,
   .dashboard-buttons,
+  .customer-portal-panels,
   .form-grid,
   .asset-form-grid,
   .dynamic-asset-fields,
@@ -4341,6 +4440,16 @@ tr:hover {
   .quick-detail-grid,
   .quick-result-bottom {
     grid-template-columns: 1fr !important;
+  }
+
+  .customer-portal-heading,
+  .customer-portal-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .portal-mini-grid {
+    grid-template-columns: 1fr;
   }
 
   .quick-wide {

@@ -10,6 +10,7 @@ import { renderEquipmentTypeCriteria } from './pages/EquipmentTypeCriteria.js'
 import { renderQuickInspection } from './pages/QuickInspection.js'
 import { renderCertificateSearch } from './pages/Certificates.js'
 import { renderCustomerDetailedReport } from './pages/CustomerDetailedReport.js'
+import { renderCustomerPortal } from './pages/CustomerPortal.js'
 import { renderRiskAssessments, renderRiskAssessmentTable } from './pages/RiskAssessments.js'
 import { renderSystemHealthPage } from './pages/SystemHealth.js'
 import { getPaginationState, renderPaginationControls } from './pagination.js'
@@ -80,6 +81,7 @@ let updateNoticeShown = false
 let updateChecksStarted = false
 
 const pageAccess = {
+  portal: ['CUSTOMER'],
   dashboard: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER'],
   customers: ['ADMIN', 'MANAGER', 'INSPECTOR'],
   sites: ['ADMIN', 'MANAGER', 'INSPECTOR'],
@@ -232,7 +234,7 @@ window.loginUser = async function () {
 
   currentUser = result.user
   window.currentUser = currentUser
-  localStorage.setItem('currentPage', currentUser.role === 'CUSTOMER' ? 'certificates' : 'dashboard')
+  localStorage.setItem('currentPage', currentUser.role === 'CUSTOMER' ? 'portal' : 'dashboard')
   await loadData()
 }
 
@@ -929,6 +931,7 @@ async function loadData() {
     </button>
 
     <div class="mobile-menu-actions">
+    ${menuButton('portal', 'Customer Portal', 'showCustomerPortal()')}
     ${menuButton('dashboard', 'Dashboard', 'showDashboard()')}
     ${menuButton('customers', 'Customer Setup', 'showCustomerSetup()')}
     ${menuButton('sites', 'Sites', 'showSites()')}
@@ -989,6 +992,13 @@ window.showDashboard = function () {
   )
 
   loadDashboardSummary()
+}
+
+window.showCustomerPortal = function () {
+  if (!ensurePageAccess('portal')) return
+
+  localStorage.setItem("currentPage", "portal")
+  renderCustomerPortal(currentUser)
 }
 
 let customerArchiveMode = localStorage.getItem("customerArchiveMode") || "active"
@@ -7971,11 +7981,14 @@ let currentPage =
   localStorage.getItem("currentPage") || "dashboard"
 
 if (!hasAccess(currentPage)) {
-  currentPage = currentUser.role === "CUSTOMER" ? "certificates" : "dashboard"
+  currentPage = currentUser.role === "CUSTOMER" ? "portal" : "dashboard"
   localStorage.setItem("currentPage", currentPage)
 }
 
 switch (currentPage) {
+  case "portal":
+    showCustomerPortal()
+    break
 
   case "dashboard":
     showDashboard()

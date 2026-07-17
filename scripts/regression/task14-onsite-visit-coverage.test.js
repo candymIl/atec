@@ -116,7 +116,7 @@ assertIncludes(docs, "Future Customer Portal Integration", "Task 15 prep docs ar
 assertIncludes(docs, "Future Email/Notification Events", "Task 16 prep docs are missing")
 assertIncludes(roadmap, "Task 13: NFC Asset Support - Complete Locally", "Roadmap must mark Task 13 complete locally")
 assertIncludes(roadmap, "Task 14: On-Site Due-Asset Coverage - Complete Locally", "Roadmap must mark Task 14 complete locally")
-assertIncludes(roadmap, "Task 15: Customer Portal - Next", "Roadmap must keep Task 15 next")
+assertIncludes(roadmap, "Task 15: Customer Portal - In Progress Locally", "Roadmap must show Task 15 is now in progress")
 assertIncludes(roadmap, "Task 16: Email And Notifications - After Task 15", "Roadmap must keep Task 16 after Task 15")
 
 assert.strictEqual(packageJson.scripts["test:task14"], "node scripts/regression/task14-onsite-visit-coverage.test.js")

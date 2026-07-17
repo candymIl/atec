@@ -1099,6 +1099,168 @@ app.get("/auth/me", requireAuth, (req, res) => {
   res.json({ user: req.user })
 })
 
+app.get("/customer-portal/summary", requireAuth, asyncRoute(async (req, res) => {
+  if (req.user.role !== "CUSTOMER") {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  const effectiveClientId = req.user.clientid
+
+  if (!effectiveClientId) {
+    return res.status(400).json({ error: "No customer is linked to this user." })
+  }
+
+  const customerResult = await pool.query(
+    `
+    SELECT clientid, clientname, clientaddr
+    FROM atec.tblclients
+    WHERE clientid = $1
+      AND COALESCE(archived, false) = false
+    LIMIT 1
+    `,
+    [effectiveClientId]
+  )
+
+  if (customerResult.rows.length === 0) {
+    return res.status(404).json({ error: "Customer not found" })
+  }
+
+  const assetSummary = await pool.query(
+    `
+    WITH customer_assets AS (
+      SELECT assetid, siteid
+      FROM atec.tblasset
+      WHERE clientid = $1
+        AND COALESCE(archived, false) = false
+    ),
+    latest_visual AS (
+      SELECT DISTINCT ON (i.assetid)
+        i.assetid,
+        i.testdate,
+        i.validdate,
+        ${effectiveInspectionStatusSql} AS status
+      FROM atec.tblinspection i
+      JOIN customer_assets a ON a.assetid = i.assetid
+      WHERE i.inspectiontype = 'VISUAL'
+      ORDER BY i.assetid, i.testdate DESC NULLS LAST, i.testid DESC
+    ),
+    latest_load AS (
+      SELECT DISTINCT ON (i.assetid)
+        i.assetid,
+        i.testdate,
+        i.validdate,
+        ${effectiveInspectionStatusSql} AS status
+      FROM atec.tblinspection i
+      JOIN customer_assets a ON a.assetid = i.assetid
+      WHERE i.inspectiontype = 'LOADTEST'
+      ORDER BY i.assetid, i.testdate DESC NULLS LAST, i.testid DESC
+    )
+    SELECT
+      count(DISTINCT a.assetid)::int AS active_assets,
+      count(DISTINCT a.siteid)::int AS active_sites,
+      count(*) FILTER (WHERE latest_visual.assetid IS NULL)::int AS no_visual_assets,
+      count(*) FILTER (WHERE latest_load.assetid IS NULL)::int AS no_loadtest_assets,
+      count(*) FILTER (WHERE latest_visual.validdate < CURRENT_DATE)::int AS visual_overdue_assets,
+      count(*) FILTER (WHERE latest_load.validdate < CURRENT_DATE)::int AS loadtest_overdue_assets,
+      count(*) FILTER (
+        WHERE latest_visual.status = 'NOT SAFE'
+           OR latest_load.status = 'NOT SAFE'
+      )::int AS not_safe_assets
+    FROM customer_assets a
+    LEFT JOIN latest_visual ON latest_visual.assetid = a.assetid
+    LEFT JOIN latest_load ON latest_load.assetid = a.assetid
+    `,
+    [effectiveClientId]
+  )
+
+  const certificateSummary = await pool.query(
+    `
+    SELECT
+      count(*)::int AS total_certificates,
+      count(*) FILTER (WHERE ${effectiveInspectionStatusSql} = 'SAFE')::int AS safe_certificates,
+      count(*) FILTER (WHERE ${effectiveInspectionStatusSql} = 'NOT SAFE')::int AS not_safe_certificates,
+      count(*) FILTER (WHERE i.validdate < CURRENT_DATE)::int AS expired_certificates,
+      count(*) FILTER (
+        WHERE i.validdate >= CURRENT_DATE
+          AND i.validdate <= CURRENT_DATE + INTERVAL '30 days'
+      )::int AS expiring_soon_certificates
+    FROM atec.tblinspection i
+    JOIN atec.tblasset a ON a.assetid = i.assetid
+    WHERE a.clientid = $1
+    `,
+    [effectiveClientId]
+  )
+
+  const recentCertificates = await pool.query(
+    `
+    SELECT
+      i.testid,
+      TO_CHAR(i.testdate, 'YYYY-MM-DD') AS testdate,
+      TO_CHAR(i.validdate, 'YYYY-MM-DD') AS validdate,
+      i.inspectiontype,
+      ${effectiveInspectionStatusSql} AS status,
+      a.assetid,
+      a.assettagno,
+      a.serialno,
+      a.description,
+      s.sitename,
+      sec.sectionname
+    FROM atec.tblinspection i
+    JOIN atec.tblasset a ON a.assetid = i.assetid
+    LEFT JOIN atec.tblsites s ON s.siteid = a.siteid
+    LEFT JOIN atec.tblsection sec ON sec.sectionid = a.sectionid
+    WHERE a.clientid = $1
+    ORDER BY i.testdate DESC NULLS LAST, i.testid DESC
+    LIMIT 8
+    `,
+    [effectiveClientId]
+  )
+
+  let visitSummary = {
+    active_visits: 0,
+    outstanding_visit_assets: 0,
+    recently_completed_visits: 0
+  }
+
+  const visitTables = await pool.query(
+    `
+    SELECT to_regclass('atec.tblinspectionvisit') AS visit_table,
+           to_regclass('atec.tblinspectionvisitasset') AS visit_asset_table
+    `
+  )
+
+  if (visitTables.rows[0]?.visit_table && visitTables.rows[0]?.visit_asset_table) {
+    const visits = await pool.query(
+      `
+      SELECT
+        count(*) FILTER (WHERE v.visit_status IN ('OPEN','PAUSED','RECONCILIATION_REQUIRED'))::int AS active_visits,
+        count(va.visitassetid) FILTER (
+          WHERE v.visit_status IN ('OPEN','PAUSED','RECONCILIATION_REQUIRED')
+            AND va.reconciliation_status = 'OUTSTANDING'
+        )::int AS outstanding_visit_assets,
+        count(DISTINCT v.visitid) FILTER (
+          WHERE v.visit_status = 'COMPLETED'
+            AND v.actual_completion_at >= now() - INTERVAL '30 days'
+        )::int AS recently_completed_visits
+      FROM atec.tblinspectionvisit v
+      LEFT JOIN atec.tblinspectionvisitasset va ON va.visitid = v.visitid
+      WHERE v.clientid = $1
+      `,
+      [effectiveClientId]
+    )
+
+    visitSummary = visits.rows[0] || visitSummary
+  }
+
+  res.json({
+    customer: customerResult.rows[0],
+    assetSummary: assetSummary.rows[0] || {},
+    certificateSummary: certificateSummary.rows[0] || {},
+    visitSummary,
+    recentCertificates: recentCertificates.rows
+  })
+}))
+
 function isSetupMaintenanceRoute(method, routePath) {
   if (!["POST", "PUT"].includes(method)) return false
 
@@ -1226,6 +1388,7 @@ function authorizeRequest(req, res, next) {
     if (
       isRead &&
       (
+        routePath.startsWith("/customer-portal") ||
         routePath.startsWith("/certificates") ||
         routePath.includes("/certificate") ||
         routePath.startsWith("/reports/customer-detailed")
@@ -6603,7 +6766,7 @@ app.get("/certificates/search", searchLimiter, async (req, res) => {
   }
 })
 
-async function getBulkCertificateMatches(req, includeTestIds = false) {
+async function getBulkCertificateMatches(req, includeTestIds = false, eligibleOnly = false) {
   const {
     clientid = "",
     datefrom = "",
@@ -6699,9 +6862,13 @@ async function getBulkCertificateMatches(req, includeTestIds = false) {
   )
 
   const certificatesByTestId = await getCertificatesData(result.rows.map(row => row.testid))
-  const certificates = result.rows
+  const allCertificates = result.rows
     .map(row => certificatesByTestId.get(Number(row.testid)))
     .filter(certificate => certificate && canViewCertificate(req.user, certificate))
+  const blockedCertificates = allCertificates.filter(certificate => !certificateIsEligible(certificate))
+  const certificates = eligibleOnly
+    ? allCertificates.filter(certificate => certificateIsEligible(certificate))
+    : allCertificates
 
   return {
     filters: {
@@ -6713,20 +6880,27 @@ async function getBulkCertificateMatches(req, includeTestIds = false) {
       status,
       testids: selectedTestIds
     },
-    certificates
+    certificates,
+    blockedCertificates,
+    totalMatched: allCertificates.length
   }
 }
 
 app.get("/certificates/bulk-print", searchLimiter, async (req, res) => {
   try {
-    const { filters, certificates } = await getBulkCertificateMatches(req, false)
+    const { filters, certificates, blockedCertificates, totalMatched } = await getBulkCertificateMatches(req, false, true)
 
     await req.logAudit("BULK_PRINT_SEARCH", "certificates", null, {
       ...filters,
-      count: certificates.length
+      count: certificates.length,
+      blocked: blockedCertificates.length
     })
 
-    res.json({ certificates })
+    res.json({
+      certificates,
+      blockedCount: blockedCertificates.length,
+      totalMatched
+    })
   } catch (err) {
     console.error(err)
     res.status(err.statusCode || 500).json({
@@ -6737,7 +6911,8 @@ app.get("/certificates/bulk-print", searchLimiter, async (req, res) => {
 
 app.get("/certificates/bulk-pdf", pdfLimiter, async (req, res) => {
   try {
-    const { filters, certificates } = await getBulkCertificateMatches(req, true)
+    const explicitSelection = String(req.query.testids || "").trim() !== ""
+    const { filters, certificates } = await getBulkCertificateMatches(req, true, !explicitSelection)
 
     if (!certificates.length) {
       return res.status(404).json({ error: "No certificates found for the selected filters" })
@@ -10373,6 +10548,222 @@ app.get("/dashboard/stats", async (req, res) => {
   } catch (err) {
     console.error("Dashboard stats error:", err)
     res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
+
+app.get("/dashboard/review-queue/:queue", async (req, res) => {
+  try {
+    const queue = String(req.params.queue || "").toLowerCase()
+    const scopedToClient = dashboardClientScope(req)
+
+    const activeAssetsSql = `
+      SELECT *
+      FROM atec.tblasset a
+      WHERE COALESCE(a.archived, false) = false
+      ${scopedToClient.clause}
+    `
+
+    const assetColumnsSql = `
+      a.assetid,
+      a.assettagno,
+      COALESCE(NULLIF(a.serialno, ''), a.hoistserialno) AS serialno,
+      a.clientid,
+      c.clientname,
+      a.siteid,
+      s.sitename,
+      a.sectionid,
+      sec.sectionname,
+      a.equiptypeid,
+      et.description AS equipmenttype,
+      a.description
+    `
+
+    const queueQueries = {
+      "certificate-metadata": `
+        WITH active_assets AS (
+          ${activeAssetsSql}
+        ),
+        latest_visual AS (
+          SELECT DISTINCT ON (i.assetid)
+            i.assetid,
+            i.testid,
+            i.testdate,
+            i.inspector,
+            i.inspector_lmi_number,
+            i.inspector_signature_image,
+            (
+              SELECT COUNT(*)::int
+              FROM atec.tblinspectionresult r
+              WHERE r.testid = i.testid
+            ) AS result_count
+          FROM atec.tblinspection i
+          JOIN active_assets a ON a.assetid = i.assetid
+          WHERE i.inspectiontype = 'VISUAL'
+          ORDER BY i.assetid, i.testdate DESC NULLS LAST, i.testid DESC
+        ),
+        latest_load AS (
+          SELECT DISTINCT ON (i.assetid)
+            i.assetid,
+            i.testid,
+            i.testdate,
+            i.inspector,
+            i.inspector_lmi_number,
+            i.inspector_signature_image,
+            (
+              SELECT COUNT(*)::int
+              FROM atec.tblinspectionresult r
+              WHERE r.testid = i.testid
+            ) AS result_count
+          FROM atec.tblinspection i
+          JOIN active_assets a ON a.assetid = i.assetid
+          WHERE i.inspectiontype = 'LOADTEST'
+          ORDER BY i.assetid, i.testdate DESC NULLS LAST, i.testid DESC
+        )
+        SELECT
+          ${assetColumnsSql},
+          lv.testid AS visualtestid,
+          lv.testdate AS visualtestdate,
+          ll.testid AS loadtestid,
+          ll.testdate AS loadtestdate,
+          CONCAT_WS(', ',
+            CASE WHEN lv.testid IS NOT NULL AND COALESCE(lv.result_count, 0) = 0 THEN 'Visual has no result rows' END,
+            CASE WHEN lv.testid IS NOT NULL AND COALESCE(lv.inspector_lmi_number, '') = '' THEN 'Visual missing LMI number' END,
+            CASE WHEN lv.testid IS NOT NULL AND COALESCE(lv.inspector_signature_image, '') = '' THEN 'Visual missing signature' END,
+            CASE WHEN ll.testid IS NOT NULL AND COALESCE(ll.result_count, 0) = 0 THEN 'Load test has no result rows' END,
+            CASE WHEN ll.testid IS NOT NULL AND COALESCE(ll.inspector_lmi_number, '') = '' THEN 'Load test missing LMI number' END,
+            CASE WHEN ll.testid IS NOT NULL AND COALESCE(ll.inspector_signature_image, '') = '' THEN 'Load test missing signature' END
+          ) AS issue
+        FROM active_assets a
+        LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
+        LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
+        LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
+        LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
+        LEFT JOIN latest_visual lv ON a.assetid = lv.assetid
+        LEFT JOIN latest_load ll ON a.assetid = ll.assetid
+        WHERE (lv.testid IS NOT NULL AND (
+            COALESCE(lv.result_count, 0) = 0
+            OR COALESCE(lv.inspector_lmi_number, '') = ''
+            OR COALESCE(lv.inspector_signature_image, '') = ''
+          ))
+          OR (ll.testid IS NOT NULL AND (
+            COALESCE(ll.result_count, 0) = 0
+            OR COALESCE(ll.inspector_lmi_number, '') = ''
+            OR COALESCE(ll.inspector_signature_image, '') = ''
+          ))
+        ORDER BY c.clientname NULLS LAST, s.sitename NULLS LAST, a.assetid DESC
+        LIMIT 200
+      `,
+      "missing-section": `
+        WITH active_assets AS (
+          ${activeAssetsSql}
+        )
+        SELECT
+          ${assetColumnsSql},
+          'No section assigned' AS issue
+        FROM active_assets a
+        LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
+        LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
+        LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
+        LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
+        WHERE a.sectionid IS NULL
+        ORDER BY c.clientname NULLS LAST, s.sitename NULLS LAST, a.assetid DESC
+        LIMIT 200
+      `,
+      "types-without-criteria": `
+        WITH active_assets AS (
+          ${activeAssetsSql}
+        )
+        SELECT
+          a.equiptypeid,
+          COALESCE(et.description, 'Unknown') AS equipmenttype,
+          COUNT(a.assetid)::int AS assets,
+          MIN(a.assetid)::int AS sampleassetid,
+          STRING_AGG(DISTINCT COALESCE(c.clientname, 'Unknown Customer'), ', ' ORDER BY COALESCE(c.clientname, 'Unknown Customer')) AS customers,
+          'No active criteria configured' AS issue
+        FROM active_assets a
+        LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
+        LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
+        WHERE a.equiptypeid IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM atec.tblequiptypecriteria criteria
+            WHERE criteria.equiptypeid = a.equiptypeid
+              AND COALESCE(criteria.active, true) = true
+          )
+        GROUP BY a.equiptypeid, et.description
+        ORDER BY assets DESC, equipmenttype ASC
+        LIMIT 200
+      `,
+      overdue: `
+        WITH active_assets AS (
+          ${activeAssetsSql}
+        ),
+        latest_visual AS (
+          SELECT DISTINCT ON (i.assetid)
+            i.assetid,
+            i.testid,
+            i.testdate,
+            i.validdate,
+            i.status
+          FROM atec.tblinspection i
+          JOIN active_assets a ON a.assetid = i.assetid
+          WHERE i.inspectiontype = 'VISUAL'
+          ORDER BY i.assetid, i.testdate DESC NULLS LAST, i.testid DESC
+        ),
+        latest_load AS (
+          SELECT DISTINCT ON (i.assetid)
+            i.assetid,
+            i.testid,
+            i.testdate,
+            i.validdate,
+            i.status
+          FROM atec.tblinspection i
+          JOIN active_assets a ON a.assetid = i.assetid
+          WHERE i.inspectiontype = 'LOADTEST'
+          ORDER BY i.assetid, i.testdate DESC NULLS LAST, i.testid DESC
+        )
+        SELECT
+          ${assetColumnsSql},
+          lv.testdate AS visualtestdate,
+          (lv.testdate + INTERVAL '3 months')::date AS nextvisualdue,
+          ll.testdate AS loadtestdate,
+          (ll.testdate + INTERVAL '12 months')::date AS nextloaddue,
+          CONCAT_WS(', ',
+            CASE WHEN lv.testdate IS NOT NULL AND (lv.testdate + INTERVAL '3 months')::date < CURRENT_DATE THEN 'Visual overdue' END,
+            CASE WHEN ll.testdate IS NOT NULL AND (ll.testdate + INTERVAL '12 months')::date < CURRENT_DATE THEN 'Load test overdue' END
+          ) AS issue
+        FROM active_assets a
+        LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
+        LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
+        LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
+        LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
+        LEFT JOIN latest_visual lv ON a.assetid = lv.assetid
+        LEFT JOIN latest_load ll ON a.assetid = ll.assetid
+        WHERE (lv.testdate + INTERVAL '3 months')::date < CURRENT_DATE
+           OR (ll.testdate + INTERVAL '12 months')::date < CURRENT_DATE
+        ORDER BY
+          LEAST(
+            COALESCE((lv.testdate + INTERVAL '3 months')::date, CURRENT_DATE),
+            COALESCE((ll.testdate + INTERVAL '12 months')::date, CURRENT_DATE)
+          ) ASC,
+          a.assetid DESC
+        LIMIT 200
+      `
+    }
+
+    if (!queueQueries[queue]) {
+      return res.status(404).json({ error: "Unknown dashboard review queue" })
+    }
+
+    const result = await pool.query(queueQueries[queue], scopedToClient.values)
+    res.json({
+      queue,
+      total: result.rows.length,
+      rows: result.rows
+    })
+  } catch (err) {
+    console.error("Dashboard review queue error:", err)
+    res.status(500).json({ error: "Failed to load dashboard review queue" })
   }
 })
 

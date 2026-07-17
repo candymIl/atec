@@ -542,26 +542,40 @@ window.searchBulkCertificates = async function () {
   }
 
   window.bulkCertificateResults = data.certificates || []
-  renderBulkCertificateResults(window.bulkCertificateResults)
+  window.bulkCertificateBlockedCount = Number(data.blockedCount || 0)
+  window.bulkCertificateTotalMatched = Number(data.totalMatched || window.bulkCertificateResults.length)
+  renderBulkCertificateResults(window.bulkCertificateResults, {
+    blockedCount: window.bulkCertificateBlockedCount,
+    totalMatched: window.bulkCertificateTotalMatched
+  })
 }
 
-function renderBulkCertificateResults(certificates) {
+function renderBulkCertificateResults(certificates, summary = {}) {
   const resultsContainer = document.querySelector('#bulkCertificateResults')
   const printButton = document.querySelector('#bulkCertPrintBtn')
   const downloadSelectedButton = document.querySelector('#bulkCertDownloadSelectedBtn')
   const downloadAllButton = document.querySelector('#bulkCertDownloadAllBtn')
+  const blockedCount = Number(summary.blockedCount || 0)
+  const totalMatched = Number(summary.totalMatched || certificates.length)
 
   if (!certificates.length) {
-    resultsContainer.innerHTML = `<p>No certificates found for the selected customer and date range.</p>`
+    resultsContainer.innerHTML = blockedCount
+      ? `<p>${escapeHtml(totalMatched)} matching inspection${totalMatched === 1 ? "" : "s"} found, but none can produce certificates yet.</p>`
+      : `<p>No certificates found for the selected customer and date range.</p>`
     printButton.disabled = true
     downloadSelectedButton.disabled = true
     downloadAllButton.disabled = true
     return
   }
 
+  const skippedMessage = blockedCount
+    ? `<span>${escapeHtml(blockedCount)} matching inspection${blockedCount === 1 ? "" : "s"} skipped because ${blockedCount === 1 ? "it cannot" : "they cannot"} produce certificates yet.</span>`
+    : ""
+
   resultsContainer.innerHTML = `
     <div class="bulk-certificate-summary">
-      <strong>${certificates.length}</strong> matching certificate${certificates.length === 1 ? "" : "s"} found.
+      <strong>${certificates.length}</strong> downloadable certificate${certificates.length === 1 ? "" : "s"} found.
+      ${skippedMessage}
     </div>
 
     <div class="table-scroll bulk-certificate-table-wrap">
@@ -741,13 +755,20 @@ window.downloadSelectedBulkCertificatesPdf = async function () {
 }
 
 window.downloadAllBulkCertificatesPdf = async function () {
-  if (!(window.bulkCertificateResults || []).length) {
+  const loadedTestIds = (window.bulkCertificateResults || [])
+    .map(certificate => certificate?.inspection?.testid)
+    .filter(Boolean)
+    .map(testid => String(testid))
+
+  if (!loadedTestIds.length) {
     alert("No certificates found to download. Load certificates first.")
     return
   }
 
   const params = getBulkCertificateFilterParams()
   if (!params) return
+
+  params.set("testids", loadedTestIds.join(","))
 
   await downloadBulkCertificatesPdf(params)
 }
@@ -761,7 +782,10 @@ async function downloadBulkCertificatesPdf(params) {
     const error = await response.json().catch(() => ({
       error: "Unable to download bulk certificates"
     }))
-    alert(error.error || "Unable to download bulk certificates")
+    const details = Array.isArray(error.blocked) && error.blocked.length
+      ? `\n\nFirst blocked certificate: ${error.blocked[0].testid || "Unknown"}`
+      : ""
+    alert((error.error || "Unable to download bulk certificates") + details)
     return
   }
 
