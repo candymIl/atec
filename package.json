@@ -23,7 +23,9 @@
     "test:task10": "node scripts/regression/task10-backup-dr.test.js",
     "test:task11": "node scripts/regression/task11-performance-capacity.test.js",
     "test:responsible-ownership": "node scripts/regression/responsible-person-ownership.test.js",
-    "test:customer-report-responsible": "node scripts/regression/customer-report-responsible-ownership.test.js"
+    "test:customer-report-responsible": "node scripts/regression/customer-report-responsible-ownership.test.js",
+    "test:milestone1d-hierarchy": "node scripts/regression/milestone1d-asset-hierarchy-repair.test.js",
+    "test:work-package-2-integrity": "node scripts/regression/work-package-2-inspection-integrity.test.js"
   },
   "dependencies": {
     "multer": "^2.1.1"

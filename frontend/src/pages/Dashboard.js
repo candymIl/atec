@@ -93,8 +93,40 @@ export function showDashboard(
       <div class="stat-card stat-green">
         <div class="stat-icon">CE</div>
         <div>
-          <h3>Certificates</h3>
+          <h3>Valid Certificates</h3>
           <p>${stats.certificates || 0}</p>
+        </div>
+      </div>
+
+      <div class="stat-card stat-red">
+        <div class="stat-icon">IC</div>
+        <div>
+          <h3>Incomplete Inspections</h3>
+          <p>${stats.incompleteinspections || 0}</p>
+        </div>
+      </div>
+
+      <div class="stat-card stat-red">
+        <div class="stat-icon">CM</div>
+        <div>
+          <h3>Certificate Metadata</h3>
+          <p>${stats.certificateintegrityalerts || 0}</p>
+        </div>
+      </div>
+
+      <div class="stat-card stat-orange">
+        <div class="stat-icon">SC</div>
+        <div>
+          <h3>Assets Missing Section</h3>
+          <p>${stats.assetsmissingsection || 0}</p>
+        </div>
+      </div>
+
+      <div class="stat-card stat-orange">
+        <div class="stat-icon">CR</div>
+        <div>
+          <h3>Types Without Criteria</h3>
+          <p>${stats.equipmenttypeswithoutcriteria || 0}</p>
         </div>
       </div>
 

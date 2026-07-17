@@ -293,6 +293,8 @@ function renderCustomerReportPreview(report) {
         ${summaryTile("Active Assets", report.summary.activeAssets)}
         ${summaryTile("OK", report.summary.safeAssets)}
         ${summaryTile("Not Safe", report.summary.notSafeAssets)}
+        ${summaryTile("Incomplete", report.summary.incompleteInspectionAssets)}
+        ${summaryTile("Missing Metadata", report.summary.missingCertificateMetadataAssets)}
         ${summaryTile("Visual Overdue", report.summary.visualOverdueAssets)}
         ${summaryTile("Load Overdue", report.summary.loadOverdueAssets)}
         ${summaryTile("No Visual", report.summary.noVisualAssets)}

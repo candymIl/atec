@@ -25,6 +25,9 @@ const {
   createSingleCertificatePdfBuffer,
   renderSingleCertificatePreviewHtml
 } = require("./services/certificateRenderer");
+const {
+  evaluateCertificateEligibility
+} = require("./services/inspectionIntegrity")
 const { buildSystemInfo } = require("./services/systemInfo")
 const { pdfConfig, positiveInteger, uploadProcessingConfig } = require("./services/runtimeConfig")
 const backendPackage = require("./package.json")
@@ -5492,6 +5495,56 @@ app.post("/inspections",
       const updatePhotos =
         updateassetphotos === "true" || updateassetphotos === true
 
+      const inspectionTypeForCriteria = String(inspectiontype || "").toUpperCase()
+      const criteriaAvailabilityResult = await client.query(
+        `
+        SELECT
+          a.assetid,
+          a.equiptypeid,
+          et.description AS equipmenttype,
+          COUNT(c.criteriaid)::int AS active_criteria_count
+        FROM atec.tblasset a
+        LEFT JOIN atec.tblequiptype et
+          ON a.equiptypeid = et.equiptypeid
+        LEFT JOIN atec.tblequiptypecriteria c
+          ON c.equiptypeid = a.equiptypeid
+         AND COALESCE(c.active, true) = true
+         AND (
+           $2::text <> 'LOADTEST'
+           OR COALESCE(c.inspection_category, 'PERIODIC_THOROUGH_INSPECTION') = 'LOADTEST'
+           OR UPPER(COALESCE(c.criterianame, c.criteriadescription, '')) IN ('SAFE FOR SERVICE', 'SAFE FOR CONTINUED OPERATION')
+         )
+         AND (
+           $2::text = 'LOADTEST'
+           OR COALESCE(c.inspection_category, 'PERIODIC_THOROUGH_INSPECTION') <> 'LOADTEST'
+         )
+        WHERE a.assetid = $1
+          AND COALESCE(a.archived, false) = false
+        GROUP BY a.assetid, a.equiptypeid, et.description
+        `,
+        [assetid, inspectionTypeForCriteria]
+      )
+      const criteriaAvailability = criteriaAvailabilityResult.rows[0]
+
+      if (!criteriaAvailability) {
+        await client.query("ROLLBACK")
+        return res.status(400).json({ error: "Inspection cannot be saved because the selected asset is not active." })
+      }
+
+      if (!criteriaAvailability.active_criteria_count) {
+        await client.query("ROLLBACK")
+        return res.status(400).json({
+          error: "Inspection cannot be saved because this equipment type has no approved criteria configured.",
+          equiptypeid: criteriaAvailability.equiptypeid,
+          equipmenttype: criteriaAvailability.equipmenttype
+        })
+      }
+
+      if (!parsedResults.length) {
+        await client.query("ROLLBACK")
+        return res.status(400).json({ error: "Inspection cannot be saved without result rows." })
+      }
+
       const criteriaIds = parsedResults
         .map(row => row.criteriaid)
         .filter(Boolean)
@@ -6673,6 +6726,24 @@ app.get("/certificates/bulk-pdf", pdfLimiter, async (req, res) => {
       return res.status(404).json({ error: "No certificates found for the selected filters" })
     }
 
+    const blockedCertificates = certificates.filter(certificate => !certificateIsEligible(certificate))
+
+    if (blockedCertificates.length) {
+      await req.logAudit("BULK_PDF_BLOCKED", "certificates", null, {
+        ...filters,
+        blocked: blockedCertificates.length,
+        blocked_testids: blockedCertificates.map(certificate => certificate.inspection?.testid).filter(Boolean).slice(0, 25)
+      })
+      return res.status(409).json({
+        error: "One or more selected inspections cannot produce certificates yet.",
+        blocked: blockedCertificates.map(certificate => ({
+          testid: certificate.inspection?.testid,
+          reasons: certificateEligibility(certificate).reasons
+        })).slice(0, 25),
+        blockedCount: blockedCertificates.length
+      })
+    }
+
     if (certificates.length > bulkPdfMaxCertificates) {
       return res.status(400).json({
         error: `Too many certificates selected for one PDF job. Please select ${bulkPdfMaxCertificates} or fewer certificates.`
@@ -6870,6 +6941,7 @@ async function getCertificatesData(testids = []) {
     certificates.set(Number(inspection.testid), {
       inspection,
       results: [],
+      criteria: [],
       photos: []
     })
   }
@@ -6937,20 +7009,14 @@ async function getCertificatesData(testids = []) {
     }
   }
 
-  const fallbackEquiptypeIds = [...new Set(
+  const criteriaEquiptypeIds = [...new Set(
     [...certificates.values()]
-      .filter(certificate => {
-        if (!certificate.inspection?.equiptypeid) return false
-        if (certificate.results.length === 0) return true
-        if (certificate.inspection?.inspectiontype !== "LOADTEST") return false
-
-        return certificate.results.every(row => isCertificateSafeServiceRow(row))
-      })
+      .filter(certificate => certificate.inspection?.equiptypeid)
       .map(certificate => Number(certificate.inspection.equiptypeid))
       .filter(value => Number.isInteger(value) && value > 0)
   )]
 
-  if (fallbackEquiptypeIds.length) {
+  if (criteriaEquiptypeIds.length) {
     const criteriaResult = await pool.query(
       `
       SELECT
@@ -6969,7 +7035,7 @@ async function getCertificatesData(testids = []) {
         AND COALESCE(active, true) = true
       ORDER BY equiptypeid, COALESCE(displayorder, sortorder, criteriaid), criteriaid
       `,
-      [fallbackEquiptypeIds]
+      [criteriaEquiptypeIds]
     )
 
     const criteriaByEquiptype = new Map()
@@ -6980,49 +7046,14 @@ async function getCertificatesData(testids = []) {
     }
 
     for (const certificate of certificates.values()) {
-      if (
-        certificate.results.length &&
-        (
-          certificate.inspection?.inspectiontype !== "LOADTEST" ||
-          !certificate.results.every(row => isCertificateSafeServiceRow(row))
-        )
-      ) continue
-
-      const inspectionType = String(certificate.inspection?.inspectiontype || "").toUpperCase()
-      const existingCriteriaIds = new Set(
-        certificate.results
-          .map(row => Number(row.criteriaid))
-          .filter(value => Number.isInteger(value) && value > 0)
-      )
-      const criteriaRows = (criteriaByEquiptype.get(String(certificate.inspection?.equiptypeid)) || [])
-        .filter(row => !existingCriteriaIds.has(Number(row.criteriaid)))
-        .filter(row => {
-          if (inspectionType !== "LOADTEST") return true
-
-          const category = String(row.inspection_category || "").toUpperCase()
-          return category === "LOADTEST" || isCertificateSafeServiceRow(row)
-        })
-      const inspectionIsSafe = certificate.inspection?.status === "SAFE"
-
-      certificate.results.push(...criteriaRows.map(row => ({
-        resultid: null,
-        testid: certificate.inspection.testid,
-        criteriaid: row.criteriaid,
-        criterianame: row.criterianame,
-        fieldtype: row.fieldtype,
-        resulttype: row.resulttype,
-        inspection_category: row.inspection_category,
-        severity: row.severity,
-        assetvalue: "",
-        measuredvalue: "",
-        result: inspectionType === "LOADTEST" && !isCertificateSafeServiceRow(row)
-          ? ""
-          : inspectionIsSafe
-          ? isSafeForContinuedOperation(row.criterianame) ? "YES" : "PASS"
-          : "",
-        remarks: ""
-      })))
+      certificate.criteria = criteriaByEquiptype.get(String(certificate.inspection?.equiptypeid)) || []
+      certificate.certificateEligibility = evaluateCertificateEligibility(certificate)
     }
+  }
+
+  for (const certificate of certificates.values()) {
+    certificate.criteria = certificate.criteria || []
+    certificate.certificateEligibility = evaluateCertificateEligibility(certificate)
   }
 
   for (const row of photosResult.rows) {
@@ -7184,6 +7215,22 @@ function canViewCertificate(user, certificate) {
   if (user.role !== "CUSTOMER") return true
 
   return String(certificate.inspection?.clientid || "") === String(user.clientid || "")
+}
+
+function certificateEligibility(certificate) {
+  return certificate?.certificateEligibility || evaluateCertificateEligibility(certificate || {})
+}
+
+function certificateBlockedPayload(certificate) {
+  const eligibility = certificateEligibility(certificate)
+  return {
+    error: "Certificate cannot be issued for this inspection yet.",
+    reasons: eligibility.reasons || ["Inspection is incomplete."]
+  }
+}
+
+function certificateIsEligible(certificate) {
+  return certificateEligibility(certificate).eligible === true
 }
 
 function htmlEscape(value) {
@@ -8499,6 +8546,11 @@ app.get("/inspections/:testid/certificate", async (req, res) => {
       return res.status(403).json({ error: "Access denied" })
     }
 
+    if (!certificateIsEligible(certificate)) {
+      await req.logAudit("CERTIFICATE_BLOCKED", "certificates", testid, certificateBlockedPayload(certificate))
+      return res.status(409).json(certificateBlockedPayload(certificate))
+    }
+
     await req.logAudit("VIEW", "certificates", testid)
     res.json(certificate)
 
@@ -8522,6 +8574,11 @@ app.get("/inspections/:testid/certificate.html", async (req, res) => {
 
     if (!canViewCertificate(req.user, certificate)) {
       return res.status(403).send("Access denied")
+    }
+
+    if (!certificateIsEligible(certificate)) {
+      await req.logAudit("CERTIFICATE_HTML_BLOCKED", "certificates", testid, certificateBlockedPayload(certificate))
+      return res.status(409).send(certificateBlockedPayload(certificate).error)
     }
 
     await req.logAudit("VIEW_HTML", "certificates", testid)
@@ -8555,6 +8612,11 @@ app.get("/inspections/:testid/certificate.pdf", pdfLimiter, async (req, res) => 
 
     if (!canViewCertificate(req.user, certificate)) {
       return res.status(403).json({ error: "Access denied" })
+    }
+
+    if (!certificateIsEligible(certificate)) {
+      await req.logAudit("CERTIFICATE_PDF_BLOCKED", "certificates", testid, certificateBlockedPayload(certificate))
+      return res.status(409).json(certificateBlockedPayload(certificate))
     }
 
     await req.logAudit("GENERATE_PDF", "certificates", testid)
@@ -8685,8 +8747,16 @@ app.post("/certificates/:testid/email", emailLimiter, async (req, res) => {
       return res.status(403).json({ error: "Access denied" })
     }
 
+    if (!certificateIsEligible(certificate)) {
+      await req.logAudit("CERTIFICATE_EMAIL_BLOCKED", "certificates", testid, certificateBlockedPayload(certificate))
+      return res.status(409).json(certificateBlockedPayload(certificate))
+    }
+
     const inspection = certificate.inspection
-    const pdfBuffer = await createCertificatePdfBuffer(certificate)
+    const pdfBuffer = await runQueuedPdfJob(() => createSingleCertificatePdfBuffer(certificate, {
+      projectRoot: path.join(__dirname, ".."),
+      uploadsRoot
+    }))
     const defaultSubject = `ATEC Certificate ${inspection.testid}`
     const defaultMessage = [
       `Good day,`,
@@ -9538,11 +9608,18 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
     WITH latest_visual AS (
       SELECT DISTINCT ON (assetid)
         assetid,
-        testid,
-        testdate,
-        validdate,
-        status,
-        inspector
+      testid,
+      testdate,
+      validdate,
+      status,
+      inspector,
+      inspector_lmi_number,
+      inspector_signature_image,
+      (
+        SELECT COUNT(*)::int
+        FROM atec.tblinspectionresult r
+        WHERE r.testid = tblinspection.testid
+      ) AS result_count
       FROM atec.tblinspection
       WHERE inspectiontype = 'VISUAL'
       ${inspectionFilterSql}
@@ -9551,11 +9628,18 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
     latest_load AS (
       SELECT DISTINCT ON (assetid)
         assetid,
-        testid,
-        testdate,
-        validdate,
-        status,
-        inspector
+      testid,
+      testdate,
+      validdate,
+      status,
+      inspector,
+      inspector_lmi_number,
+      inspector_signature_image,
+      (
+        SELECT COUNT(*)::int
+        FROM atec.tblinspectionresult r
+        WHERE r.testid = tblinspection.testid
+      ) AS result_count
       FROM atec.tblinspection
       WHERE inspectiontype = 'LOADTEST'
       ${inspectionFilterSql}
@@ -9581,11 +9665,43 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
       lv.validdate AS visualvaliddate,
       lv.status AS visualstatus,
       lv.inspector AS visualinspector,
+      lv.result_count AS visualresultcount,
+      CASE
+        WHEN lv.testid IS NULL THEN 'NO VISUAL'
+        WHEN COALESCE(lv.result_count, 0) = 0 THEN 'INCOMPLETE'
+        WHEN COALESCE(lv.inspector, '') = '' THEN 'INCOMPLETE'
+        WHEN COALESCE(lv.inspector_lmi_number, '') = '' THEN 'INCOMPLETE'
+        WHEN COALESCE(lv.inspector_signature_image, '') = '' THEN 'INCOMPLETE'
+        ELSE 'COMPLETE'
+      END AS visualintegritystatus,
+      (
+        lv.testid IS NOT NULL
+        AND COALESCE(lv.result_count, 0) > 0
+        AND COALESCE(lv.inspector, '') <> ''
+        AND COALESCE(lv.inspector_lmi_number, '') <> ''
+        AND COALESCE(lv.inspector_signature_image, '') <> ''
+      ) AS visualcertificateeligible,
       ll.testid AS loadtestid,
       ll.testdate AS loadtestdate,
       ll.validdate AS loadvaliddate,
       ll.status AS loadstatus,
       ll.inspector AS loadinspector,
+      ll.result_count AS loadresultcount,
+      CASE
+        WHEN ll.testid IS NULL THEN 'NO LOAD TEST'
+        WHEN COALESCE(ll.result_count, 0) = 0 THEN 'INCOMPLETE'
+        WHEN COALESCE(ll.inspector, '') = '' THEN 'INCOMPLETE'
+        WHEN COALESCE(ll.inspector_lmi_number, '') = '' THEN 'INCOMPLETE'
+        WHEN COALESCE(ll.inspector_signature_image, '') = '' THEN 'INCOMPLETE'
+        ELSE 'COMPLETE'
+      END AS loadintegritystatus,
+      (
+        ll.testid IS NOT NULL
+        AND COALESCE(ll.result_count, 0) > 0
+        AND COALESCE(ll.inspector, '') <> ''
+        AND COALESCE(ll.inspector_lmi_number, '') <> ''
+        AND COALESCE(ll.inspector_signature_image, '') <> ''
+      ) AS loadcertificateeligible,
       GREATEST(lv.testdate, ll.testdate) AS latestinspectiondate,
       CASE
         WHEN lv.testdate IS NULL THEN NULL
@@ -9598,6 +9714,10 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
       CASE
         WHEN COALESCE(a.archived, false) = true THEN 'ARCHIVED'
         WHEN lv.status = 'NOT SAFE' OR ll.status = 'NOT SAFE' THEN 'NOT SAFE'
+        WHEN lv.testid IS NOT NULL AND COALESCE(lv.result_count, 0) = 0 THEN 'INCOMPLETE INSPECTION'
+        WHEN ll.testid IS NOT NULL AND COALESCE(ll.result_count, 0) = 0 THEN 'INCOMPLETE INSPECTION'
+        WHEN lv.testid IS NOT NULL AND (COALESCE(lv.inspector_lmi_number, '') = '' OR COALESCE(lv.inspector_signature_image, '') = '') THEN 'MISSING CERTIFICATE METADATA'
+        WHEN ll.testid IS NOT NULL AND (COALESCE(ll.inspector_lmi_number, '') = '' OR COALESCE(ll.inspector_signature_image, '') = '') THEN 'MISSING CERTIFICATE METADATA'
         WHEN lv.testdate IS NULL THEN 'NO VISUAL'
         WHEN ll.testdate IS NULL THEN 'NO LOAD TEST'
         WHEN (lv.testdate + INTERVAL '3 months')::date < CURRENT_DATE THEN 'VISUAL OVERDUE'
@@ -9637,6 +9757,8 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
         COUNT(*) FILTER (WHERE archived IS TRUE)::int AS archived_assets,
         COUNT(*) FILTER (WHERE archived IS NOT TRUE AND reportstatus = 'OK')::int AS safe_assets,
         COUNT(*) FILTER (WHERE archived IS NOT TRUE AND reportstatus = 'NOT SAFE')::int AS not_safe_assets,
+        COUNT(*) FILTER (WHERE archived IS NOT TRUE AND reportstatus = 'INCOMPLETE INSPECTION')::int AS incomplete_inspection_assets,
+        COUNT(*) FILTER (WHERE archived IS NOT TRUE AND reportstatus = 'MISSING CERTIFICATE METADATA')::int AS missing_certificate_metadata_assets,
         COUNT(*) FILTER (WHERE archived IS NOT TRUE AND reportstatus = 'VISUAL OVERDUE')::int AS visual_overdue_assets,
         COUNT(*) FILTER (WHERE archived IS NOT TRUE AND reportstatus = 'LOAD TEST OVERDUE')::int AS load_overdue_assets,
         COUNT(*) FILTER (WHERE archived IS NOT TRUE AND reportstatus = 'NO VISUAL')::int AS no_visual_assets,
@@ -9676,6 +9798,8 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
     ? {
         OK: summary.safe_assets || 0,
         "NOT SAFE": summary.not_safe_assets || 0,
+        "INCOMPLETE INSPECTION": summary.incomplete_inspection_assets || 0,
+        "MISSING CERTIFICATE METADATA": summary.missing_certificate_metadata_assets || 0,
         "VISUAL OVERDUE": summary.visual_overdue_assets || 0,
         "LOAD TEST OVERDUE": summary.load_overdue_assets || 0,
         "NO VISUAL": summary.no_visual_assets || 0,
@@ -9706,6 +9830,8 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
       archivedAssets: paged ? summary.archived_assets || 0 : assets.length - activeAssets.length,
       safeAssets: paged ? summary.safe_assets || 0 : activeAssets.filter(row => row.reportstatus === "OK").length,
       notSafeAssets: paged ? summary.not_safe_assets || 0 : activeAssets.filter(row => row.reportstatus === "NOT SAFE").length,
+      incompleteInspectionAssets: paged ? summary.incomplete_inspection_assets || 0 : activeAssets.filter(row => row.reportstatus === "INCOMPLETE INSPECTION").length,
+      missingCertificateMetadataAssets: paged ? summary.missing_certificate_metadata_assets || 0 : activeAssets.filter(row => row.reportstatus === "MISSING CERTIFICATE METADATA").length,
       visualOverdueAssets: paged ? summary.visual_overdue_assets || 0 : activeAssets.filter(row => row.reportstatus === "VISUAL OVERDUE").length,
       loadOverdueAssets: paged ? summary.load_overdue_assets || 0 : activeAssets.filter(row => row.reportstatus === "LOAD TEST OVERDUE").length,
       noVisualAssets: paged ? summary.no_visual_assets || 0 : activeAssets.filter(row => row.reportstatus === "NO VISUAL").length,
@@ -9763,6 +9889,8 @@ function drawCustomerReportPdf(doc, report) {
     ["Active", report.summary.activeAssets],
     ["OK", report.summary.safeAssets],
     ["Not Safe", report.summary.notSafeAssets],
+    ["Incomplete", report.summary.incompleteInspectionAssets],
+    ["Missing Metadata", report.summary.missingCertificateMetadataAssets],
     ["Visual Overdue", report.summary.visualOverdueAssets],
     ["Load Overdue", report.summary.loadOverdueAssets],
     ["No Visual", report.summary.noVisualAssets],
@@ -9880,6 +10008,8 @@ async function buildCustomerReportWorkbook(report) {
   summarySheet.addRow(["Archived Assets", report.summary.archivedAssets])
   summarySheet.addRow(["OK Assets", report.summary.safeAssets])
   summarySheet.addRow(["Not Safe Assets", report.summary.notSafeAssets])
+  summarySheet.addRow(["Incomplete Inspection Assets", report.summary.incompleteInspectionAssets])
+  summarySheet.addRow(["Missing Certificate Metadata Assets", report.summary.missingCertificateMetadataAssets])
   summarySheet.addRow(["Visual Overdue Assets", report.summary.visualOverdueAssets])
   summarySheet.addRow(["Load Overdue Assets", report.summary.loadOverdueAssets])
   summarySheet.addRow(["No Visual Assets", report.summary.noVisualAssets])
@@ -9912,12 +10042,16 @@ async function buildCustomerReportWorkbook(report) {
     { header: "Visual Valid Until", key: "visualvaliddate", width: 18 },
     { header: "Visual Status", key: "visualstatus", width: 16 },
     { header: "Visual Inspector", key: "visualinspector", width: 20 },
+    { header: "Visual Integrity", key: "visualintegritystatus", width: 20 },
+    { header: "Visual Certificate Eligible", key: "visualcertificateeligible", width: 24 },
     { header: "Next Visual Due", key: "nextvisualdue", width: 16 },
     { header: "Last Load Test ID", key: "loadtestid", width: 16 },
     { header: "Last Load Date", key: "loadtestdate", width: 16 },
     { header: "Load Valid Until", key: "loadvaliddate", width: 18 },
     { header: "Load Status", key: "loadstatus", width: 16 },
     { header: "Load Inspector", key: "loadinspector", width: 20 },
+    { header: "Load Integrity", key: "loadintegritystatus", width: 20 },
+    { header: "Load Certificate Eligible", key: "loadcertificateeligible", width: 24 },
     { header: "Next Load Due", key: "nextloaddue", width: 16 },
     { header: "Report Status", key: "reportstatus", width: 22 },
     { header: "Archived", key: "archived", width: 12 }
@@ -9933,6 +10067,8 @@ async function buildCustomerReportWorkbook(report) {
       loadtestdate: reportDate(row.loadtestdate),
       loadvaliddate: reportDate(row.loadvaliddate),
       nextloaddue: reportDate(row.nextloaddue),
+      visualcertificateeligible: row.visualcertificateeligible ? "Yes" : "No",
+      loadcertificateeligible: row.loadcertificateeligible ? "Yes" : "No",
       archived: row.archived ? "Yes" : "No"
     })
   })
@@ -9960,7 +10096,7 @@ async function buildCustomerReportWorkbook(report) {
 
   assetSheet.autoFilter = {
     from: "A1",
-    to: "AA1"
+    to: "AE1"
   }
 
   return workbook
@@ -10051,6 +10187,7 @@ app.get("/dashboard/stats", async (req, res) => {
         SELECT
           a.assetid,
           a.clientid,
+          a.sectionid,
           a.equiptypeid
         FROM atec.tblasset a
         WHERE COALESCE(a.archived, false) = false
@@ -10060,7 +10197,14 @@ app.get("/dashboard/stats", async (req, res) => {
         SELECT DISTINCT ON (i.assetid)
           i.assetid,
           i.testdate,
-          i.status
+          i.status,
+          i.inspector_lmi_number,
+          i.inspector_signature_image,
+          (
+            SELECT COUNT(*)::int
+            FROM atec.tblinspectionresult r
+            WHERE r.testid = i.testid
+          ) AS result_count
         FROM atec.tblinspection i
         JOIN active_assets a
           ON a.assetid = i.assetid
@@ -10071,7 +10215,14 @@ app.get("/dashboard/stats", async (req, res) => {
         SELECT DISTINCT ON (i.assetid)
           i.assetid,
           i.testdate,
-          i.status
+          i.status,
+          i.inspector_lmi_number,
+          i.inspector_signature_image,
+          (
+            SELECT COUNT(*)::int
+            FROM atec.tblinspectionresult r
+            WHERE r.testid = i.testid
+          ) AS result_count
         FROM atec.tblinspection i
         JOIN active_assets a
           ON a.assetid = i.assetid
@@ -10100,7 +10251,57 @@ app.get("/dashboard/stats", async (req, res) => {
           FROM atec.tblinspection i
           JOIN active_assets a
             ON a.assetid = i.assetid
+          WHERE EXISTS (
+            SELECT 1
+            FROM atec.tblinspectionresult r
+            WHERE r.testid = i.testid
+          )
         ) AS certificates,
+        (
+          SELECT COUNT(*)
+          FROM atec.tblinspection i
+          JOIN active_assets a
+            ON a.assetid = i.assetid
+          WHERE NOT EXISTS (
+            SELECT 1
+            FROM atec.tblinspectionresult r
+            WHERE r.testid = i.testid
+          )
+        ) AS incompleteinspections,
+        (
+          SELECT COUNT(*)
+          FROM active_assets
+          WHERE sectionid IS NULL
+        ) AS assetsmissingsection,
+        (
+          SELECT COUNT(DISTINCT a.equiptypeid)
+          FROM active_assets a
+          WHERE a.equiptypeid IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM atec.tblequiptypecriteria c
+              WHERE c.equiptypeid = a.equiptypeid
+                AND COALESCE(c.active, true) = true
+            )
+        ) AS equipmenttypeswithoutcriteria,
+        (
+          SELECT COUNT(*)
+          FROM active_assets a
+          LEFT JOIN latest_visual v
+            ON a.assetid = v.assetid
+          LEFT JOIN latest_load l
+            ON a.assetid = l.assetid
+          WHERE (v.testdate IS NOT NULL AND (
+              COALESCE(v.result_count, 0) = 0
+              OR COALESCE(v.inspector_lmi_number, '') = ''
+              OR COALESCE(v.inspector_signature_image, '') = ''
+            ))
+             OR (l.testdate IS NOT NULL AND (
+              COALESCE(l.result_count, 0) = 0
+              OR COALESCE(l.inspector_lmi_number, '') = ''
+              OR COALESCE(l.inspector_signature_image, '') = ''
+            ))
+        ) AS certificateintegrityalerts,
         (
           SELECT COUNT(DISTINCT a.assetid)
           FROM active_assets a
