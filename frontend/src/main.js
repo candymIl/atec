@@ -77,6 +77,7 @@ let dashboardStats = {}
 let criteria = []
 let assetSearchTimer = null
 let updateNoticeShown = false
+let updateChecksStarted = false
 
 const pageAccess = {
   dashboard: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER'],
@@ -169,8 +170,9 @@ async function checkForFrontendUpdate() {
 }
 
 function startFrontendUpdateChecks() {
-  if (FRONTEND_BUILD_ID === 'local-dev') return
+  if (updateChecksStarted || FRONTEND_BUILD_ID === 'local-dev') return
 
+  updateChecksStarted = true
   window.setTimeout(checkForFrontendUpdate, 30000)
   window.setInterval(checkForFrontendUpdate, 60000)
 }
@@ -845,6 +847,8 @@ function renderStartupError(message, details = {}) {
 }
 
 async function loadData() {
+  startFrontendUpdateChecks()
+
   let sessionResponse
 
   try {
