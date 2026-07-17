@@ -161,11 +161,10 @@ node --check frontend\src\main.js
 
 Production deployment must be reviewed. Apply the migration, deploy backend and frontend together, then smoke-test visit creation, QR/NFC quick scan, visual save linking, load-test save linking, disposition, close blocking, and report output.
 
-NOT EXECUTED:
+Local code verification is complete. Production database migration and production smoke testing remain to be executed in the deployment window:
 
 ```sh
 psql "$DATABASE_URL" -f database/2026-07-15-task14-onsite-inspection-visits.sql
-npm.cmd --prefix frontend run build
 ```
 
 ## Rollback

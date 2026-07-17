@@ -15,6 +15,7 @@ import { renderSystemHealthPage } from './pages/SystemHealth.js'
 import { getPaginationState, renderPaginationControls } from './pagination.js'
 import { getTableSortState, sortTableRows } from './tableSort.js'
 import { API_BASE, assetUrl, uploadUrl } from './api.js'
+import { FRONTEND_BUILD_ID } from './buildInfo.js'
 import { escapeHtml, safeAttr } from './utils/security.js'
 import {
   assetSupportsInspectionWizard,
@@ -75,6 +76,7 @@ let equipmentTypes = []
 let dashboardStats = {}
 let criteria = []
 let assetSearchTimer = null
+let updateNoticeShown = false
 
 const pageAccess = {
   dashboard: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER'],
@@ -127,6 +129,50 @@ function canManageAssetRecords() {
 
 function canArchiveOrMoveAssetRecords() {
   return currentUser?.role === 'ADMIN'
+}
+
+function showUpdateAvailableNotice() {
+  if (updateNoticeShown || document.querySelector('#appUpdateNotice')) return
+
+  updateNoticeShown = true
+  const notice = document.createElement('div')
+  notice.id = 'appUpdateNotice'
+  notice.className = 'app-update-notice'
+  notice.innerHTML = `
+    <div>
+      <strong>New version available</strong>
+      <span>Refresh when you are ready to load the latest ATEC update.</span>
+    </div>
+    <button type="button" onclick="window.location.reload()">Refresh</button>
+  `
+  document.body.appendChild(notice)
+}
+
+async function checkForFrontendUpdate() {
+  try {
+    const basePath = import.meta.env.BASE_URL || '/'
+    const buildInfoUrl = `${basePath.replace(/\/$/, '')}/build-info.json?t=${Date.now()}`
+    const response = await originalFetch(buildInfoUrl, {
+      cache: 'no-store',
+      credentials: 'same-origin'
+    })
+
+    if (!response.ok) return
+
+    const info = await response.json()
+    if (info.buildId && info.buildId !== FRONTEND_BUILD_ID) {
+      showUpdateAvailableNotice()
+    }
+  } catch (err) {
+    // Ignore temporary network errors; the next check will try again.
+  }
+}
+
+function startFrontendUpdateChecks() {
+  if (FRONTEND_BUILD_ID === 'local-dev') return
+
+  window.setTimeout(checkForFrontendUpdate, 30000)
+  window.setInterval(checkForFrontendUpdate, 60000)
 }
 
 function canManageNfcTokens() {

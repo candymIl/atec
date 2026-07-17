@@ -257,6 +257,33 @@ assert.strictEqual(
 assert.strictEqual(
   evaluateCertificateEligibility({
     inspection: completeInspection,
+    results: passingResults,
+    criteria: criteria.map(row => ({
+      ...row,
+      inspectioncategory: "VISUAL",
+      inspection_category: "PERIODIC_THOROUGH_INSPECTION"
+    }))
+  }).eligible,
+  true,
+  "Certificate eligibility must use inspectioncategory, not the broad criteria category, for VISUAL/LOADTEST matching"
+)
+assert.strictEqual(
+  evaluateCertificateEligibility({
+    inspection: { ...completeInspection, inspectiontype: "VISUAL" },
+    results: [{ criteriaid: 9, result: "PASS" }],
+    criteria: [{
+      criteriaid: 9,
+      criterianame: "Proof load held",
+      inspectioncategory: "LOADTEST",
+      inspection_category: "PERIODIC_THOROUGH_INSPECTION"
+    }]
+  }).eligible,
+  false,
+  "Visual certificate eligibility must ignore load-test criteria even when inspection_category is periodic"
+)
+assert.strictEqual(
+  evaluateCertificateEligibility({
+    inspection: completeInspection,
     results: [],
     criteria
   }).eligible,

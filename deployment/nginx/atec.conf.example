@@ -35,6 +35,21 @@ location /uploads/ {
   proxy_read_timeout 180s;
 }
 
+location = /index.html {
+  root /var/www/atec/public;
+  add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
+}
+
+location = /build-info.json {
+  root /var/www/atec/public;
+  add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
+}
+
+location /assets/ {
+  root /var/www/atec/public;
+  add_header Cache-Control "public, max-age=31536000, immutable" always;
+}
+
 location / {
   root /var/www/atec/public;
   try_files $uri $uri/ /index.html;

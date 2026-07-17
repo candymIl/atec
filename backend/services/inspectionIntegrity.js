@@ -31,13 +31,17 @@ function isCriticalCriteria(criteriaRow = {}) {
 
 function inspectionTypeMatchesCriteria(inspection = {}, criteriaRow = {}) {
   const inspectionType = normalizeUpper(inspection.inspectiontype)
-  const category = normalizeUpper(criteriaRow.inspection_category || criteriaRow.inspectioncategory)
+  const criteriaInspectionType = normalizeUpper(criteriaRow.inspectioncategory)
+  const legacyCategory = normalizeUpper(criteriaRow.inspection_category)
+  const effectiveCriteriaType = criteriaInspectionType ||
+    (legacyCategory === "LOADTEST" ? "LOADTEST" : "VISUAL")
 
   if (inspectionType === "LOADTEST") {
-    return category === "LOADTEST" || isSafeForContinuedOperationName(criteriaRow.criterianame || criteriaRow.criteriadescription)
+    return effectiveCriteriaType === "LOADTEST" ||
+      isSafeForContinuedOperationName(criteriaRow.criterianame || criteriaRow.criteriadescription)
   }
 
-  if (category === "LOADTEST") return false
+  if (effectiveCriteriaType === "LOADTEST") return false
 
   return true
 }

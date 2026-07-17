@@ -520,6 +520,11 @@ function normalizeVisitStatus(value, fallback = "DRAFT") {
     : fallback
 }
 
+function normalizeVisitCreationStatus(value) {
+  const status = normalizeVisitStatus(value, "DRAFT")
+  return ["DRAFT", "OPEN"].includes(status) ? status : "DRAFT"
+}
+
 function normalizeVisitDisposition(value) {
   const status = String(value || "OUTSTANDING").toUpperCase()
   return ["OUTSTANDING", ...VISIT_RESOLVED_STATUSES].includes(status) ? status : "OUTSTANDING"
@@ -4305,7 +4310,7 @@ app.post("/inspection-visits/preview", asyncRoute(async (req, res) => {
   })
 
   if (!location) {
-    return res.status(400).json({ error: "Select an active customer, site, and section for this visit." })
+    return res.status(400).json({ error: "Select an active customer and site for this visit." })
   }
 
   const rows = await buildVisitWorklistRows(pool, {
@@ -4369,7 +4374,7 @@ app.post("/inspection-visits", asyncRoute(async (req, res) => {
     await client.query("BEGIN")
 
     const visitType = normalizeVisitScope(req.body.visit_type)
-    const visitStatus = normalizeVisitStatus(req.body.visit_status, "DRAFT")
+    const visitStatus = normalizeVisitCreationStatus(req.body.visit_status)
     const dueCutoff = req.body.due_cutoff || req.body.planned_start_at || new Date().toISOString()
     const location = await getActiveVisitLocation(client, {
       clientid: req.body.clientid,
@@ -4379,7 +4384,7 @@ app.post("/inspection-visits", asyncRoute(async (req, res) => {
 
     if (!location) {
       await client.query("ROLLBACK")
-      return res.status(400).json({ error: "Select an active customer, site, and section for this visit." })
+      return res.status(400).json({ error: "Select an active customer and site for this visit." })
     }
 
     const rows = await buildVisitWorklistRows(client, {
@@ -4765,7 +4770,8 @@ app.put("/inspection-visits/:id/assets/:visitassetid/disposition", asyncRoute(as
         customer_confirmation = $4,
         deferred_follow_up_date = $5,
         resolved_by_user_id = $6,
-        resolution_at = now()
+        resolution_at = now(),
+        completed_at = CASE WHEN $1 = 'COMPLETED' THEN COALESCE(completed_at, now()) ELSE completed_at END
     WHERE visitid = $7
       AND visitassetid = $8
     RETURNING *
@@ -4906,14 +4912,15 @@ app.post("/inspection-visits/:id/close", asyncRoute(async (req, res) => {
         closed_by_user_id = $4,
         updated_at = now()
     WHERE visitid = $1
-      AND visit_status <> 'COMPLETED'
+      AND visit_status = ANY($5::text[])
     RETURNING *
     `,
     [
       req.params.id,
       JSON.stringify({ unresolved: unresolvedCount, override }),
       overrideReason,
-      req.user.user_id
+      req.user.user_id,
+      VISIT_ACTIVE_STATUSES
     ]
   )
 
@@ -5521,12 +5528,12 @@ app.post("/inspections",
          AND COALESCE(c.active, true) = true
          AND (
            $2::text <> 'LOADTEST'
-           OR COALESCE(c.inspection_category, 'PERIODIC_THOROUGH_INSPECTION') = 'LOADTEST'
+           OR c.inspectioncategory = 'LOADTEST'
            OR UPPER(COALESCE(c.criterianame, c.criteriadescription, '')) IN ('SAFE FOR SERVICE', 'SAFE FOR CONTINUED OPERATION')
          )
          AND (
            $2::text = 'LOADTEST'
-           OR COALESCE(c.inspection_category, 'PERIODIC_THOROUGH_INSPECTION') <> 'LOADTEST'
+           OR COALESCE(c.inspectioncategory, 'VISUAL') <> 'LOADTEST'
          )
         WHERE a.assetid = $1
           AND COALESCE(a.archived, false) = false
@@ -6967,6 +6974,7 @@ async function getCertificatesData(testids = []) {
       COALESCE(c.resulttype,
         CASE WHEN UPPER(COALESCE(c.fieldtype, '')) = 'NUMBER' THEN 'MEASURED' ELSE 'PASS_FAIL' END
       ) AS resulttype,
+      COALESCE(c.inspectioncategory, 'VISUAL') AS inspectioncategory,
       COALESCE(c.inspection_category, 'PERIODIC_THOROUGH_INSPECTION') AS inspection_category,
       COALESCE(c.severity, 'MINOR') AS severity,
       r.assetvalue,
@@ -7037,6 +7045,7 @@ async function getCertificatesData(testids = []) {
         COALESCE(resulttype,
           CASE WHEN UPPER(COALESCE(fieldtype, '')) = 'NUMBER' THEN 'MEASURED' ELSE 'PASS_FAIL' END
         ) AS resulttype,
+        COALESCE(inspectioncategory, 'VISUAL') AS inspectioncategory,
         COALESCE(inspection_category, 'PERIODIC_THOROUGH_INSPECTION') AS inspection_category,
         COALESCE(severity, 'MINOR') AS severity,
         COALESCE(displayorder, sortorder, criteriaid) AS displayorder

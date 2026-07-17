@@ -87,6 +87,42 @@ img {
   font-weight: 800;
 }
 
+.app-update-notice {
+  align-items: center;
+  background: #12345a;
+  border: 1px solid #2b5c8f;
+  border-radius: 8px;
+  bottom: 18px;
+  box-shadow: 0 16px 36px rgba(15, 45, 79, 0.24);
+  color: #ffffff;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  left: 50%;
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 12px 14px;
+  position: fixed;
+  transform: translateX(-50%);
+  width: 100%;
+  z-index: 3000;
+}
+
+.app-update-notice div {
+  display: grid;
+  gap: 2px;
+}
+
+.app-update-notice span {
+  color: #dbeafe;
+  font-size: 13px;
+}
+
+.app-update-notice button {
+  background: #ffffff;
+  color: #12345a;
+  flex: 0 0 auto;
+}
+
 /* =======================================================
    2. APP LAYOUT
 ======================================================= */

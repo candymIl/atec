@@ -4,7 +4,7 @@
 
 Add secure NFC URL tags for assets while preserving QR workflows. NFC uses a separate random lookup token, authenticated asset resolution, Admin/Manager token controls, audit events, and manual NDEF URI writing guidance.
 
-## Task 14: On-Site Due-Asset Coverage - In Progress Locally
+## Task 14: On-Site Due-Asset Coverage - Complete Locally
 
 Build visit/session-based coverage for due assets at a customer site. This depends on Task 13/QR-style fast asset identification and must track completed during visit, still due, not found, out of service, removed, inaccessible, deferred, customer says missing, and newly discovered unregistered assets.
 
