@@ -764,6 +764,24 @@ async function getActiveResponsibleSection(client, sectionid) {
   return result.rows[0] || null
 }
 
+async function getActiveResponsiblePersonForClient(client, { personid, clientid }) {
+  if (!personid || !clientid) return null
+
+  const result = await client.query(
+    `
+    SELECT personid, clientid, name
+    FROM atec.tblpeople
+    WHERE personid = $1
+      AND clientid = $2
+      AND COALESCE(archived, false) = false
+    LIMIT 1
+    `,
+    [personid, clientid]
+  )
+
+  return result.rows[0] || null
+}
+
 async function getActiveVisitLocation(client, { clientid, siteid, sectionid = null }) {
   if (!clientid || !siteid) return null
 
@@ -4959,26 +4977,29 @@ app.get("/responsible-persons", async (req, res) => {
     const result = await pool.query(`
       SELECT
         p.personid,
-        COALESCE(sec.clientid, p.clientid) AS clientid,
-        sec.siteid,
-        sec.sectionid,
+        p.clientid,
+        NULL::int AS siteid,
+        NULL::int AS sectionid,
         p.name,
         COALESCE(p.archived, false) AS archived,
         c.clientname,
-        s.sitename,
-        sec.sectionname,
-        COALESCE(sec.archived, false) AS sectionarchived,
-        COALESCE(s.archived, false) AS sitearchived,
+        STRING_AGG(DISTINCT s.sitename, ', ' ORDER BY s.sitename) AS sitename,
+        STRING_AGG(DISTINCT sec.sectionname, ', ' ORDER BY sec.sectionname) AS sectionname,
+        false AS sectionarchived,
+        false AS sitearchived,
         COALESCE(c.archived, false) AS clientarchived
       FROM atec.tblpeople p
+      LEFT JOIN atec.tblclients c
+        ON p.clientid = c.clientid
       LEFT JOIN atec.tblsection sec
         ON sec.responsibleid = p.personid
+       AND COALESCE(sec.archived, false) = false
       LEFT JOIN atec.tblsites s
         ON sec.siteid = s.siteid
        AND sec.clientid = s.clientid
-      LEFT JOIN atec.tblclients c
-        ON COALESCE(sec.clientid, p.clientid) = c.clientid
-      ORDER BY c.clientname, s.sitename NULLS LAST, sec.sectionname NULLS LAST, p.name
+       AND COALESCE(s.archived, false) = false
+      GROUP BY p.personid, p.clientid, p.name, p.archived, c.clientname, c.archived
+      ORDER BY c.clientname, p.name
     `);
 
     res.json(result.rows);
@@ -4992,20 +5013,14 @@ app.post("/responsible-persons", async (req, res) => {
   const client = await pool.connect()
 
   try {
-    const { sectionid, name } = req.body;
+    const { clientid, name } = req.body;
     const normalizedPersonName = normalizeAssetLookupValue(name)
 
-    if (!sectionid || !normalizedPersonName) {
-      return res.status(400).json({ error: "Section and responsible person name are required." })
+    if (!clientid || !normalizedPersonName) {
+      return res.status(400).json({ error: "Customer and responsible person name are required." })
     }
 
     await client.query("BEGIN")
-
-    const section = await getActiveResponsibleSection(client, sectionid)
-    if (!section) {
-      await client.query("ROLLBACK")
-      return res.status(400).json({ error: "Select an active section." })
-    }
 
     const duplicateCheck = await client.query(
       `
@@ -5016,7 +5031,7 @@ app.post("/responsible-persons", async (req, res) => {
         AND COALESCE(archived, false) = false
       LIMIT 1
       `,
-      [section.clientid, normalizedPersonName]
+      [clientid, normalizedPersonName]
     )
 
     if (duplicateCheck.rows.length > 0) {
@@ -5035,30 +5050,19 @@ app.post("/responsible-persons", async (req, res) => {
       ($1,$2)
       RETURNING *
       `,
-      [section.clientid, name]
+      [clientid, name]
     );
 
     const person = result.rows[0]
-
-    await client.query(
-      `
-      UPDATE atec.tblsection
-      SET responsibleid = $1
-      WHERE sectionid = $2
-      `,
-      [person.personid, section.sectionid]
-    )
 
     await client.query("COMMIT")
 
     res.json({
       ...person,
-      clientid: section.clientid,
-      siteid: section.siteid,
-      sectionid: section.sectionid,
-      clientname: section.clientname,
-      sitename: section.sitename,
-      sectionname: section.sectionname
+      siteid: null,
+      sectionid: null,
+      sitename: null,
+      sectionname: null
     });
 
   } catch (err) {
@@ -5086,20 +5090,14 @@ app.put("/responsible-persons/:id", async (req, res) => {
   try {
 
     const { id } = req.params;
-    const { name, sectionid, previoussectionid } = req.body;
+    const { name, clientid } = req.body;
     const normalizedPersonName = normalizeAssetLookupValue(name)
 
-    if (!sectionid || !normalizedPersonName) {
-      return res.status(400).json({ error: "Section and responsible person name are required." })
+    if (!clientid || !normalizedPersonName) {
+      return res.status(400).json({ error: "Customer and responsible person name are required." })
     }
 
     await client.query("BEGIN")
-
-    const section = await getActiveResponsibleSection(client, sectionid)
-    if (!section) {
-      await client.query("ROLLBACK")
-      return res.status(400).json({ error: "Select an active section." })
-    }
 
     const duplicateCheck = await client.query(
       `
@@ -5111,7 +5109,7 @@ app.put("/responsible-persons/:id", async (req, res) => {
         AND COALESCE(archived, false) = false
       LIMIT 1
       `,
-      [section.clientid, id, normalizedPersonName]
+      [clientid, id, normalizedPersonName]
     )
 
     if (duplicateCheck.rows.length > 0) {
@@ -5124,11 +5122,10 @@ app.put("/responsible-persons/:id", async (req, res) => {
       SELECT COUNT(*)::int AS linked_sections
       FROM atec.tblsection
       WHERE responsibleid = $1
-        AND sectionid <> $2
-        AND clientid <> $3
+        AND clientid <> $2
         AND COALESCE(archived, false) = false
       `,
-      [id, section.sectionid, section.clientid]
+      [id, clientid]
     )
 
     if (Number(crossCustomerLinks.rows[0]?.linked_sections || 0) > 0) {
@@ -5148,7 +5145,7 @@ app.put("/responsible-persons/:id", async (req, res) => {
       RETURNING *
       `,
       [
-        section.clientid,
+        clientid,
         name,
         id
       ]
@@ -5159,37 +5156,14 @@ app.put("/responsible-persons/:id", async (req, res) => {
       return res.status(404).json({ error: "Responsible person not found" })
     }
 
-    if (previoussectionid && String(previoussectionid) !== String(section.sectionid)) {
-      await client.query(
-        `
-        UPDATE atec.tblsection
-        SET responsibleid = NULL
-        WHERE sectionid = $1
-          AND responsibleid = $2
-        `,
-        [previoussectionid, id]
-      )
-    }
-
-    await client.query(
-      `
-      UPDATE atec.tblsection
-      SET responsibleid = $1
-      WHERE sectionid = $2
-      `,
-      [id, section.sectionid]
-    )
-
     await client.query("COMMIT")
 
     res.json({
       ...result.rows[0],
-      clientid: section.clientid,
-      siteid: section.siteid,
-      sectionid: section.sectionid,
-      clientname: section.clientname,
-      sitename: section.sitename,
-      sectionname: section.sectionname
+      siteid: null,
+      sectionid: null,
+      sitename: null,
+      sectionname: null
     });
 
   } catch (err) {
@@ -5331,6 +5305,15 @@ app.post("/sections", async (req, res) => {
     const { clientid, siteid, responsibleid, sectionname } = req.body;
     const normalizedSectionName = normalizeAssetLookupValue(sectionname)
 
+    if (!clientid || !siteid || !responsibleid || !normalizedSectionName) {
+      return res.status(400).json({ error: "Customer, site, responsible person, and section name are required." })
+    }
+
+    const responsiblePerson = await getActiveResponsiblePersonForClient(pool, { personid: responsibleid, clientid })
+    if (!responsiblePerson) {
+      return res.status(400).json({ error: "Select an active responsible person for this customer." })
+    }
+
     if (normalizedSectionName) {
       const duplicateCheck = await pool.query(
         `
@@ -5378,6 +5361,33 @@ app.put("/sections/:id", async (req, res) => {
       sectionname
     } = req.body
     const normalizedSectionName = normalizeAssetLookupValue(sectionname)
+
+    if (!responsibleid || !normalizedSectionName) {
+      return res.status(400).json({ error: "Responsible person and section name are required." })
+    }
+
+    const currentSection = await pool.query(
+      `
+      SELECT clientid
+      FROM atec.tblsection
+      WHERE sectionid = $1
+      LIMIT 1
+      `,
+      [id]
+    )
+
+    if (currentSection.rows.length === 0) {
+      return res.status(404).json({ error: "Section not found" })
+    }
+
+    const responsiblePerson = await getActiveResponsiblePersonForClient(pool, {
+      personid: responsibleid,
+      clientid: currentSection.rows[0].clientid
+    })
+
+    if (!responsiblePerson) {
+      return res.status(400).json({ error: "Select an active responsible person for this customer." })
+    }
 
     if (normalizedSectionName) {
       const duplicateCheck = await pool.query(

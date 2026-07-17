@@ -75,8 +75,8 @@ export function renderResponsiblePersons(responsiblePersons, responsibleArchiveM
         <tr>
           <th>${sortHeader('Person ID', 'responsible', 'personid', 'showResponsiblePersons')}</th>
           <th>${sortHeader('Customer', 'responsible', 'clientname', 'showResponsiblePersons')}</th>
-          <th>${sortHeader('Site', 'responsible', 'sitename', 'showResponsiblePersons')}</th>
-          <th>${sortHeader('Section', 'responsible', 'sectionname', 'showResponsiblePersons')}</th>
+          <th>${sortHeader('Linked Sites', 'responsible', 'sitename', 'showResponsiblePersons')}</th>
+          <th>${sortHeader('Linked Sections', 'responsible', 'sectionname', 'showResponsiblePersons')}</th>
           <th>${sortHeader('Responsible Person', 'responsible', 'name', 'showResponsiblePersons')}</th>
           <th>${sortHeader('Status', 'responsible', 'archived', 'showResponsiblePersons')}</th>
           <th>Actions</th>
@@ -88,12 +88,12 @@ export function renderResponsiblePersons(responsiblePersons, responsibleArchiveM
           <tr>
             <td>${escapeHtml(person.personid)}</td>
             <td>${escapeHtml(person.clientname || '')}</td>
-            <td>${escapeHtml(person.sitename || '')}</td>
+            <td>${escapeHtml(person.sitename || 'Not assigned')}</td>
             <td>${escapeHtml(person.sectionname || 'Not assigned')}</td>
             <td>${escapeHtml(person.name || '')}</td>
             <td>${person.archived ? 'Archived' : 'Active'}</td>
             <td>
-              <button onclick="editResponsiblePerson(${person.personid}, ${person.sectionid || 'null'})">
+              <button onclick="editResponsiblePerson(${person.personid})">
                 Edit
               </button>
               ${canArchiveResponsiblePersons ? `

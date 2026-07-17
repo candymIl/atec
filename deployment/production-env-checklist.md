@@ -78,7 +78,7 @@ After deployment, confirm:
 - `https://www.atecinspections.co.za/` opens the login page.
 - Refresh/F5 on `https://www.atecinspections.co.za/` still opens the app.
 - Login works and sets a secure `atec_session` cookie.
-- `https://www.atecinspections.co.za/api/` reaches the backend through the proxy.
+- `https://www.atecinspections.co.za/api/health` returns `{ "status": "ok" }` through the proxy.
 - `https://www.atecinspections.co.za/api/admin/system-info` returns detailed System Health JSON for Admin sessions.
 - Asset photos load after login.
 - A certificate preview opens.

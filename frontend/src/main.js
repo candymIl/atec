@@ -162,13 +162,20 @@ window.loginUser = async function () {
   const username = document.querySelector('#loginUsername')?.value || ''
   const password = document.querySelector('#loginPassword')?.value || ''
 
-  const response = await fetch(`${API_BASE}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password })
-  })
+  let response
 
-  const result = await response.json()
+  try {
+    response = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    })
+  } catch (err) {
+    renderLogin('Cannot connect to the ATEC backend. Please check that the backend is running.')
+    return
+  }
+
+  const result = await readApiResponse(response)
 
   if (!response.ok) {
     renderLogin(result.error || 'Login failed')
@@ -1210,67 +1217,6 @@ function responsibleCustomerOptions(selectedClientId = '') {
     .join('')
 }
 
-function updateResponsibleSiteOptions(selectedSiteId = '') {
-  const clientid = document.querySelector('#responsibleClient')?.value || ''
-  const siteSelect = document.querySelector('#responsibleSite')
-  const sectionSelect = document.querySelector('#responsibleSection')
-
-  if (!siteSelect || !sectionSelect) return
-
-  sectionSelect.innerHTML = `<option value="">Select Site First</option>`
-
-  if (!clientid) {
-    siteSelect.innerHTML = `<option value="">Select Customer First</option>`
-    return
-  }
-
-  const filteredSites = activeRecords(sites)
-    .filter(site => String(site.clientid) === String(clientid))
-    .sort((a, b) => (a.sitename || '').localeCompare(b.sitename || ''))
-
-  siteSelect.innerHTML = `
-    <option value="">Select Site</option>
-    ${filteredSites.map(site => `
-      <option value="${safeAttr(site.siteid)}" ${String(site.siteid) === String(selectedSiteId) ? 'selected' : ''}>
-        ${escapeHtml(site.sitename)}
-      </option>
-    `).join('')}
-  `
-}
-
-function updateResponsibleSectionOptions(selectedSectionId = '') {
-  const siteid = document.querySelector('#responsibleSite')?.value || ''
-  const sectionSelect = document.querySelector('#responsibleSection')
-
-  if (!sectionSelect) return
-
-  if (!siteid) {
-    sectionSelect.innerHTML = `<option value="">Select Site First</option>`
-    return
-  }
-
-  const filteredSections = activeRecords(sections)
-    .filter(section => String(section.siteid) === String(siteid))
-    .sort((a, b) => (a.sectionname || '').localeCompare(b.sectionname || ''))
-
-  sectionSelect.innerHTML = `
-    <option value="">Select Section</option>
-    ${filteredSections.map(section => `
-      <option value="${safeAttr(section.sectionid)}" ${String(section.sectionid) === String(selectedSectionId) ? 'selected' : ''}>
-        ${escapeHtml(section.sectionname)}
-      </option>
-    `).join('')}
-  `
-}
-
-window.filterResponsibleSites = function () {
-  updateResponsibleSiteOptions()
-}
-
-window.filterResponsibleSections = function () {
-  updateResponsibleSectionOptions()
-}
-
 window.showResponsiblePersons = function (mode = responsibleArchiveMode) {
   if (!ensurePageAccess('responsible')) return
 
@@ -1285,19 +1231,9 @@ window.showAddResponsiblePersonForm = function () {
     <h2>Add Responsible Person</h2>
 
     <label>Customer</label>
-    <select id="responsibleClient" onchange="filterResponsibleSites()">
+    <select id="responsibleClient">
       <option value="">Select Customer</option>
       ${responsibleCustomerOptions()}
-    </select>
-
-    <label>Site</label>
-    <select id="responsibleSite" onchange="filterResponsibleSections()">
-      <option value="">Select Customer First</option>
-    </select>
-
-    <label>Section</label>
-    <select id="responsibleSection">
-      <option value="">Select Site First</option>
     </select>
 
     <label>Responsible Person Name</label>
@@ -1315,13 +1251,12 @@ window.showAddResponsiblePersonForm = function () {
 
 window.saveResponsiblePerson = async function () {
 
-  const sectionid =
-    document.querySelector('#responsibleSection').value
-
+  const clientid =
+    document.querySelector('#responsibleClient').value
   const name =
     document.querySelector('#responsibleName').value
 
-  if (!sectionid || !name) {
+  if (!clientid || !name) {
     alert("Please complete all fields")
     return
   }
@@ -1336,7 +1271,7 @@ window.saveResponsiblePerson = async function () {
       },
 
       body: JSON.stringify({
-        sectionid,
+        clientid,
         name
       })
     }
@@ -1356,12 +1291,9 @@ window.saveResponsiblePerson = async function () {
   showResponsiblePersons()
 }
 
-window.editResponsiblePerson = function (personid, sectionid = null) {
+window.editResponsiblePerson = function (personid) {
 
-  const person = responsiblePersons.find(p =>
-    String(p.personid) === String(personid) &&
-    String(p.sectionid || '') === String(sectionid || '')
-  ) || responsiblePersons.find(
+  const person = responsiblePersons.find(
     p => String(p.personid) === String(personid)
   )
 
@@ -1374,19 +1306,9 @@ window.editResponsiblePerson = function (personid, sectionid = null) {
     <h2>Edit Responsible Person</h2>
 
     <label>Customer</label>
-    <select id="responsibleClient" onchange="filterResponsibleSites()">
+    <select id="responsibleClient">
       <option value="">Select Customer</option>
       ${responsibleCustomerOptions(person.clientid)}
-    </select>
-
-    <label>Site</label>
-    <select id="responsibleSite" onchange="filterResponsibleSections()">
-      <option value="">Select Customer First</option>
-    </select>
-
-    <label>Section</label>
-    <select id="responsibleSection">
-      <option value="">Select Site First</option>
     </select>
 
     <label>Name</label>
@@ -1404,9 +1326,6 @@ window.editResponsiblePerson = function (personid, sectionid = null) {
       Cancel
     </button>
   `
-
-  updateResponsibleSiteOptions(person.siteid)
-  updateResponsibleSectionOptions(person.sectionid)
 }
 
 window.saveResponsiblePersonChanges = async function (personid) {
@@ -1417,10 +1336,10 @@ window.saveResponsiblePersonChanges = async function (personid) {
 
   const name =
     document.querySelector('#editResponsibleName').value
-  const sectionid =
-    document.querySelector('#responsibleSection').value
+  const clientid =
+    document.querySelector('#responsibleClient').value
 
-  if (!sectionid || !name) {
+  if (!clientid || !name) {
     alert("Please complete all fields")
     return
   }
@@ -1435,8 +1354,7 @@ window.saveResponsiblePersonChanges = async function (personid) {
       },
 
       body: JSON.stringify({
-        sectionid,
-        previoussectionid: person.sectionid || null,
+        clientid,
         name
       })
     }
@@ -1495,12 +1413,12 @@ window.filterResponsiblePersons = function (resetPage = false) {
       <tr>
         <td>${escapeHtml(person.personid)}</td>
         <td>${escapeHtml(person.clientname || '')}</td>
-        <td>${escapeHtml(person.sitename || '')}</td>
+        <td>${escapeHtml(person.sitename || 'Not assigned')}</td>
         <td>${escapeHtml(person.sectionname || 'Not assigned')}</td>
         <td>${escapeHtml(person.name || '')}</td>
         <td>${person.archived ? 'Archived' : 'Active'}</td>
         <td>
-          <button onclick="editResponsiblePerson(${person.personid}, ${person.sectionid || 'null'})">
+          <button onclick="editResponsiblePerson(${person.personid})">
             Edit
           </button>
           ${canArchiveSetupRecords() ? `

@@ -73,7 +73,7 @@ function authCookieOptions() {
     httpOnly: true,
     sameSite: process.env.COOKIE_SAME_SITE || "lax",
     secure: process.env.COOKIE_SECURE === "true" || process.env.NODE_ENV === "production",
-    path: process.env.COOKIE_PATH || (process.env.NODE_ENV === "production" ? "/atec" : "/"),
+    path: process.env.COOKIE_PATH || "/",
     maxAge
   }
 }

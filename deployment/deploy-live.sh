@@ -9,7 +9,7 @@ set -euo pipefail
 PROJECT_DIR="${ATEC_PROJECT_DIR:-/var/www/atec/ATEC}"
 PM2_APP="${ATEC_PM2_APP:-atec-backend}"
 SITE_URL="${ATEC_SITE_URL:-https://www.atecinspections.co.za}"
-API_HEALTH_URL="${ATEC_API_HEALTH_URL:-$SITE_URL/api/auth/me}"
+API_HEALTH_URL="${ATEC_API_HEALTH_URL:-$SITE_URL/api/health}"
 VITE_BASE_PATH="${VITE_BASE_PATH:-/}"
 VITE_API_URL="${VITE_API_URL:-$SITE_URL/api}"
 ENV_FILE="$PROJECT_DIR/backend/.env"
