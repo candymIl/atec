@@ -326,6 +326,69 @@ td:last-child > button + button,
   margin-top: 8px;
 }
 
+.customer-form-page {
+  max-width: 980px;
+}
+
+.customer-form-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.customer-form-heading h2 {
+  margin-bottom: 4px;
+}
+
+.customer-form-heading p,
+.field-note {
+  color: #64748b;
+  margin: 0;
+}
+
+.customer-form {
+  max-width: 760px;
+}
+
+.customer-form .form-group {
+  margin-bottom: 16px;
+}
+
+.customer-form label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.customer-form input,
+.customer-form gmp-place-autocomplete {
+  width: 100%;
+}
+
+.customer-form gmp-place-autocomplete {
+  color-scheme: light;
+}
+
+.field-note {
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+.customer-address-map {
+  width: 100%;
+  height: 320px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  margin-top: 6px;
+}
+
+.customer-form button:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
 td:last-child > button {
   margin-top: 2px;
   margin-bottom: 2px;
@@ -628,20 +691,32 @@ td {
 }
 
 .user-signature-card {
-  display: flex;
-  flex-wrap: wrap;
   align-items: end;
-  gap: 12px;
+  display: grid;
+  gap: 16px 28px;
+  grid-template-columns: minmax(280px, 1fr) minmax(420px, 1.15fr);
 }
 
-.user-signature-card h2,
-.user-signature-card p {
-  flex-basis: 100%;
+.user-signature-card h2 {
+  margin: 0 0 8px;
 }
 
 .user-signature-card p {
   color: #526274;
   margin: 0;
+}
+
+.user-signature-controls {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(240px, 1fr) auto;
+}
+
+.user-signature-controls input[type="file"] {
+  margin: 0;
+  min-width: 0;
+  width: 100%;
 }
 
 .my-profile-card {
@@ -751,6 +826,41 @@ td {
 }
 
 .user-management-table tr:nth-child(even) td:nth-child(11) {
+  background: #f8fafc;
+}
+
+/* Customer users have no Section column, so keep the final three columns aligned. */
+.customer-users-table th:nth-child(8),
+.customer-users-table td:nth-child(8) {
+  text-align: center;
+  width: 58px;
+}
+
+.customer-users-table th:nth-child(9),
+.customer-users-table td:nth-child(9) {
+  text-align: center;
+  width: 150px;
+}
+
+.customer-users-table th:nth-child(10),
+.customer-users-table td:nth-child(10) {
+  box-shadow: -6px 0 10px rgba(15, 45, 79, 0.08);
+  position: sticky;
+  right: 0;
+  width: 170px;
+  z-index: 2;
+}
+
+.customer-users-table th:nth-child(10) {
+  background: #1f3a5f;
+  z-index: 3;
+}
+
+.customer-users-table td:nth-child(10) {
+  background: #ffffff;
+}
+
+.customer-users-table tr:nth-child(even) td:nth-child(10) {
   background: #f8fafc;
 }
 
@@ -899,20 +1009,39 @@ td {
 }
 
 .user-row-actions {
+  text-align: center;
+}
+
+.user-row-action-buttons {
+  align-items: center;
   display: flex;
   gap: 8px;
   justify-content: center;
 }
 
-.user-row-actions button {
+.user-row-action-buttons button {
   font-size: 11px;
+  margin: 0;
   min-width: 56px;
   padding: 8px 10px;
   white-space: nowrap;
 }
 
-.user-row-actions .secondary-small-btn {
+.user-row-action-buttons .secondary-small-btn {
   min-width: 96px;
+}
+
+@media (max-width: 1100px) {
+  .user-signature-card {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .user-signature-controls {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
 }
 
 .danger-btn {
@@ -1252,6 +1381,54 @@ tr:hover {
   cursor: pointer;
   font: inherit;
   width: 100%;
+}
+
+.user-list-toolbar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  justify-content: space-between;
+  padding: 12px 14px;
+}
+
+.user-list-toolbar p {
+  margin: 0;
+}
+
+.user-status-filter {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.user-status-filter span {
+  color: #526274;
+  font-size: 13px;
+  font-weight: 700;
+  margin-right: 2px;
+}
+
+.user-status-filter button {
+  background: #eef4fb;
+  border: 1px solid #c9d8ea;
+  color: #12345a;
+  font-size: 13px;
+  padding: 7px 12px;
+}
+
+.user-status-filter button.active {
+  background: #12345a;
+  border-color: #12345a;
+  color: #ffffff;
+}
+
+.user-management-table .user-list-empty {
+  color: #526274;
+  font-size: 14px;
+  padding: 24px;
+  text-align: center;
 }
 
 .stat-card-action:hover,
@@ -1885,6 +2062,56 @@ tr:hover {
 
 .visit-asset-meta {
   text-align: right;
+}
+
+.visit-progress-card {
+  margin-top: 16px;
+}
+
+.visit-progress-table-wrap {
+  overflow-x: auto;
+}
+
+.visit-progress-table {
+  border-collapse: collapse;
+  min-width: 920px;
+  width: 100%;
+}
+
+.visit-preview-table {
+  min-width: 700px;
+}
+
+.visit-preview-actions {
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.visit-progress-table th,
+.visit-progress-table td {
+  border-bottom: 1px solid #d9e1ec;
+  padding: 10px 12px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.visit-progress-table th:first-child,
+.visit-progress-table td:first-child {
+  text-align: left;
+}
+
+.visit-progress-table thead th {
+  background: #eef4fb;
+  color: #0f2746;
+  font-size: 12px;
+}
+
+.visit-progress-total th,
+.visit-progress-total td {
+  background: #e8f1fb;
+  border-top: 2px solid #0f2746;
+  color: #0f2746;
+  font-weight: 800;
 }
 
 .inspection-photo-preview-grid {
@@ -4322,11 +4549,79 @@ tr:hover {
   background: #dc2626;
   grid-column: 1 / -1;
   justify-self: center;
-  width: 92px;
+  width: 100px;
+  max-width: 100%;
+  white-space: nowrap;
 }
 
 #certificateResults td:last-child .cert-delete-btn:hover {
   background: #b91c1c;
+}
+
+.voided-certificates-card { margin-top: 18px; }
+
+.voided-certificates-heading {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.voided-certificates-heading h2,
+.voided-certificates-heading p { margin-top: 0; }
+
+.voided-certificates-table { min-width: 1180px; }
+
+.voided-certificates-table td,
+.voided-certificates-table th { vertical-align: top; }
+
+.voided-certificates-table .void-reason-cell {
+  max-width: 260px;
+  min-width: 160px;
+  white-space: normal;
+}
+
+.voided-certificates-table .restore-certificate-btn {
+  background: #15803d;
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+
+.voided-certificates-table .restore-certificate-btn:hover { background: #166534; }
+
+.voided-bulk-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.voided-bulk-actions .danger-btn,
+.voided-certificates-table .permanent-delete-certificate-btn {
+  background: #b91c1c;
+}
+
+.voided-bulk-actions .danger-btn:hover,
+.voided-certificates-table .permanent-delete-certificate-btn:hover {
+  background: #991b1b;
+}
+
+.voided-bulk-actions button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.voided-row-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 86px;
+}
+
+.voided-certificates-table input[type="checkbox"] {
+  height: 17px;
+  width: 17px;
 }
 
 
@@ -4728,6 +5023,67 @@ tr:hover {
 .dashboard-section h3,
 .dashboard-quick-search h3 {
   margin: 0 0 10px;
+}
+
+.page-scroll-controls {
+  bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  opacity: 0;
+  pointer-events: none;
+  position: fixed;
+  right: 20px;
+  transform: translateY(10px);
+  transition: opacity 160ms ease, transform 160ms ease;
+  z-index: 1200;
+}
+
+.page-scroll-controls.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.page-scroll-button {
+  align-items: center;
+  background: #173f69;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.22);
+  display: flex;
+  font-size: 12px;
+  gap: 5px;
+  justify-content: center;
+  min-height: 38px;
+  min-width: 82px;
+  padding: 7px 12px;
+}
+
+.page-scroll-button:hover { background: #0f3153; }
+
+.page-scroll-button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.page-scroll-button span[aria-hidden="true"] {
+  font-size: 17px;
+  line-height: 1;
+}
+
+@media (max-width: 720px) {
+  .page-scroll-controls {
+    bottom: 12px;
+    right: 12px;
+  }
+
+  .page-scroll-button {
+    min-width: 44px;
+    padding: 7px 9px;
+  }
+
+  .page-scroll-button span:last-child { display: none; }
 }
 
 .system-health-header {

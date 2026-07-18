@@ -79,6 +79,33 @@ let criteria = []
 let assetSearchTimer = null
 let updateNoticeShown = false
 let updateChecksStarted = false
+let browserHistoryReady = false
+let browserHistoryRestoring = false
+let googleMapsLoader = null
+
+const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || ''
+
+function setCurrentPage(pageKey) {
+  localStorage.setItem('currentPage', pageKey)
+
+  if (!browserHistoryReady || browserHistoryRestoring) return
+  if (window.history.state?.atecPage === pageKey) return
+
+  window.history.pushState(
+    { ...window.history.state, atecPage: pageKey },
+    '',
+    window.location.href
+  )
+}
+
+function replaceCurrentHistoryPage(pageKey) {
+  window.history.replaceState(
+    { ...window.history.state, atecPage: pageKey },
+    '',
+    window.location.href
+  )
+  browserHistoryReady = true
+}
 
 const pageAccess = {
   portal: ['CUSTOMER'],
@@ -95,12 +122,14 @@ const pageAccess = {
   'customer-report': ['ADMIN', 'MANAGER', 'VIEWER', 'CUSTOMER'],
   she: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER'],
   criteria: ['ADMIN'],
-  users: ['ADMIN'],
+  users: ['ADMIN', 'MANAGER'],
   'system-health': ['ADMIN'],
   profile: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER']
 }
 
 function hasAccess(pageKey) {
+  if (pageKey === 'portal') return currentUser?.role === 'CUSTOMER'
+
   return currentUser?.role === 'ADMIN' || (pageAccess[pageKey] || []).includes(currentUser?.role)
 }
 
@@ -179,6 +208,52 @@ function startFrontendUpdateChecks() {
   window.setInterval(checkForFrontendUpdate, 60000)
 }
 
+function installPageScrollControls() {
+  window.removePageScrollControls?.()
+  document.querySelector('#pageScrollControls')?.remove()
+
+  const controls = document.createElement('div')
+  controls.id = 'pageScrollControls'
+  controls.className = 'page-scroll-controls'
+  controls.setAttribute('aria-label', 'Page navigation')
+  controls.innerHTML = `
+    <button type="button" class="page-scroll-button page-scroll-top" aria-label="Go to top of page" title="Go to top">
+      <span aria-hidden="true">↑</span><span>Top</span>
+    </button>
+    <button type="button" class="page-scroll-button page-scroll-bottom" aria-label="Go to bottom of page" title="Go to bottom">
+      <span aria-hidden="true">↓</span><span>Bottom</span>
+    </button>
+  `
+  document.body.appendChild(controls)
+
+  const topButton = controls.querySelector('.page-scroll-top')
+  const bottomButton = controls.querySelector('.page-scroll-bottom')
+  topButton.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }))
+  bottomButton.addEventListener('click', () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }))
+
+  const updateControls = () => {
+    const scrollTop = window.scrollY || document.documentElement.scrollTop
+    const pageHeight = document.documentElement.scrollHeight
+    const hasLongPage = pageHeight > window.innerHeight + 240
+    controls.classList.toggle('is-visible', hasLongPage)
+    topButton.disabled = scrollTop < 80
+    bottomButton.disabled = scrollTop + window.innerHeight >= pageHeight - 80
+  }
+
+  window.addEventListener('scroll', updateControls, { passive: true })
+  window.addEventListener('resize', updateControls)
+  const resizeObserver = new ResizeObserver(updateControls)
+  resizeObserver.observe(document.querySelector('#page'))
+  window.removePageScrollControls = () => {
+    resizeObserver.disconnect()
+    window.removeEventListener('scroll', updateControls)
+    window.removeEventListener('resize', updateControls)
+    controls.remove()
+    window.removePageScrollControls = null
+  }
+  updateControls()
+}
+
 function canManageNfcTokens() {
   return ['ADMIN', 'MANAGER'].includes(currentUser?.role)
 }
@@ -192,6 +267,7 @@ function canPerformInspections() {
 }
 
 function renderLogin(message = '') {
+  window.removePageScrollControls?.()
   document.querySelector('#app').innerHTML = `
     <div class="login-page">
       <div class="login-card">
@@ -234,7 +310,7 @@ window.loginUser = async function () {
 
   currentUser = result.user
   window.currentUser = currentUser
-  localStorage.setItem('currentPage', currentUser.role === 'CUSTOMER' ? 'portal' : 'dashboard')
+  setCurrentPage(currentUser.role === 'CUSTOMER' ? 'portal' : 'dashboard')
   await loadData()
 }
 
@@ -333,7 +409,17 @@ function sortUserManagementRows(users) {
 const internalUserRoles = ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER']
 const customerUserRoles = ['CUSTOMER']
 
+function canManageInternalUsers() {
+  return currentUser?.role === 'ADMIN'
+}
+
+function canManageCustomerPortalUsers() {
+  return ['ADMIN', 'MANAGER'].includes(currentUser?.role)
+}
+
 function getUserManagementMode() {
+  if (!canManageInternalUsers()) return 'customers'
+
   const mode = localStorage.getItem('userManagementMode') || 'internal'
   return mode === 'customers' ? 'customers' : 'internal'
 }
@@ -348,7 +434,32 @@ function userBelongsToManagementMode(user, mode) {
     : user.role !== 'CUSTOMER'
 }
 
+function getUserStatusFilter(mode = getUserManagementMode()) {
+  const savedFilter = localStorage.getItem(`userStatusFilter:${mode}`) || 'both'
+  return ['active', 'inactive'].includes(savedFilter) ? savedFilter : 'both'
+}
+
+function userMatchesStatusFilter(user, statusFilter) {
+  if (statusFilter === 'both') return true
+
+  const isActive = Boolean(user.is_active)
+  return statusFilter === 'active' ? isActive : !isActive
+}
+
+window.setUserStatusFilter = function (statusFilter) {
+  if (!['both', 'active', 'inactive'].includes(statusFilter)) return
+
+  localStorage.setItem(`userStatusFilter:${getUserManagementMode()}`, statusFilter)
+  showUserManagement()
+}
+
 window.showInternalUserManagement = function () {
+  if (!canManageInternalUsers()) {
+    localStorage.setItem('userManagementMode', 'customers')
+    showUserManagement()
+    return
+  }
+
   localStorage.setItem('userManagementMode', 'internal')
   showUserManagement()
 }
@@ -356,6 +467,17 @@ window.showInternalUserManagement = function () {
 window.showCustomerUserManagement = function () {
   localStorage.setItem('userManagementMode', 'customers')
   showUserManagement()
+}
+
+window.syncCustomerUsernameWithEmail = function () {
+  if (getUserManagementMode() !== 'customers') return
+
+  const emailInput = document.querySelector('#newUserEmail')
+  const usernameInput = document.querySelector('#newUserUsername')
+
+  if (emailInput && usernameInput) {
+    usernameInput.value = emailInput.value.trim()
+  }
 }
 
 function userSortHeader(label, key) {
@@ -391,7 +513,7 @@ window.sortUserManagement = function (key) {
 window.showUserManagement = async function () {
   if (!ensurePageAccess('users')) return
 
-  localStorage.setItem('currentPage', 'users')
+  setCurrentPage('users')
 
   const [
     response,
@@ -418,27 +540,36 @@ window.showUserManagement = async function () {
   }
 
   const managementMode = getUserManagementMode()
+  localStorage.setItem('userManagementMode', managementMode)
   const modeRoles = userRolesForManagementMode(managementMode)
-  const filteredUsers = users.filter(user => userBelongsToManagementMode(user, managementMode))
+  const statusFilter = getUserStatusFilter(managementMode)
+  const modeUsers = users.filter(user => userBelongsToManagementMode(user, managementMode))
+  const filteredUsers = modeUsers.filter(user => userMatchesStatusFilter(user, statusFilter))
   const sortedUsers = sortUserManagementRows(filteredUsers)
   const modeTitle = managementMode === 'customers' ? 'Customer Portal Users' : 'ATEC Users'
   const createTitle = managementMode === 'customers' ? 'Create Customer Portal User' : 'Create ATEC User'
   const createNote = managementMode === 'customers'
-    ? 'Customer portal users are separate from ATEC staff and must be linked to a customer.'
-    : 'ATEC users are internal administrators, managers, inspectors, and viewers.'
+    ? 'Customer login username is always the email address. Customer portal users are linked to the customer and site, not to one section.'
+    : 'Create ATEC staff login accounts here. Customer login accounts are managed separately under Customer Portal Users.'
+  const pageNote = managementMode === 'customers'
+    ? 'This is where Kenny Naidoo and other customer logins will appear after you create them. Responsible Persons remain separate contact records.'
+    : 'This list is only for ATEC admins, managers, inspectors, and viewers.'
 
   document.querySelector('#page').innerHTML = `
     <div class="user-management-page">
     <h1>${modeTitle}</h1>
+    <p class="page-subtitle">${pageNote}</p>
 
     <div class="filter-card user-management-mode-tabs">
-      <button
-        type="button"
-        class="${managementMode === 'internal' ? 'active' : ''}"
-        onclick="showInternalUserManagement()"
-      >
-        ATEC Users
-      </button>
+      ${canManageInternalUsers() ? `
+        <button
+          type="button"
+          class="${managementMode === 'internal' ? 'active' : ''}"
+          onclick="showInternalUserManagement()"
+        >
+          ATEC Users
+        </button>
+      ` : ''}
       <button
         type="button"
         class="${managementMode === 'customers' ? 'active' : ''}"
@@ -453,12 +584,16 @@ window.showUserManagement = async function () {
       <p>${createNote}</p>
       <div class="asset-form-grid">
         <div class="form-group">
-          <label>Username</label>
-          <input id="newUserUsername" type="text">
+          <label>${managementMode === 'customers' ? 'Username (uses email)' : 'Username'}</label>
+          <input
+            id="newUserUsername"
+            type="text"
+            ${managementMode === 'customers' ? 'readonly placeholder="Filled from email address"' : ''}
+          >
         </div>
         <div class="form-group">
           <label>Email</label>
-          <input id="newUserEmail" type="email">
+          <input id="newUserEmail" type="email" ${managementMode === 'customers' ? 'oninput="syncCustomerUsernameWithEmail()"' : ''}>
         </div>
         <div class="form-group">
           <label>Password</label>
@@ -490,26 +625,49 @@ window.showUserManagement = async function () {
             ${renderUserLookupOptions(userSites, "siteid", "sitename", "", "No site selected")}
           </select>
         </div>
-        <div class="form-group">
-          <label>Section Name</label>
-          <select id="newUserSectionId">
-            ${renderUserLookupOptions(userSections, "sectionid", "sectionname", "", "No section selected")}
-          </select>
-        </div>
+        ${managementMode === 'internal' ? `
+          <div class="form-group">
+            <label>Section Name</label>
+            <select id="newUserSectionId">
+              ${renderUserLookupOptions(userSections, "sectionid", "sectionname", "", "No section selected")}
+            </select>
+          </div>
+        ` : ''}
       </div>
       <button onclick="createUser()">Create User</button>
     </div>
 
     <div class="filter-card user-signature-card">
-      <h2>My Signature</h2>
-      <p>Upload your own inspector signature. It will be used on new inspections saved under your login.</p>
-      <input id="mySignatureUpload" type="file" accept="image/*">
-      <button onclick="uploadMySignature()">Upload Signature</button>
+      <div class="user-signature-copy">
+        <h2>My Signature</h2>
+        <p>Upload your inspector signature for new inspections saved under your login.</p>
+      </div>
+      <div class="user-signature-controls">
+        <input id="mySignatureUpload" type="file" accept="image/*">
+        <button onclick="uploadMySignature()">Upload Signature</button>
+      </div>
     </div>
 
     <div class="user-management-table-wrap">
-    <p><strong>${sortedUsers.length}</strong> ${managementMode === 'customers' ? 'customer portal user(s)' : 'ATEC user(s)'} shown.</p>
-    <table class="user-management-table">
+    <div class="user-list-toolbar">
+      <p><strong>${sortedUsers.length}</strong> of <strong>${modeUsers.length}</strong> ${managementMode === 'customers' ? 'customer portal user(s)' : 'ATEC user(s)'} shown.</p>
+      <div class="user-status-filter" role="group" aria-label="Filter users by active status">
+        <span>Status:</span>
+        ${[
+          ['both', 'Both'],
+          ['active', 'Active'],
+          ['inactive', 'Inactive']
+        ].map(([value, label]) => `
+          <button
+            type="button"
+            class="${statusFilter === value ? 'active' : ''}"
+            onclick="setUserStatusFilter('${value}')"
+            aria-pressed="${statusFilter === value}"
+          >${label}</button>
+        `).join('')}
+      </div>
+    </div>
+    <table class="user-management-table ${managementMode === 'customers' ? 'customer-users-table' : 'internal-users-table'}">
       <thead>
         <tr>
           <th>${userSortHeader('User', 'username')}</th>
@@ -519,14 +677,14 @@ window.showUserManagement = async function () {
           <th>${userSortHeader('LMI Number', 'lmi_number')}</th>
           <th>${userSortHeader('Customer Name', 'clientid')}</th>
           <th>${userSortHeader('Site Name', 'siteid')}</th>
-          <th>${userSortHeader('Section Name', 'sectionid')}</th>
+          ${managementMode === 'internal' ? `<th>${userSortHeader('Section Name', 'sectionid')}</th>` : ''}
           <th>${userSortHeader('Active', 'is_active')}</th>
           <th>${userSortHeader('Signature', 'signature_image')}</th>
           <th>Actions</th>
         </tr>
       </thead>
       <tbody>
-        ${sortedUsers.map(user => `
+        ${sortedUsers.length ? sortedUsers.map(user => `
           <tr class="${user.is_active ? '' : 'inactive-user-row'}">
             <td class="user-name-cell">${escapeHtml(user.username)}</td>
             <td><input id="user-email-${safeAttr(user.user_id)}" value="${safeAttr(user.email || '')}"></td>
@@ -549,11 +707,13 @@ window.showUserManagement = async function () {
                 ${renderUserLookupOptions(userSites, "siteid", "sitename", user.siteid, "No site selected")}
               </select>
             </td>
-            <td>
-              <select id="user-section-${user.user_id}">
-                ${renderUserLookupOptions(userSections, "sectionid", "sectionname", user.sectionid, "No section selected")}
-              </select>
-            </td>
+            ${managementMode === 'internal' ? `
+              <td>
+                <select id="user-section-${user.user_id}">
+                  ${renderUserLookupOptions(userSections, "sectionid", "sectionname", user.sectionid, "No section selected")}
+                </select>
+              </td>
+            ` : ''}
             <td class="user-active-cell">
               <input class="user-status-check" id="user-active-${user.user_id}" type="checkbox" ${user.is_active ? 'checked' : ''}>
             </td>
@@ -565,11 +725,19 @@ window.showUserManagement = async function () {
               </div>
             </td>
             <td class="user-row-actions">
-              <button onclick="saveUser(${user.user_id})">Save</button>
-              <button class="secondary-small-btn" onclick="resetUserPassword(${user.user_id})">Reset Password</button>
+              <div class="user-row-action-buttons">
+                <button onclick="saveUser(${user.user_id})">Save</button>
+                <button class="secondary-small-btn" onclick="resetUserPassword(${user.user_id})">Reset Password</button>
+              </div>
             </td>
           </tr>
-        `).join('')}
+        `).join('') : `
+          <tr>
+            <td class="user-list-empty" colspan="${managementMode === 'internal' ? 11 : 10}">
+              No ${statusFilter === 'both' ? '' : `${statusFilter} `}${managementMode === 'customers' ? 'customer portal users' : 'ATEC users'} found.
+            </td>
+          </tr>
+        `}
       </tbody>
     </table>
     </div>
@@ -583,9 +751,18 @@ window.createUser = async function () {
     ? 'CUSTOMER'
     : document.querySelector('#newUserRole').value
   const clientid = document.querySelector('#newUserClientId').value
+  const email = document.querySelector('#newUserEmail').value.trim()
+  const username = managementMode === 'customers'
+    ? email
+    : document.querySelector('#newUserUsername').value
 
   if (managementMode === 'customers' && !clientid) {
     alert('Please link this customer portal user to a customer.')
+    return
+  }
+
+  if (managementMode === 'customers' && !email) {
+    alert('Please enter the customer portal user email address.')
     return
   }
 
@@ -593,15 +770,17 @@ window.createUser = async function () {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      username: document.querySelector('#newUserUsername').value,
-      email: document.querySelector('#newUserEmail').value,
+      username,
+      email,
       password: document.querySelector('#newUserPassword').value,
       full_name: document.querySelector('#newUserFullName').value,
       role,
       lmi_number: document.querySelector('#newUserLmi').value,
       clientid,
       siteid: document.querySelector('#newUserSiteId').value,
-      sectionid: document.querySelector('#newUserSectionId').value
+      sectionid: managementMode === 'customers'
+        ? null
+        : document.querySelector('#newUserSectionId')?.value || null
     })
   })
 
@@ -623,6 +802,8 @@ window.saveUser = async function (userId) {
     return
   }
 
+  const managementMode = getUserManagementMode()
+
   const response = await fetch(`${API_BASE}/users/${userId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -633,7 +814,9 @@ window.saveUser = async function (userId) {
       lmi_number: document.querySelector(`#user-lmi-${userId}`).value,
       clientid: document.querySelector(`#user-client-${userId}`).value,
       siteid: document.querySelector(`#user-site-${userId}`).value,
-      sectionid: document.querySelector(`#user-section-${userId}`).value,
+      sectionid: managementMode === 'customers'
+        ? null
+        : document.querySelector(`#user-section-${userId}`)?.value || null,
       is_active: document.querySelector(`#user-active-${userId}`).checked
     })
   })
@@ -774,7 +957,7 @@ window.uploadMySignature = async function () {
 window.showMyProfile = async function () {
   if (!ensurePageAccess('profile')) return
 
-  localStorage.setItem('currentPage', 'profile')
+  setCurrentPage('profile')
 
   const response = await fetch(`${API_BASE}/users/me`)
   const result = await readApiResponse(response)
@@ -1000,14 +1183,14 @@ async function loadData() {
     ${menuButton('responsible', 'Responsible Persons', 'showResponsiblePersons()')}
     ${menuButton('sections', 'Sections', 'showSections()')}
     ${menuButton('assets', 'Assets', 'showAssetSetup()')}
-    ${menuButton('inspections', 'Inspection/Testing', 'showInspections()')}
     ${menuButton('visits', 'On-Site Visits', 'showInspectionVisits()')}
     ${menuButton('quick-inspection', 'Quick Inspection/Testing', 'showQuickInspection()')}
     ${menuButton('certificates', 'Certificates', 'showCertificateSearch()')}
     ${menuButton('customer-report', 'Reports', 'showCustomerDetailedReport()')}
     ${menuButton('she', 'Risk Assessment / SHE', 'showRiskAssessments()')}
     ${menuButton('criteria', 'Equipment Type Criteria', 'showEquipmentTypeCriteria()')}
-    ${menuButton('users', 'User Management', 'showUserManagement()')}
+    ${canManageInternalUsers() ? menuButton('users', 'ATEC Users', 'showInternalUserManagement()') : ''}
+    ${canManageCustomerPortalUsers() ? menuButton('users', 'Customer Portal Users', 'showCustomerUserManagement()') : ''}
     ${menuButton('system-health', 'System Health', 'showSystemHealth()')}
     ${menuButton('profile', 'My Profile', 'showMyProfile()')}
 
@@ -1026,6 +1209,8 @@ async function loadData() {
 
   `
 
+  installPageScrollControls()
+
 window.toggleMobileMenu = function () {
   const sidebar = document.querySelector('.sidebar')
   const toggle = document.querySelector('.mobile-menu-toggle')
@@ -1043,7 +1228,7 @@ window.closeMobileMenu = function () {
 window.showDashboard = function () {
   if (!ensurePageAccess('dashboard')) return
 
-  localStorage.setItem("currentPage", "dashboard")
+  setCurrentPage("dashboard")
 
   renderDashboard(
     customers,
@@ -1059,7 +1244,7 @@ window.showDashboard = function () {
 window.showCustomerPortal = function () {
   if (!ensurePageAccess('portal')) return
 
-  localStorage.setItem("currentPage", "portal")
+  setCurrentPage("portal")
   renderCustomerPortal(currentUser)
 }
 
@@ -1070,120 +1255,202 @@ window.showCustomerSetup = function (mode = customerArchiveMode) {
 
   customerArchiveMode = mode
 
-  localStorage.setItem("currentPage", "customers")
+  setCurrentPage("customers")
   localStorage.setItem("customerArchiveMode", mode)
 
   renderCustomerSetup(customers, customerArchiveMode)
 
 }
 
-window.addClient = async function () {
-  const clientName = prompt("Enter Client Name")
+function loadGoogleMaps() {
+  if (!GOOGLE_MAPS_API_KEY) return Promise.resolve(null)
+  if (window.google?.maps?.importLibrary) return Promise.resolve(window.google)
+  if (googleMapsLoader) return googleMapsLoader
 
-  if (!clientName) return
+  googleMapsLoader = new Promise((resolve, reject) => {
+    const callbackName = `initAtecGoogleMaps${Date.now()}`
+    window[callbackName] = () => {
+      delete window[callbackName]
+      resolve(window.google)
+    }
 
-  const clientAddress = prompt("Enter Client Address")
-
-  const response = await fetch(`${API_BASE}/customers`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      clientname: clientName,
-      clientaddr: clientAddress,
-    }),
+    const script = document.createElement('script')
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(GOOGLE_MAPS_API_KEY)}&v=weekly&loading=async&libraries=places&callback=${callbackName}`
+    script.async = true
+    script.onerror = () => reject(new Error('Google Maps could not be loaded'))
+    document.head.appendChild(script)
   })
 
-  const newClient = await response.json()
+  return googleMapsLoader
+}
 
-  if (!response.ok) {
-    alert("Error saving client: " + newClient.error)
-    return
+function renderCustomerForm(customer = null) {
+  const isEditing = Boolean(customer)
+
+  document.querySelector('#page').innerHTML = `
+    <div class="customer-form-page">
+      <div class="customer-form-heading">
+        <div>
+          <h2>${isEditing ? 'Edit Customer' : 'Create Customer'}</h2>
+          <p>${isEditing ? 'Update the customer name or registered address.' : 'Add the customer and their registered or head-office address.'}</p>
+        </div>
+        <button class="secondary-button" type="button" onclick="showCustomerSetup()">Back</button>
+      </div>
+
+      <form class="customer-form" onsubmit="saveCustomer(event, ${customer?.clientid || 'null'})">
+        <div class="form-group customer-name-field">
+          <label for="customerName">Customer name</label>
+          <input id="customerName" type="text" value="${safeAttr(customer?.clientname || '')}" required autofocus autocomplete="organization">
+        </div>
+
+        <div class="form-group customer-address-field">
+          <label for="customerAddress">Registered or head-office address</label>
+          <div id="customerAddressSearch">
+            <input id="customerAddressManual" type="text" value="${safeAttr(customer?.clientaddr || '')}" placeholder="Start typing a street address or business name" autocomplete="street-address" oninput="syncCustomerAddress(this.value)">
+          </div>
+          <input id="customerAddress" type="hidden" value="${safeAttr(customer?.clientaddr || '')}">
+          <p id="customerAddressStatus" class="field-note">${GOOGLE_MAPS_API_KEY ? 'Choose a suggestion to confirm the location, or enter the address manually.' : 'Enter the complete address manually. Address search will activate when the Google Maps key is configured.'}</p>
+        </div>
+
+        <div id="customerAddressMap" class="customer-address-map" ${GOOGLE_MAPS_API_KEY ? '' : 'hidden'} aria-label="Selected customer address map"></div>
+        <p id="customerFormError" class="login-error" hidden></p>
+
+        <div class="form-actions">
+          <button id="saveCustomerButton" type="submit">${isEditing ? 'Save Changes' : 'Create Customer'}</button>
+          <button class="secondary-button" type="button" onclick="showCustomerSetup()">Cancel</button>
+        </div>
+      </form>
+    </div>
+  `
+
+  initializeCustomerAddressSearch(customer?.clientaddr || '')
+}
+
+async function initializeCustomerAddressSearch(existingAddress) {
+  if (!GOOGLE_MAPS_API_KEY) return
+
+  const addressInput = document.querySelector('#customerAddress')
+  const manualInput = document.querySelector('#customerAddressManual')
+  const searchContainer = document.querySelector('#customerAddressSearch')
+  const mapElement = document.querySelector('#customerAddressMap')
+  const status = document.querySelector('#customerAddressStatus')
+
+  try {
+    const google = await loadGoogleMaps()
+    if (!addressInput || !manualInput || !searchContainer || !mapElement || !google) return
+
+    const { PlaceAutocompleteElement } = await google.maps.importLibrary('places')
+
+    const defaultLocation = { lat: -26.2041, lng: 28.0473 }
+    const map = new google.maps.Map(mapElement, {
+      center: defaultLocation,
+      zoom: 10,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: false
+    })
+    const locationIndicator = new google.maps.Circle({
+      map,
+      radius: 24,
+      strokeColor: '#ffffff',
+      strokeOpacity: 1,
+      strokeWeight: 3,
+      fillColor: '#2563eb',
+      fillOpacity: 1,
+      visible: false
+    })
+    const placeAutocomplete = new PlaceAutocompleteElement()
+    placeAutocomplete.id = 'customerAddressAutocomplete'
+    placeAutocomplete.placeholder = 'Start typing a street address or business name'
+    placeAutocomplete.includedRegionCodes = ['za']
+    if (existingAddress) placeAutocomplete.value = existingAddress
+    searchContainer.prepend(placeAutocomplete)
+    manualInput.hidden = true
+
+    placeAutocomplete.addEventListener('input', () => {
+      addressInput.value = placeAutocomplete.value || ''
+    })
+
+    placeAutocomplete.addEventListener('gmp-select', async ({ placePrediction }) => {
+      const place = placePrediction.toPlace()
+      await place.fetchFields({ fields: ['formattedAddress', 'location'] })
+
+      if (!place.location) {
+        status.textContent = 'No exact location was found. You can refine the address or keep it as entered.'
+        return
+      }
+
+      addressInput.value = place.formattedAddress || placeAutocomplete.value || ''
+      placeAutocomplete.value = addressInput.value
+      map.setCenter(place.location)
+      map.setZoom(16)
+      locationIndicator.setCenter(place.location)
+      locationIndicator.setVisible(true)
+      status.textContent = 'Address confirmed from Google Maps.'
+    })
+  } catch (err) {
+    mapElement.hidden = true
+    status.textContent = 'Address search is unavailable right now. You can still enter the address manually.'
   }
+}
 
-  alert("Client saved: " + newClient.clientname)
+window.syncCustomerAddress = function (value) {
+  const addressInput = document.querySelector('#customerAddress')
+  if (addressInput) addressInput.value = value
+}
 
-  loadData()
+window.addClient = function () {
+  renderCustomerForm()
 }
 
 window.editClient = function (clientid) {
-
-  const customer = customers.find(
-    c => String(c.clientid) === String(clientid)
-  )
+  const customer = customers.find(c => String(c.clientid) === String(clientid))
 
   if (!customer) {
-    alert("Client not found")
+    alert('Customer not found')
     return
   }
 
-  document.querySelector('#page').innerHTML = `
-
-    <h2>Edit Client</h2>
-
-    <label>Client Name</label>
-    <input
-      id="editClientName"
-      type="text"
-      value="${safeAttr(customer.clientname || '')}"
-    >
-
-    <label>Address</label>
-    <input
-      id="editClientAddress"
-      type="text"
-      value="${safeAttr(customer.clientaddr || '')}"
-    >
-
-    <button onclick="saveClientChanges(${customer.clientid})">
-      Save Changes
-    </button>
-
-    <button onclick="showCustomerSetup()">
-      Cancel
-    </button>
-
-  `
+  renderCustomerForm(customer)
 }
 
-window.saveClientChanges = async function (clientid) {
+window.saveCustomer = async function (event, clientid) {
+  event.preventDefault()
 
-  const clientname =
-    document.querySelector('#editClientName').value
+  const clientname = document.querySelector('#customerName')?.value.trim() || ''
+  const clientaddr = document.querySelector('#customerAddress')?.value.trim() || ''
+  const saveButton = document.querySelector('#saveCustomerButton')
+  const errorElement = document.querySelector('#customerFormError')
 
-  const clientaddr =
-    document.querySelector('#editClientAddress').value
+  if (!clientname) return
 
-  const response = await fetch(
-    `${API_BASE}/customers/${clientid}`,
-    {
-      method: "PUT",
+  saveButton.disabled = true
+  saveButton.textContent = 'Saving...'
+  errorElement.hidden = true
 
-      headers: {
-        "Content-Type": "application/json"
-      },
+  try {
+    const response = await fetch(clientid ? `${API_BASE}/customers/${clientid}` : `${API_BASE}/customers`, {
+      method: clientid ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientname, clientaddr: clientaddr || null })
+    })
+    const result = await readApiResponse(response)
 
-      body: JSON.stringify({
-        clientname,
-        clientaddr
-      })
-    }
-  )
+    if (!response.ok) throw new Error(result.error || 'The customer could not be saved')
 
-  const updatedClient = await response.json()
-
-  if (!response.ok) {
-    alert("Error updating client: " + updatedClient.error)
-    return
+    await loadData()
+    window.showCustomerSetup()
+  } catch (err) {
+    errorElement.textContent = err.message
+    errorElement.hidden = false
+    saveButton.disabled = false
+    saveButton.textContent = clientid ? 'Save Changes' : 'Create Customer'
   }
+}
 
-  alert("Client updated")
-
-  await loadData()
-
-  showCustomerSetup()
-
+window.saveClientChanges = function (clientid) {
+  const form = document.querySelector('.customer-form')
+  if (form) window.saveCustomer(new Event('submit', { cancelable: true }), clientid)
 }
 
 window.filterCustomers = function (resetPage = false) {
@@ -1343,7 +1610,7 @@ window.showResponsiblePersons = function (mode = responsibleArchiveMode) {
   if (!ensurePageAccess('responsible')) return
 
   responsibleArchiveMode = mode
-  localStorage.setItem("currentPage", "responsible")
+  setCurrentPage("responsible")
   localStorage.setItem("responsibleArchiveMode", mode)
   renderResponsiblePersons(responsiblePersons, responsibleArchiveMode)
 }
@@ -1626,7 +1893,7 @@ window.showSections = function (mode = sectionArchiveMode) {
   if (!ensurePageAccess('sections')) return
 
   sectionArchiveMode = mode
-  localStorage.setItem("currentPage", "sections")
+  setCurrentPage("sections")
   localStorage.setItem("sectionArchiveMode", mode)
   renderSections(sections, sectionArchiveMode)
 }
@@ -1980,7 +2247,7 @@ window.showSites = function (mode = siteArchiveMode) {
   if (!ensurePageAccess('sites')) return
 
   siteArchiveMode = mode
-  localStorage.setItem("currentPage", "sites")
+  setCurrentPage("sites")
   localStorage.setItem("siteArchiveMode", mode)
   renderSites(sites, siteArchiveMode)
 
@@ -2240,7 +2507,7 @@ window.saveSiteFromForm = async function () {
 window.showAssetSetup = async function () {
   if (!ensurePageAccess('assets')) return
 
-  localStorage.setItem("currentPage", "assets")
+  setCurrentPage("assets")
   const state = window.assetListState || {}
   window.assetCurrentPage = state.currentPage || window.assetCurrentPage || 1
   window.assetRowsPerPage = state.rowsPerPage || window.assetRowsPerPage || 25
@@ -2251,7 +2518,7 @@ window.showAssetSetup = async function () {
 window.showRiskAssessments = async function () {
   if (!ensurePageAccess('she')) return
 
-  localStorage.setItem("currentPage", "she")
+  setCurrentPage("she")
   window.canWriteRiskAssessments = ['ADMIN', 'MANAGER', 'INSPECTOR'].includes(currentUser?.role)
   await renderRiskAssessments(assets, window.canWriteRiskAssessments)
 }
@@ -2617,7 +2884,7 @@ function isActiveRecord(row) {
 window.showInspectionVisits = async function () {
   if (!ensurePageAccess('visits')) return
 
-  localStorage.setItem("currentPage", "visits")
+  setCurrentPage("visits")
   document.querySelector('#page').innerHTML = `
     <h2>On-Site Inspection Visits</h2>
 
@@ -2736,7 +3003,48 @@ window.previewInspectionVisit = async function () {
     return
   }
 
+  const isSurvey = document.querySelector('#visitType')?.value === 'SURVEY'
+  const coverage = result.coverage_summary || { total: 0, completed: 0, outstanding: 0 }
+  const coveragePercent = Number(coverage.total)
+    ? Math.round((Number(coverage.completed) / Number(coverage.total)) * 100)
+    : 0
+  window.currentVisitPreviewReport = {
+    result,
+    isSurvey,
+    customer: document.querySelector('#visitClientId')?.selectedOptions?.[0]?.textContent || '',
+    site: document.querySelector('#visitSiteId')?.selectedOptions?.[0]?.textContent || '',
+    section: document.querySelector('#visitSectionId')?.selectedOptions?.[0]?.textContent || 'All sections',
+    scope: document.querySelector('#visitType')?.selectedOptions?.[0]?.textContent || '',
+    dueCutoff: document.querySelector('#visitDueCutoff')?.value || ''
+  }
+
   box.innerHTML = `
+    <div class="form-actions visit-preview-actions">
+      <button type="button" onclick="printVisitPreviewTables()">Print Tables</button>
+      <button type="button" class="load-test-btn" onclick="exportVisitPreviewTables()">Export CSV</button>
+    </div>
+    ${isSurvey ? '' : `
+      <h4>Current Inspection Coverage</h4>
+      <div class="visit-count-grid">
+        <div><span>Total Registered Assets</span><strong>${escapeHtml(coverage.total || 0)}</strong></div>
+        <div><span>Current / Done</span><strong>${escapeHtml(coverage.completed || 0)}</strong></div>
+        <div><span>Outstanding by Cutoff</span><strong>${escapeHtml(coverage.outstanding || 0)}</strong></div>
+        <div><span>Coverage</span><strong>${escapeHtml(coveragePercent)}%</strong></div>
+      </div>
+      <div class="visit-progress-table-wrap">
+        <table class="visit-progress-table visit-preview-table">
+          <thead><tr><th>Equipment Type</th><th>Total Assets</th><th>Current / Done</th><th>Outstanding</th><th>Coverage</th></tr></thead>
+          <tbody>
+            ${(result.coverage_by_equipment_type || []).map(row => {
+              const percent = Number(row.total) ? Math.round((Number(row.completed) / Number(row.total)) * 100) : 0
+              return `<tr><th scope="row">${escapeHtml(row.equipment_type)}</th><td>${escapeHtml(row.total)}</td><td>${escapeHtml(row.completed)}</td><td>${escapeHtml(row.outstanding)}</td><td>${escapeHtml(percent)}%</td></tr>`
+            }).join('') || '<tr><td colspan="5">No registered assets found.</td></tr>'}
+            <tr class="visit-progress-total"><th scope="row">Overall Total</th><td>${escapeHtml(coverage.total || 0)}</td><td>${escapeHtml(coverage.completed || 0)}</td><td>${escapeHtml(coverage.outstanding || 0)}</td><td>${escapeHtml(coveragePercent)}%</td></tr>
+          </tbody>
+        </table>
+      </div>
+    `}
+    <h4>${isSurvey ? 'Assets Included in Survey' : 'Work Due for This Visit'}</h4>
     <div class="visit-count-grid">
       <div><span>Total</span><strong>${escapeHtml(result.summary.total)}</strong></div>
       <div><span>Visual Due</span><strong>${escapeHtml(result.summary.visual_due)}</strong></div>
@@ -2744,7 +3052,123 @@ window.previewInspectionVisit = async function () {
       <div><span>Both Due</span><strong>${escapeHtml(result.summary.both_due)}</strong></div>
       <div><span>Overdue</span><strong>${escapeHtml(result.summary.overdue)}</strong></div>
     </div>
+    <div class="visit-progress-table-wrap">
+      <table class="visit-progress-table visit-preview-table">
+        <thead>
+          <tr><th>Equipment Type</th><th>Assets Included</th><th>Visual Due</th><th>Load Tests Due</th><th>Both Due</th><th>Overdue</th></tr>
+        </thead>
+        <tbody>
+          ${(result.equipment_type_summary || []).map(row => `
+            <tr>
+              <th scope="row">${escapeHtml(row.equipment_type)}</th>
+              <td>${escapeHtml(row.total || 0)}</td>
+              <td>${escapeHtml(row.visual_due || 0)}</td>
+              <td>${escapeHtml(row.loadtest_due || 0)}</td>
+              <td>${escapeHtml(row.both_due || 0)}</td>
+              <td>${escapeHtml(row.overdue || 0)}</td>
+            </tr>
+          `).join('') || '<tr><td colspan="6">No assets match this visit scope and cutoff date.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
   `
+}
+
+function csvCell(value) {
+  return `"${String(value ?? '').replace(/"/g, '""')}"`
+}
+
+window.exportVisitPreviewTables = function () {
+  const preview = window.currentVisitPreviewReport
+  if (!preview) return
+  const { result, isSurvey } = preview
+  const lines = [
+    ['On-Site Inspection Coverage Report'],
+    ['Customer', preview.customer],
+    ['Site', preview.site],
+    ['Section', preview.section],
+    ['Scope', preview.scope],
+    ['Due Cutoff', preview.dueCutoff],
+    []
+  ]
+
+  if (!isSurvey) {
+    lines.push(
+      ['Current Inspection Coverage'],
+      ['Equipment Type', 'Total Assets', 'Current / Done', 'Outstanding', 'Coverage %'],
+      ...(result.coverage_by_equipment_type || []).map(row => [
+        row.equipment_type,
+        row.total,
+        row.completed,
+        row.outstanding,
+        Number(row.total) ? Math.round((Number(row.completed) / Number(row.total)) * 100) : 0
+      ]),
+      []
+    )
+  }
+
+  lines.push(
+    [isSurvey ? 'Assets Included in Survey' : 'Work Due for This Visit'],
+    ['Equipment Type', 'Assets Included', 'Visual Due', 'Load Tests Due', 'Both Due', 'Overdue'],
+    ...(result.equipment_type_summary || []).map(row => [
+      row.equipment_type,
+      row.total,
+      row.visual_due,
+      row.loadtest_due,
+      row.both_due,
+      row.overdue
+    ])
+  )
+
+  const csv = '\uFEFF' + lines.map(row => row.map(csvCell).join(',')).join('\r\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const link = document.createElement('a')
+  const safeSite = (preview.site || 'site').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '')
+  link.href = URL.createObjectURL(blob)
+  link.download = `inspection-coverage-${safeSite}-${preview.dueCutoff || dateInputValue()}.csv`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(link.href)
+}
+
+window.printVisitPreviewTables = function () {
+  const preview = window.currentVisitPreviewReport
+  if (!preview) return
+  const { result, isSurvey } = preview
+  const coverageRows = (result.coverage_by_equipment_type || []).map(row => {
+    const percent = Number(row.total) ? Math.round((Number(row.completed) / Number(row.total)) * 100) : 0
+    return `<tr><th>${escapeHtml(row.equipment_type)}</th><td>${escapeHtml(row.total)}</td><td>${escapeHtml(row.completed)}</td><td>${escapeHtml(row.outstanding)}</td><td>${escapeHtml(percent)}%</td></tr>`
+  }).join('')
+  const dueRows = (result.equipment_type_summary || []).map(row => `
+    <tr><th>${escapeHtml(row.equipment_type)}</th><td>${escapeHtml(row.total)}</td><td>${escapeHtml(row.visual_due)}</td><td>${escapeHtml(row.loadtest_due)}</td><td>${escapeHtml(row.both_due)}</td><td>${escapeHtml(row.overdue)}</td></tr>
+  `).join('')
+  const win = window.open('', '_blank')
+  win.document.write(`
+    <style>
+      body { color: #172033; font-family: Arial, sans-serif; margin: 28px; }
+      h1 { margin-bottom: 5px; } h2 { margin-top: 24px; }
+      .details { color: #475569; line-height: 1.6; }
+      table { border-collapse: collapse; font-size: 12px; width: 100%; }
+      th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: right; }
+      th:first-child { text-align: left; } thead th { background: #e8f1fb; }
+      @media print { body { margin: 10mm; } }
+    </style>
+    <h1>On-Site Inspection Coverage Report</h1>
+    <div class="details">
+      <strong>${escapeHtml(preview.customer)}</strong> / ${escapeHtml(preview.site)} / ${escapeHtml(preview.section)}<br>
+      Scope: ${escapeHtml(preview.scope)} | Due cutoff: ${escapeHtml(preview.dueCutoff)}
+    </div>
+    ${isSurvey ? '' : `
+      <h2>Current Inspection Coverage</h2>
+      <table><thead><tr><th>Equipment Type</th><th>Total Assets</th><th>Current / Done</th><th>Outstanding</th><th>Coverage</th></tr></thead><tbody>${coverageRows || '<tr><td colspan="5">No registered assets found.</td></tr>'}</tbody></table>
+    `}
+    <h2>${isSurvey ? 'Assets Included in Survey' : 'Work Due for This Visit'}</h2>
+    <table><thead><tr><th>Equipment Type</th><th>Assets Included</th><th>Visual Due</th><th>Load Tests Due</th><th>Both Due</th><th>Overdue</th></tr></thead><tbody>${dueRows || '<tr><td colspan="6">No assets match this selection.</td></tr>'}</tbody></table>
+  `)
+  win.document.close()
+  win.focus()
+  win.print()
 }
 
 window.createInspectionVisit = async function () {
@@ -2788,7 +3212,7 @@ async function loadInspectionVisits() {
 }
 
 window.openInspectionVisit = async function (visitid) {
-  localStorage.setItem("currentPage", "visits")
+  setCurrentPage("visits")
   const [visitResponse, assetsResponse] = await Promise.all([
     fetch(`${API_BASE}/inspection-visits/${visitid}`),
     fetch(`${API_BASE}/inspection-visits/${visitid}/assets?limit=250`)
@@ -2802,6 +3226,9 @@ window.openInspectionVisit = async function (visitid) {
   }
 
   const visitIsClosed = ['COMPLETED', 'CANCELLED'].includes(visit.visit_status)
+  const totalAssets = Number(worklist.counts.total || 0)
+  const completedAssets = Number(worklist.counts.completed || 0)
+  const completionPercent = totalAssets ? Math.round((completedAssets / totalAssets) * 100) : 0
 
   document.querySelector('#page').innerHTML = `
     <div class="visit-detail-header">
@@ -2817,12 +3244,15 @@ window.openInspectionVisit = async function (visitid) {
     </div>
 
     <div class="visit-count-grid">
-      <div><span>Total Due</span><strong>${escapeHtml(worklist.counts.total || 0)}</strong></div>
-      <div><span>Completed</span><strong>${escapeHtml(worklist.counts.completed || 0)}</strong></div>
-      <div><span>Due assets still unaccounted for</span><strong>${escapeHtml(worklist.counts.outstanding || 0)}</strong></div>
-      <div><span>Overdue</span><strong>${escapeHtml(worklist.counts.overdue || 0)}</strong></div>
-      <div><span>Deferred</span><strong>${escapeHtml(worklist.counts.deferred || 0)}</strong></div>
+      <div><span>Total Assets in Visit</span><strong>${escapeHtml(totalAssets)}</strong></div>
+      <div><span>Done</span><strong>${escapeHtml(completedAssets)}</strong></div>
+      <div><span>Still Outstanding</span><strong>${escapeHtml(worklist.counts.outstanding || 0)}</strong></div>
+      <div><span>Not Found</span><strong>${escapeHtml(worklist.counts.not_found || 0)}</strong></div>
+      <div><span>Unable to Inspect</span><strong>${escapeHtml(worklist.counts.inaccessible || 0)}</strong></div>
+      <div><span>Completion</span><strong>${escapeHtml(completionPercent)}%</strong></div>
     </div>
+
+    ${renderVisitEquipmentTypeSummary(worklist.equipment_type_summary || [], worklist.counts)}
 
     <div class="filter-card">
       <h3>Worklist</h3>
@@ -2842,6 +3272,62 @@ window.openInspectionVisit = async function (visitid) {
       <textarea id="visitDiscoveryNotes" placeholder="Notes"></textarea>
       <button onclick="addVisitDiscovery(${visit.visitid})">Record Discovery</button>
     </div>`}
+  `
+}
+
+function visitProgressSummaryRow(label, row, isTotal = false) {
+  const total = Number(row.total || 0)
+  const completed = Number(row.completed || 0)
+  const completion = total ? Math.round((completed / total) * 100) : 0
+  return `
+    <tr class="${isTotal ? 'visit-progress-total' : ''}">
+      <th scope="row">${escapeHtml(label)}</th>
+      <td>${escapeHtml(total)}</td>
+      <td>${escapeHtml(completed)}</td>
+      <td>${escapeHtml(row.outstanding || 0)}</td>
+      <td>${escapeHtml(row.not_found || 0)}</td>
+      <td>${escapeHtml(row.inaccessible || 0)}</td>
+      <td>${escapeHtml(row.deferred || 0)}</td>
+      <td>${escapeHtml(row.other_resolved || 0)}</td>
+      <td>${escapeHtml(completion)}%</td>
+    </tr>
+  `
+}
+
+function renderVisitEquipmentTypeSummary(rows, counts) {
+  const knownStatuses = ['completed', 'outstanding', 'not_found', 'inaccessible', 'deferred', 'removed']
+  const knownTotal = knownStatuses.reduce((sum, key) => sum + Number(counts[key] || 0), 0)
+  const overall = {
+    ...counts,
+    other_resolved: Math.max(0, Number(counts.total || 0) - knownTotal + Number(counts.removed || 0))
+  }
+
+  return `
+    <div class="filter-card visit-progress-card">
+      <h3>Progress by Equipment Type</h3>
+      <p class="muted-text">Done means all inspections required for this visit have been completed.</p>
+      <div class="visit-progress-table-wrap">
+        <table class="visit-progress-table">
+          <thead>
+            <tr>
+              <th>Equipment Type</th>
+              <th>Total</th>
+              <th>Done</th>
+              <th>Outstanding</th>
+              <th>Not Found</th>
+              <th>Unable to Inspect</th>
+              <th>Deferred</th>
+              <th>Other Resolved</th>
+              <th>Completion</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(row => visitProgressSummaryRow(row.equipment_type, row)).join('') || '<tr><td colspan="9">No assets in this visit.</td></tr>'}
+            ${visitProgressSummaryRow('Overall Total', overall, true)}
+          </tbody>
+        </table>
+      </div>
+    </div>
   `
 }
 
@@ -2987,15 +3473,56 @@ window.printInspectionVisitReport = async function (visitid) {
     return
   }
   const win = window.open('', '_blank')
+  const equipmentRows = report.equipment_type_summary || []
+  const reportTotal = equipmentRows.reduce((sum, row) => sum + Number(row.total || 0), 0)
+  const reportDone = equipmentRows.reduce((sum, row) => sum + Number(row.completed || 0), 0)
+  const reportOutstanding = equipmentRows.reduce((sum, row) => sum + Number(row.outstanding || 0), 0)
+  const reportNotFound = equipmentRows.reduce((sum, row) => sum + Number(row.not_found || 0), 0)
+  const reportInaccessible = equipmentRows.reduce((sum, row) => sum + Number(row.inaccessible || 0), 0)
+  const reportDeferred = equipmentRows.reduce((sum, row) => sum + Number(row.deferred || 0), 0)
+  const reportOther = equipmentRows.reduce((sum, row) => sum + Number(row.other_resolved || 0), 0)
+  const reportCompletion = reportTotal ? Math.round((reportDone / reportTotal) * 100) : 0
   win.document.write(`
+    <style>
+      body { color: #172033; font-family: Arial, sans-serif; margin: 28px; }
+      h1 { margin-bottom: 4px; }
+      .summary { display: grid; gap: 10px; grid-template-columns: repeat(4, 1fr); margin: 20px 0; }
+      .summary div { border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; }
+      .summary span { color: #64748b; display: block; font-size: 12px; font-weight: 700; }
+      .summary strong { display: block; font-size: 20px; margin-top: 4px; }
+      table { border-collapse: collapse; font-size: 12px; width: 100%; }
+      th, td { border: 1px solid #cbd5e1; padding: 7px; text-align: right; }
+      th:first-child, td:first-child { text-align: left; }
+      thead th, tfoot th, tfoot td { background: #e8f1fb; font-weight: 700; }
+      @media print { body { margin: 10mm; } }
+    </style>
     <h1>${escapeHtml(report.visit.visit_reference || `Visit ${visitid}`)}</h1>
-    <p>${escapeHtml(report.visit.clientname || '')} / ${escapeHtml(report.visit.sitename || '')}</p>
-    <h2>Summary</h2>
-    <pre>${escapeHtml(JSON.stringify(report.summary, null, 2))}</pre>
-    <h2>Assets</h2>
-    <pre>${escapeHtml(JSON.stringify(report.assets, null, 2))}</pre>
-    <h2>Discoveries</h2>
-    <pre>${escapeHtml(JSON.stringify(report.discoveries, null, 2))}</pre>
+    <p>${escapeHtml(report.visit.clientname || '')} / ${escapeHtml(report.visit.sitename || '')}${report.visit.sectionname ? ` / ${escapeHtml(report.visit.sectionname)}` : ''}</p>
+    <div class="summary">
+      <div><span>Total Assets</span><strong>${escapeHtml(reportTotal)}</strong></div>
+      <div><span>Done</span><strong>${escapeHtml(reportDone)}</strong></div>
+      <div><span>Outstanding</span><strong>${escapeHtml(reportOutstanding)}</strong></div>
+      <div><span>Completion</span><strong>${escapeHtml(reportCompletion)}%</strong></div>
+    </div>
+    <h2>Progress by Equipment Type</h2>
+    <table>
+      <thead><tr><th>Equipment Type</th><th>Total</th><th>Done</th><th>Outstanding</th><th>Not Found</th><th>Unable to Inspect</th><th>Deferred</th><th>Other Resolved</th><th>Completion</th></tr></thead>
+      <tbody>
+        ${equipmentRows.map(row => visitProgressSummaryRow(row.equipment_type, row)).join('') || '<tr><td colspan="9">No assets in this visit.</td></tr>'}
+      </tbody>
+      <tfoot>
+        ${visitProgressSummaryRow('Overall Total', {
+          total: reportTotal,
+          completed: reportDone,
+          outstanding: reportOutstanding,
+          not_found: reportNotFound,
+          inaccessible: reportInaccessible,
+          deferred: reportDeferred,
+          other_resolved: reportOther
+        }, true)}
+      </tfoot>
+    </table>
+    <p><strong>Newly discovered assets:</strong> ${escapeHtml(report.discoveries.length)}</p>
   `)
   win.document.close()
   win.print()
@@ -4302,7 +4829,7 @@ window.deleteAssetPhoto = async function (assetid, slot) {
 window.showEquipmentTypeCriteria = function () {
   if (!ensurePageAccess('criteria')) return
 
-  localStorage.setItem("currentPage", "criteria")
+  setCurrentPage("criteria")
 
   window.criteriaEquipmentFilter =
     window.criteriaEquipmentFilter || ""
@@ -4623,7 +5150,7 @@ window.deleteCriteria = async function (criteriaid) {
 window.showInspections = async function () {
   if (!ensurePageAccess('inspections')) return
 
-  localStorage.setItem("currentPage", "inspections")
+  setCurrentPage("inspections")
 
   await loadInspectionAssetPage()
 }
@@ -4631,7 +5158,7 @@ window.showInspections = async function () {
 window.showCertificateSearch = function () {
   if (!ensurePageAccess('certificates')) return
 
-  localStorage.setItem("currentPage", "certificates")
+  setCurrentPage("certificates")
 
   renderCertificateSearch(
     customers,
@@ -4643,7 +5170,7 @@ window.showCertificateSearch = function () {
 window.showCustomerDetailedReport = function (options = {}) {
   if (!ensurePageAccess('customer-report')) return
 
-  localStorage.setItem("currentPage", "customer-report")
+  setCurrentPage("customer-report")
 
   renderCustomerDetailedReport(customers, equipmentTypes, sites, sections, responsiblePersons, options)
 }
@@ -4651,7 +5178,7 @@ window.showCustomerDetailedReport = function (options = {}) {
 window.showSystemHealth = function () {
   if (!ensurePageAccess('system-health')) return
 
-  localStorage.setItem("currentPage", "system-health")
+  setCurrentPage("system-health")
   renderSystemHealthPage()
 }
 
@@ -4922,7 +5449,7 @@ window.openCertificateFromSearch = function () {
 window.showQuickInspection = function () {
   if (!ensurePageAccess('quick-inspection')) return
 
-  localStorage.setItem("currentPage", "quick-inspection")
+  setCurrentPage("quick-inspection")
   renderQuickInspection()
 }
 
@@ -8199,6 +8726,18 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
     )
 
     savedInspection = await response.json()
+
+    if (response.status === 409 && savedInspection.code === "DUPLICATE_INSPECTION") {
+      const existingId = savedInspection.existing?.testid || "unknown"
+      const proceed = window.confirm(
+        `Inspection ${existingId} already exists for this asset, inspection type and date.\n\nOnly continue if this is genuinely a separate inspection.`
+      )
+      if (proceed) {
+        formData.set("force_duplicate", "true")
+        response = await fetch(`${API_BASE}/inspections`, { method: "POST", body: formData })
+        savedInspection = await response.json()
+      }
+    }
   } catch (err) {
     alert("Error saving inspection: " + err.message)
     window.inspectionSaveInProgress = false
@@ -8230,7 +8769,8 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
 
 const startupTap = getStartupAssetTap()
 if (startupTap) {
-  localStorage.setItem("currentPage", "quick-inspection")
+  setCurrentPage("quick-inspection")
+  replaceCurrentHistoryPage("quick-inspection")
   showQuickInspection()
   await resolveStartupAssetTap(startupTap)
   return
@@ -8241,8 +8781,10 @@ let currentPage =
 
 if (!hasAccess(currentPage)) {
   currentPage = currentUser.role === "CUSTOMER" ? "portal" : "dashboard"
-  localStorage.setItem("currentPage", currentPage)
+  setCurrentPage(currentPage)
 }
+
+replaceCurrentHistoryPage(currentPage)
 
 switch (currentPage) {
   case "portal":
@@ -8319,6 +8861,44 @@ switch (currentPage) {
 }
 
 }
+
+window.addEventListener('popstate', event => {
+  if (!currentUser) return
+
+  const requestedPage = event.state?.atecPage
+  const fallbackPage = currentUser.role === 'CUSTOMER' ? 'portal' : 'dashboard'
+  const pageKey = requestedPage && hasAccess(requestedPage)
+    ? requestedPage
+    : fallbackPage
+
+  const pageRenderers = {
+    portal: window.showCustomerPortal,
+    dashboard: window.showDashboard,
+    customers: window.showCustomerSetup,
+    sites: window.showSites,
+    responsible: window.showResponsiblePersons,
+    sections: window.showSections,
+    assets: window.showAssetSetup,
+    inspections: window.showInspections,
+    visits: window.showInspectionVisits,
+    'quick-inspection': window.showQuickInspection,
+    criteria: window.showEquipmentTypeCriteria,
+    certificates: window.showCertificateSearch,
+    'customer-report': window.showCustomerDetailedReport,
+    she: window.showRiskAssessments,
+    users: window.showUserManagement,
+    'system-health': window.showSystemHealth,
+    profile: window.showMyProfile
+  }
+
+  browserHistoryRestoring = true
+  try {
+    setCurrentPage(pageKey)
+    ;(pageRenderers[pageKey] || window.showDashboard)?.()
+  } finally {
+    browserHistoryRestoring = false
+  }
+})
 
 loadData()
 

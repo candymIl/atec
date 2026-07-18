@@ -40,6 +40,9 @@ function certificateHtmlUrl(testid) {
 }
 
 export function renderCertificateSearch(customers = [], sites = [], sections = []) {
+  customers = customers.filter(item => item.archived !== true && item.archived !== 'true')
+  sites = sites.filter(item => item.archived !== true && item.archived !== 'true')
+  sections = sections.filter(item => item.archived !== true && item.archived !== 'true')
   document.querySelector('#page').innerHTML = `
     <h1>Certificates</h1>
     <p>Search, view and manage inspection and load test certificates.</p>
@@ -201,6 +204,19 @@ export function renderCertificateSearch(customers = [], sites = [], sections = [
         </div>
       </div>
     </div>
+
+    ${window.currentUser?.role === "ADMIN" ? `
+      <div class="filter-card voided-certificates-card">
+        <div class="voided-certificates-heading">
+          <div>
+            <h2>Voided Certificates</h2>
+            <p>Certificates removed as entered in error. These records are retained for audit purposes.</p>
+          </div>
+          <button id="refreshVoidedCertificatesBtn" type="button">Refresh</button>
+        </div>
+        <div id="voidedCertificateResults"><p>Loading voided certificates...</p></div>
+      </div>
+    ` : ""}
   `
 
   window.certificateCustomers = customers
@@ -224,8 +240,171 @@ export function renderCertificateSearch(customers = [], sites = [], sections = [
   document.querySelector('#bulkCertDownloadSelectedBtn').addEventListener('click', window.downloadSelectedBulkCertificatesPdf)
   document.querySelector('#bulkCertDownloadAllBtn').addEventListener('click', window.downloadAllBulkCertificatesPdf)
 
+  document.querySelector('#refreshVoidedCertificatesBtn')?.addEventListener('click', window.loadVoidedCertificates)
   window.filterBulkCertificateSites()
   window.searchCertificates()
+  if (window.currentUser?.role === "ADMIN") window.loadVoidedCertificates()
+}
+
+window.loadVoidedCertificates = async function () {
+  const container = document.querySelector('#voidedCertificateResults')
+  if (!container || window.currentUser?.role !== "ADMIN") return
+  container.innerHTML = `<p>Loading voided certificates...</p>`
+
+  const response = await fetch(`${API_BASE}/certificates/voided`)
+  const records = await readCertificateJson(response)
+  if (!response.ok) {
+    container.innerHTML = `<p>${escapeHtml(records.error || "Unable to load voided certificates.")}</p>`
+    return
+  }
+  if (!records.length) {
+    container.innerHTML = `<p>No certificates have been voided.</p>`
+    return
+  }
+
+  container.innerHTML = `
+    <div class="voided-bulk-actions">
+      <button type="button" id="restoreSelectedVoidedBtn" disabled>Restore Selected</button>
+      <button type="button" id="deleteSelectedVoidedBtn" class="danger-btn" disabled>Permanently Delete Selected</button>
+      <span id="voidedSelectionCount">0 selected</span>
+    </div>
+    <div class="table-scroll">
+      <table class="voided-certificates-table">
+        <thead><tr>
+          <th><input type="checkbox" id="selectAllVoidedCertificates" aria-label="Select all voided certificates"></th>
+          <th>Test ID</th><th>Client</th><th>Asset</th><th>Serial No</th><th>Type</th>
+          <th>Inspection Date</th><th>Removed By</th><th>Removed At</th><th>Reason</th><th>Action</th>
+        </tr></thead>
+        <tbody>${records.map(record => `
+          <tr>
+            <td><input type="checkbox" class="voided-certificate-checkbox" value="${safeAttr(record.testid)}" aria-label="Select certificate ${safeAttr(record.testid)}"></td>
+            <td>${escapeHtml(record.testid)}</td>
+            <td>${escapeHtml(record.clientname || "-")}</td>
+            <td>${escapeHtml(record.description || record.assettagno || "-")}</td>
+            <td>${escapeHtml(record.serialno || "-")}</td>
+            <td>${escapeHtml(record.inspectiontype || "-")}</td>
+            <td>${escapeHtml(formatDate(record.testdate))}</td>
+            <td>${escapeHtml(record.voided_by || "-")}</td>
+            <td>${escapeHtml(record.voided_at || "-")}</td>
+            <td class="void-reason-cell">${escapeHtml(record.void_reason || "-")}</td>
+            <td class="voided-row-actions">
+              <button type="button" class="restore-certificate-btn" data-testid="${safeAttr(record.testid)}">Restore</button>
+              <button type="button" class="permanent-delete-certificate-btn" data-testid="${safeAttr(record.testid)}">Delete</button>
+            </td>
+          </tr>`).join("")}</tbody>
+      </table>
+    </div>`
+
+  container.querySelectorAll('.restore-certificate-btn').forEach(button => {
+    button.addEventListener('click', () => window.restoreCertificate(button.dataset.testid))
+  })
+  container.querySelectorAll('.permanent-delete-certificate-btn').forEach(button => {
+    button.addEventListener('click', () => window.permanentlyDeleteCertificate(button.dataset.testid))
+  })
+  container.querySelectorAll('.voided-certificate-checkbox').forEach(checkbox => {
+    checkbox.addEventListener('change', window.updateVoidedSelection)
+  })
+  container.querySelector('#selectAllVoidedCertificates').addEventListener('change', event => {
+    container.querySelectorAll('.voided-certificate-checkbox').forEach(checkbox => { checkbox.checked = event.target.checked })
+    window.updateVoidedSelection()
+  })
+  container.querySelector('#restoreSelectedVoidedBtn').addEventListener('click', window.restoreSelectedVoidedCertificates)
+  container.querySelector('#deleteSelectedVoidedBtn').addEventListener('click', window.deleteSelectedVoidedCertificates)
+}
+
+function selectedVoidedCertificateIds() {
+  return [...document.querySelectorAll('.voided-certificate-checkbox:checked')].map(checkbox => checkbox.value)
+}
+
+window.updateVoidedSelection = function () {
+  const selected = selectedVoidedCertificateIds()
+  const all = [...document.querySelectorAll('.voided-certificate-checkbox')]
+  const selectAll = document.querySelector('#selectAllVoidedCertificates')
+  if (selectAll) {
+    selectAll.checked = all.length > 0 && selected.length === all.length
+    selectAll.indeterminate = selected.length > 0 && selected.length < all.length
+  }
+  const count = document.querySelector('#voidedSelectionCount')
+  if (count) count.textContent = `${selected.length} selected`
+  const restore = document.querySelector('#restoreSelectedVoidedBtn')
+  const remove = document.querySelector('#deleteSelectedVoidedBtn')
+  if (restore) restore.disabled = selected.length === 0
+  if (remove) remove.disabled = selected.length === 0
+}
+
+window.restoreCertificate = async function (testid) {
+  if (!window.confirm(`Restore certificate ${testid} to the active certificate list?`)) return
+  const requestRestore = force => fetch(`${API_BASE}/certificates/${encodeURIComponent(testid)}/restore`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ force_restore: force })
+  })
+  let response = await requestRestore(false)
+  let data = await readCertificateJson(response)
+
+  if (response.status === 409 && data.code === "RESTORE_DUPLICATE") {
+    if (!window.confirm(`Active inspection ${data.existing_testid} already matches this record. Restore ${testid} anyway?`)) return
+    response = await requestRestore(true)
+    data = await readCertificateJson(response)
+  }
+  if (!response.ok) {
+    alert(data.error || `Unable to restore certificate ${testid}.`)
+    return
+  }
+  alert(`Certificate ${testid} restored.`)
+  await Promise.all([window.loadVoidedCertificates(), window.searchCertificates()])
+}
+
+window.permanentlyDeleteCertificate = async function (testid) {
+  const confirmation = window.prompt(
+    `Permanently delete certificate ${testid}, including its results and photo records?\n\nThis cannot be undone. Type DELETE to continue.`
+  )
+  if (confirmation !== "DELETE") return
+  const response = await fetch(`${API_BASE}/certificates/${encodeURIComponent(testid)}/permanent`, { method: "DELETE" })
+  const data = await readCertificateJson(response)
+  if (!response.ok) return alert(data.error || `Unable to permanently delete certificate ${testid}.`)
+  alert(`Certificate ${testid} permanently deleted.`)
+  await window.loadVoidedCertificates()
+}
+
+window.restoreSelectedVoidedCertificates = async function () {
+  const testids = selectedVoidedCertificateIds()
+  if (!testids.length || !window.confirm(`Restore ${testids.length} selected certificate${testids.length === 1 ? "" : "s"}?`)) return
+
+  const requestRestore = force => fetch(`${API_BASE}/certificates/voided/bulk-restore`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ testids, force_restore: force })
+  })
+  let response = await requestRestore(false)
+  let data = await readCertificateJson(response)
+  if (response.status === 409 && data.code === "RESTORE_DUPLICATES") {
+    if (!window.confirm(`${data.conflicts?.length || "Some"} selected certificate(s) match active inspections. Restore them anyway?`)) return
+    response = await requestRestore(true)
+    data = await readCertificateJson(response)
+  }
+  if (!response.ok) return alert(data.error || "Unable to restore the selected certificates.")
+  alert(`${data.restored?.length || 0} certificate(s) restored.`)
+  await Promise.all([window.loadVoidedCertificates(), window.searchCertificates()])
+}
+
+window.deleteSelectedVoidedCertificates = async function () {
+  const testids = selectedVoidedCertificateIds()
+  if (!testids.length) return
+  const confirmation = window.prompt(
+    `Permanently delete ${testids.length} selected certificate${testids.length === 1 ? "" : "s"}, including results and photo records?\n\nThis cannot be undone. Type DELETE ${testids.length} to continue.`
+  )
+  if (confirmation !== `DELETE ${testids.length}`) return
+
+  const response = await fetch(`${API_BASE}/certificates/voided/bulk-delete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ testids })
+  })
+  const data = await readCertificateJson(response)
+  if (!response.ok) return alert(data.error || "Unable to permanently delete the selected certificates.")
+  alert(`${data.deleted?.length || 0} certificate(s) permanently deleted.`)
+  await window.loadVoidedCertificates()
 }
 
 function installCertificatePageActions() {
@@ -392,7 +571,7 @@ function renderCertificateResults(certificates) {
     return
   }
 
-  const canDeleteCertificates = window.currentUser?.role === "ADMIN"
+  const canVoidCertificates = window.currentUser?.role === "ADMIN"
 
   const sortedCertificates = window.currentCertificatePageInfo ? certificates : sortTableRows(certificates, 'certificates', {
     testid: cert => cert.testid,
@@ -481,9 +660,14 @@ function renderCertificateResults(certificates) {
                 Mail
               </button>
 
-              ${canDeleteCertificates ? `
-                <button type="button" class="cert-delete-btn" data-testid="${testid}">
-                  Delete
+              ${canVoidCertificates ? `
+                <button
+                  type="button"
+                  class="cert-delete-btn"
+                  data-testid="${testid}"
+                  title="Remove this mistaken certificate from normal lists and retain it in the audit history"
+                >
+                  Remove Error
                 </button>
               ` : ""}
             </td>
@@ -1237,27 +1421,33 @@ window.mailCertificate = async function (testid) {
 
 window.deleteCertificate = async function (testid) {
   if (window.currentUser?.role !== "ADMIN") {
-    alert("Only admins may delete certificates.")
+    alert("Only admins may void certificates.")
     return
   }
 
-  const confirmed = window.confirm(
-    `Delete certificate ${testid}? This removes it from ATEC and cannot be undone.`
+  const reason = window.prompt(
+    `Why is certificate ${testid} being voided?\n\nThe inspection will be removed from normal lists but retained in the audit history.`,
+    "Entered in error"
   )
-
-  if (!confirmed) {
+  if (reason === null) return
+  if (reason.trim().length < 3) {
+    alert("Please enter a reason for voiding the certificate.")
     return
   }
 
   const response = await fetch(
     `${API_BASE}/certificates/${testid}`,
-    { method: "DELETE" }
+    {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: reason.trim() })
+    }
   )
 
   const data = await readCertificateJson(response)
 
   if (!response.ok) {
-    alert(data.error || `Unable to delete certificate ${testid}.`)
+    alert(data.error || `Unable to void certificate ${testid}.`)
     return
   }
 
@@ -1271,11 +1461,11 @@ window.deleteCertificate = async function (testid) {
   if (previewPanel) {
     previewPanel.innerHTML = `
       <h2>Certificate Preview</h2>
-      <p>Certificate ${testid} deleted.</p>
+      <p>Certificate ${testid} was voided and retained in the audit history.</p>
     `
   }
 
-  alert(`Certificate ${testid} deleted successfully.`)
+  alert(`Certificate ${testid} was marked as entered in error.`)
 }
 
 window.closeCertificateModal = function () {

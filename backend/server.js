@@ -486,6 +486,14 @@ function validRoles() {
   return ["ADMIN", "MANAGER", "INSPECTOR", "VIEWER", "CUSTOMER"]
 }
 
+function canManageAllUsers(user) {
+  return user?.role === "ADMIN"
+}
+
+function canManageCustomerPortalUsers(user) {
+  return ["ADMIN", "MANAGER"].includes(user?.role)
+}
+
 const INSPECTION_PHOTO_TYPES = new Set([
   "GENERAL",
   "DEFECT",
@@ -1512,6 +1520,17 @@ function authorizeRequest(req, res, next) {
       return next()
     }
 
+    if (
+      (
+        (method === "GET" && routePath === "/users") ||
+        (method === "POST" && routePath === "/users" && req.body?.role === "CUSTOMER") ||
+        (method === "PUT" && /^\/users\/[^/]+$/.test(routePath)) ||
+        (method === "POST" && /^\/users\/[^/]+\/reset-password$/.test(routePath))
+      )
+    ) {
+      return next()
+    }
+
     if (["POST", "PUT"].includes(method) && routePath.startsWith("/she/")) {
       return next()
     }
@@ -2000,8 +2019,11 @@ app.post("/users", asyncRoute(async (req, res) => {
     sectionid,
     is_active
   } = req.body
+  const trimmedEmail = String(email || "").trim()
+  const trimmedUsername = String(username || "").trim()
+  const effectiveUsername = role === "CUSTOMER" ? trimmedEmail : trimmedUsername
 
-  if (!username || !password || !full_name || !role) {
+  if (!effectiveUsername || !password || !full_name || !role) {
     return res.status(400).json({ error: "Username, password, full name and role are required" })
   }
 
@@ -2012,6 +2034,22 @@ app.post("/users", asyncRoute(async (req, res) => {
 
   if (!validRoles().includes(role)) {
     return res.status(400).json({ error: "Invalid role" })
+  }
+
+  if (!canManageAllUsers(req.user) && role !== "CUSTOMER") {
+    return res.status(403).json({ error: "Managers can only create customer portal users" })
+  }
+
+  if (trimmedEmail && !isValidEmailAddress(trimmedEmail)) {
+    return res.status(400).json({ error: "Enter a valid email address" })
+  }
+
+  if (role === "CUSTOMER" && !trimmedEmail) {
+    return res.status(400).json({ error: "Customer portal users must use their email address as the username" })
+  }
+
+  if (role === "CUSTOMER" && !clientid) {
+    return res.status(400).json({ error: "Customer portal users must be linked to a customer" })
   }
 
   const passwordHash = await bcrypt.hash(String(password), 12)
@@ -2036,8 +2074,8 @@ app.post("/users", asyncRoute(async (req, res) => {
       is_active
     `,
     [
-      String(username).trim(),
-      email ? String(email).trim() : null,
+      effectiveUsername,
+      trimmedEmail || null,
       passwordHash,
       String(full_name).trim(),
       roleToUserLevel(role),
@@ -2045,7 +2083,7 @@ app.post("/users", asyncRoute(async (req, res) => {
       lmi_number ? String(lmi_number).trim() : null,
       clientid || null,
       siteid || null,
-      sectionid || null,
+      role === "CUSTOMER" ? null : sectionid || null,
       is_active
     ]
   )
@@ -2066,6 +2104,7 @@ app.put("/users/:id", asyncRoute(async (req, res) => {
     sectionid,
     is_active
   } = req.body
+  const trimmedEmail = String(email || "").trim()
 
   if (!full_name || !role) {
     return res.status(400).json({ error: "Full name and role are required" })
@@ -2075,15 +2114,57 @@ app.put("/users/:id", asyncRoute(async (req, res) => {
     return res.status(400).json({ error: "Invalid role" })
   }
 
+  if (!canManageAllUsers(req.user)) {
+    const target = await pool.query(
+      `
+      SELECT
+        COALESCE(
+          role,
+          CASE
+            WHEN userlevel = 1 THEN 'ADMIN'
+            WHEN userlevel = 2 THEN 'MANAGER'
+            WHEN userlevel = 3 THEN 'INSPECTOR'
+            WHEN userlevel = 4 THEN 'VIEWER'
+            WHEN userlevel = 5 THEN 'CUSTOMER'
+            ELSE 'VIEWER'
+          END
+        ) AS role
+      FROM atec.tblusers
+      WHERE userid = $1
+      `,
+      [req.params.id]
+    )
+
+    if (target.rows.length === 0) {
+      return res.status(404).json({ error: "User not found" })
+    }
+
+    if (target.rows[0].role !== "CUSTOMER" || role !== "CUSTOMER") {
+      return res.status(403).json({ error: "Managers can only edit customer portal users" })
+    }
+  }
+
+  if (trimmedEmail && !isValidEmailAddress(trimmedEmail)) {
+    return res.status(400).json({ error: "Enter a valid email address" })
+  }
+
+  if (role === "CUSTOMER" && !trimmedEmail) {
+    return res.status(400).json({ error: "Customer portal users must use their email address as the username" })
+  }
+
+  if (role === "CUSTOMER" && !clientid) {
+    return res.status(400).json({ error: "Customer portal users must be linked to a customer" })
+  }
+
   const params = [
-    email ? String(email).trim() : null,
+    trimmedEmail || null,
     String(full_name).trim(),
     roleToUserLevel(role),
     role,
     lmi_number ? String(lmi_number).trim() : null,
     clientid || null,
     siteid || null,
-    sectionid || null,
+    role === "CUSTOMER" ? null : sectionid || null,
     is_active === false ? false : true,
     req.params.id
   ]
@@ -2103,6 +2184,7 @@ app.put("/users/:id", asyncRoute(async (req, res) => {
     `
     UPDATE atec.tblusers
     SET
+      username = CASE WHEN $4 = 'CUSTOMER' THEN $1 ELSE username END,
       email = $1,
       fullname = $2,
       userlevel = $3,
@@ -2256,8 +2338,38 @@ app.post("/users/:id/signature",
 )
 
 app.post("/users/:id/reset-password", asyncRoute(async (req, res) => {
-  if (req.user.role !== "ADMIN") {
-    return res.status(403).json({ error: "Only admins can reset passwords" })
+  if (!canManageCustomerPortalUsers(req.user)) {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  if (!canManageAllUsers(req.user)) {
+    const target = await pool.query(
+      `
+      SELECT
+        COALESCE(
+          role,
+          CASE
+            WHEN userlevel = 1 THEN 'ADMIN'
+            WHEN userlevel = 2 THEN 'MANAGER'
+            WHEN userlevel = 3 THEN 'INSPECTOR'
+            WHEN userlevel = 4 THEN 'VIEWER'
+            WHEN userlevel = 5 THEN 'CUSTOMER'
+            ELSE 'VIEWER'
+          END
+        ) AS role
+      FROM atec.tblusers
+      WHERE userid = $1
+      `,
+      [req.params.id]
+    )
+
+    if (target.rows.length === 0) {
+      return res.status(404).json({ error: "User not found" })
+    }
+
+    if (target.rows[0].role !== "CUSTOMER") {
+      return res.status(403).json({ error: "Managers can only reset customer portal user passwords" })
+    }
   }
 
   const password = String(req.body.password || "")
@@ -4661,6 +4773,45 @@ function summarizeVisitWorklist(rows) {
   })
 }
 
+function summarizeVisitWorklistByEquipmentType(rows) {
+  return Array.from(rows.reduce((groups, row) => {
+    const equipmentType = String(row.equipmenttype || "").trim() || "Unspecified"
+    const current = groups.get(equipmentType) || {
+      equipment_type: equipmentType,
+      total: 0,
+      visual_due: 0,
+      loadtest_due: 0,
+      both_due: 0,
+      overdue: 0
+    }
+    current.total += 1
+    if (row.visual_due_flag) current.visual_due += 1
+    if (row.loadtest_due_flag) current.loadtest_due += 1
+    if (row.visual_due_flag && row.loadtest_due_flag) current.both_due += 1
+    if (row.overdue_flag) current.overdue += 1
+    groups.set(equipmentType, current)
+    return groups
+  }, new Map()).values()).sort((a, b) => a.equipment_type.localeCompare(b.equipment_type))
+}
+
+function summarizeInspectionCoverageByEquipmentType(allRows, dueRows) {
+  const dueAssetIds = new Set(dueRows.map(row => String(row.assetid)))
+  return Array.from(allRows.reduce((groups, row) => {
+    const equipmentType = String(row.equipmenttype || "").trim() || "Unspecified"
+    const current = groups.get(equipmentType) || {
+      equipment_type: equipmentType,
+      total: 0,
+      completed: 0,
+      outstanding: 0
+    }
+    current.total += 1
+    if (dueAssetIds.has(String(row.assetid))) current.outstanding += 1
+    else current.completed += 1
+    groups.set(equipmentType, current)
+    return groups
+  }, new Map()).values()).sort((a, b) => a.equipment_type.localeCompare(b.equipment_type))
+}
+
 app.post("/inspection-visits/preview", asyncRoute(async (req, res) => {
   if (!canCreateOrCloseVisit(req.user)) {
     return res.status(403).json({ error: "Access denied" })
@@ -4684,8 +4835,26 @@ app.post("/inspection-visits/preview", asyncRoute(async (req, res) => {
     dueCutoff: req.body.due_cutoff
   })
 
+  const allRows = await buildVisitWorklistRows(pool, {
+    clientid: req.body.clientid,
+    siteid: req.body.siteid,
+    sectionid: req.body.sectionid,
+    visitType: "SURVEY",
+    dueCutoff: req.body.due_cutoff
+  })
+
+  const coverageByEquipmentType = summarizeInspectionCoverageByEquipmentType(allRows, rows)
+  const coverageSummary = coverageByEquipmentType.reduce((summary, row) => ({
+    total: summary.total + row.total,
+    completed: summary.completed + row.completed,
+    outstanding: summary.outstanding + row.outstanding
+  }), { total: 0, completed: 0, outstanding: 0 })
+
   res.json({
     summary: summarizeVisitWorklist(rows),
+    equipment_type_summary: summarizeVisitWorklistByEquipmentType(rows),
+    coverage_summary: coverageSummary,
+    coverage_by_equipment_type: coverageByEquipmentType,
     assets: rows.slice(0, 100)
   })
 }))
@@ -4723,7 +4892,11 @@ app.get("/inspection-visits", asyncRoute(async (req, res) => {
     `
   )
 
-  res.json(result.rows)
+  res.json(
+    canManageAllUsers(req.user)
+      ? result.rows
+      : result.rows.filter(user => user.role === "CUSTOMER")
+  )
 }))
 
 app.post("/inspection-visits", asyncRoute(async (req, res) => {
@@ -5014,10 +5187,34 @@ app.get("/inspection-visits/:id/assets", asyncRoute(async (req, res) => {
     [req.params.id]
   )
 
+  const equipmentTypeSummary = await pool.query(
+    `
+    SELECT
+      COALESCE(NULLIF(TRIM(equipmenttype_snapshot), ''), 'Unspecified') AS equipment_type,
+      count(*)::int AS total,
+      count(*) FILTER (WHERE reconciliation_status = 'COMPLETED')::int AS completed,
+      count(*) FILTER (WHERE reconciliation_status = 'OUTSTANDING')::int AS outstanding,
+      count(*) FILTER (WHERE reconciliation_status = 'NOT_FOUND')::int AS not_found,
+      count(*) FILTER (WHERE reconciliation_status = 'INACCESSIBLE')::int AS inaccessible,
+      count(*) FILTER (WHERE reconciliation_status = 'DEFERRED')::int AS deferred,
+      count(*) FILTER (
+        WHERE reconciliation_status NOT IN (
+          'COMPLETED', 'OUTSTANDING', 'NOT_FOUND', 'INACCESSIBLE', 'DEFERRED'
+        )
+      )::int AS other_resolved
+    FROM atec.tblinspectionvisitasset
+    WHERE visitid = $1
+    GROUP BY COALESCE(NULLIF(TRIM(equipmenttype_snapshot), ''), 'Unspecified')
+    ORDER BY COALESCE(NULLIF(TRIM(equipmenttype_snapshot), ''), 'Unspecified')
+    `,
+    [req.params.id]
+  )
+
   res.json({
     rows: result.rows,
     total: Number(result.rows[0]?.total_count || 0),
-    counts: counts.rows[0] || {}
+    counts: counts.rows[0] || {},
+    equipment_type_summary: equipmentTypeSummary.rows
   })
 }))
 
@@ -5328,6 +5525,32 @@ app.get("/inspection-visits/:id/report", asyncRoute(async (req, res) => {
     [req.params.id]
   )
 
+  const equipmentTypeSummary = Array.from(
+    assets.rows.reduce((groups, row) => {
+      const equipmentType = String(row.equipmenttype_snapshot || "").trim() || "Unspecified"
+      const current = groups.get(equipmentType) || {
+        equipment_type: equipmentType,
+        total: 0,
+        completed: 0,
+        outstanding: 0,
+        not_found: 0,
+        inaccessible: 0,
+        deferred: 0,
+        other_resolved: 0
+      }
+      current.total += 1
+      const status = row.reconciliation_status || "OUTSTANDING"
+      if (status === "COMPLETED") current.completed += 1
+      else if (status === "OUTSTANDING") current.outstanding += 1
+      else if (status === "NOT_FOUND") current.not_found += 1
+      else if (status === "INACCESSIBLE") current.inaccessible += 1
+      else if (status === "DEFERRED") current.deferred += 1
+      else current.other_resolved += 1
+      groups.set(equipmentType, current)
+      return groups
+    }, new Map()).values()
+  ).sort((a, b) => a.equipment_type.localeCompare(b.equipment_type))
+
   res.json({
     visit: visit.rows[0],
     assets: assets.rows,
@@ -5338,7 +5561,8 @@ app.get("/inspection-visits/:id/report", asyncRoute(async (req, res) => {
       outstanding: assets.rows.filter(row => row.reconciliation_status === "OUTSTANDING").length,
       not_safe: assets.rows.filter(row => row.disposition_reason === "NOT SAFE").length,
       newly_discovered: discoveries.rows.length
-    }
+    },
+    equipment_type_summary: equipmentTypeSummary
   })
 }))
 
@@ -5838,7 +6062,8 @@ app.post("/inspections",
         tagnumber,
         visitid,
         results,
-        updateassetphotos
+        updateassetphotos,
+        force_duplicate
       } = req.body
 
       const parsedResults = JSON.parse(results || "[]")
@@ -5909,6 +6134,29 @@ app.post("/inspections",
       if (!criteriaAvailability) {
         await client.query("ROLLBACK")
         return res.status(400).json({ error: "Inspection cannot be saved because the selected asset is not active." })
+      }
+
+      const duplicateInspectionResult = await client.query(
+        `
+        SELECT testid, testdate, inspectiontype
+        FROM atec.tblinspection
+        WHERE assetid = $1
+          AND UPPER(COALESCE(inspectiontype, '')) = UPPER($2)
+          AND testdate = $3::date
+          AND COALESCE(record_status, 'ACTIVE') = 'ACTIVE'
+        ORDER BY testid DESC
+        LIMIT 1
+        `,
+        [assetid, inspectiontype, testdate]
+      )
+
+      if (duplicateInspectionResult.rows[0] && String(force_duplicate || '').toLowerCase() !== 'true') {
+        await client.query("ROLLBACK")
+        return res.status(409).json({
+          error: "A matching inspection already exists for this asset, type and date.",
+          code: "DUPLICATE_INSPECTION",
+          existing: duplicateInspectionResult.rows[0]
+        })
       }
 
       if (!criteriaAvailability.active_criteria_count) {
@@ -6810,7 +7058,13 @@ app.get("/certificates/search", searchLimiter, async (req, res) => {
     const sortDirection = String(req.query.sortDir || "desc").toLowerCase() === "asc" ? "ASC" : "DESC"
     const orderSql = `${certificateSearchSortColumns[sortKey]} ${sortDirection} NULLS LAST, i.testid DESC`
     const values = []
-    let where = `WHERE 1 = 1`
+    let where = `
+      WHERE COALESCE(i.record_status, 'ACTIVE') = 'ACTIVE'
+        AND COALESCE(a.archived, false) = false
+        AND COALESCE(c.archived, false) = false
+        AND COALESCE(s.archived, false) = false
+        AND COALESCE(sec.archived, false) = false
+    `
 
     if (search) {
       values.push(`%${search}%`)
@@ -7017,6 +7271,10 @@ async function getBulkCertificateMatches(req, includeTestIds = false, eligibleOn
   let where = `
     WHERE i.testdate::date >= $1::date
       AND i.testdate::date <= $2::date
+      AND COALESCE(i.record_status, 'ACTIVE') = 'ACTIVE'
+      AND COALESCE(a.archived, false) = false
+      AND COALESCE(c.archived, false) = false
+      AND COALESCE(s.archived, false) = false
   `
 
   if (effectiveClientId) {
@@ -7325,6 +7583,7 @@ async function getCertificatesData(testids = []) {
     LEFT JOIN atec.tblequiptype et
       ON a.equiptypeid = et.equiptypeid
     WHERE i.testid = ANY($1::int[])
+      AND COALESCE(i.record_status, 'ACTIVE') = 'ACTIVE'
     `,
     [normalizedTestIds]
   )
@@ -9043,11 +9302,164 @@ app.get("/inspections/:testid/certificate.pdf", pdfLimiter, async (req, res) => 
   }
 })
 
+app.get("/certificates/voided", async (req, res) => {
+  if (req.user?.role !== "ADMIN") return res.status(403).json({ error: "Only admins may view voided certificates" })
+
+  const result = await pool.query(
+    `SELECT i.testid, i.assetid, i.inspectiontype, i.status,
+            TO_CHAR(i.testdate, 'YYYY-MM-DD') AS testdate,
+            TO_CHAR(i.voided_at, 'YYYY-MM-DD HH24:MI') AS voided_at,
+            i.void_reason,
+            COALESCE(NULLIF(u.fullname, ''), u.username, 'System duplicate review') AS voided_by,
+            a.assettagno, a.serialno, a.description, c.clientname, s.sitename
+     FROM atec.tblinspection i
+     LEFT JOIN atec.tblusers u ON u.userid = i.voided_by_user_id
+     LEFT JOIN atec.tblasset a ON a.assetid = i.assetid
+     LEFT JOIN atec.tblclients c ON c.clientid = a.clientid
+     LEFT JOIN atec.tblsites s ON s.siteid = a.siteid
+     WHERE i.record_status = 'VOID'
+     ORDER BY i.voided_at DESC NULLS LAST, i.testid DESC
+     LIMIT 500`
+  )
+  res.json(result.rows)
+})
+
+function normalizeCertificateIds(values) {
+  return [...new Set((Array.isArray(values) ? values : [])
+    .map(value => Number(value))
+    .filter(value => Number.isInteger(value) && value > 0))].slice(0, 500)
+}
+
+app.post("/certificates/voided/bulk-restore", async (req, res) => {
+  if (req.user?.role !== "ADMIN") return res.status(403).json({ error: "Only admins may restore certificates" })
+  const testids = normalizeCertificateIds(req.body?.testids)
+  if (!testids.length) return res.status(400).json({ error: "Select at least one certificate" })
+
+  const conflicts = await pool.query(
+    `SELECT v.testid, active.testid AS existing_testid
+     FROM atec.tblinspection v
+     JOIN LATERAL (
+       SELECT i.testid FROM atec.tblinspection i
+       WHERE i.assetid = v.assetid AND i.inspectiontype = v.inspectiontype
+         AND i.testdate = v.testdate AND i.record_status = 'ACTIVE'
+       ORDER BY i.testid DESC LIMIT 1
+     ) active ON true
+     WHERE v.testid = ANY($1::int[]) AND v.record_status = 'VOID'`,
+    [testids]
+  )
+  if (conflicts.rows.length && req.body?.force_restore !== true) {
+    return res.status(409).json({ error: "Some selected certificates match active inspections.", code: "RESTORE_DUPLICATES", conflicts: conflicts.rows })
+  }
+
+  const restored = await pool.query(
+    `UPDATE atec.tblinspection SET record_status = 'ACTIVE', voided_at = NULL,
+       voided_by_user_id = NULL, void_reason = NULL
+     WHERE testid = ANY($1::int[]) AND record_status = 'VOID' RETURNING testid`,
+    [testids]
+  )
+  await req.logAudit("BULK_RESTORE", "certificates", null, { testids: restored.rows.map(row => row.testid) })
+  res.json({ success: true, restored: restored.rows.map(row => row.testid) })
+})
+
+app.post("/certificates/voided/bulk-delete", async (req, res) => {
+  if (req.user?.role !== "ADMIN") return res.status(403).json({ error: "Only admins may permanently delete certificates" })
+  const testids = normalizeCertificateIds(req.body?.testids)
+  if (!testids.length) return res.status(400).json({ error: "Select at least one certificate" })
+  const client = await pool.connect()
+  try {
+    await client.query("BEGIN")
+    const records = await client.query(
+      `SELECT testid, assetid, inspectiontype, testdate, void_reason
+       FROM atec.tblinspection WHERE testid = ANY($1::int[]) AND record_status = 'VOID' FOR UPDATE`, [testids]
+    )
+    if (records.rowCount !== testids.length) throw Object.assign(new Error("One or more selected certificates are no longer voided"), { statusCode: 409 })
+    await client.query("DELETE FROM atec.tblinspectionphoto WHERE testid = ANY($1::int[])", [testids])
+    await client.query("DELETE FROM atec.tblinspectionresult WHERE testid = ANY($1::int[])", [testids])
+    await client.query("DELETE FROM atec.tblinspection WHERE testid = ANY($1::int[])", [testids])
+    await client.query("COMMIT")
+    await req.logAudit("BULK_PERMANENT_DELETE", "certificates", null, { records: records.rows })
+    res.json({ success: true, deleted: testids })
+  } catch (err) {
+    await client.query("ROLLBACK")
+    if (err.code === "23503") return res.status(409).json({ error: "A selected certificate is linked to another record and cannot be permanently deleted." })
+    if (err.statusCode) return res.status(err.statusCode).json({ error: err.message })
+    throw err
+  } finally {
+    client.release()
+  }
+})
+
+app.delete("/certificates/:testid/permanent", async (req, res) => {
+  req.body = { ...(req.body || {}), testids: [req.params.testid] }
+  if (req.user?.role !== "ADMIN") return res.status(403).json({ error: "Only admins may permanently delete certificates" })
+  const testid = Number(req.params.testid)
+  const client = await pool.connect()
+  try {
+    await client.query("BEGIN")
+    const record = await client.query(
+      `SELECT testid, assetid, inspectiontype, testdate, void_reason FROM atec.tblinspection
+       WHERE testid = $1 AND record_status = 'VOID' FOR UPDATE`, [testid]
+    )
+    if (!record.rows[0]) {
+      await client.query("ROLLBACK")
+      return res.status(404).json({ error: "Voided certificate not found" })
+    }
+    await client.query("DELETE FROM atec.tblinspectionphoto WHERE testid = $1", [testid])
+    await client.query("DELETE FROM atec.tblinspectionresult WHERE testid = $1", [testid])
+    await client.query("DELETE FROM atec.tblinspection WHERE testid = $1", [testid])
+    await client.query("COMMIT")
+    await req.logAudit("PERMANENT_DELETE", "certificates", testid, record.rows[0])
+    res.json({ success: true, deleted: testid })
+  } catch (err) {
+    await client.query("ROLLBACK")
+    if (err.code === "23503") return res.status(409).json({ error: "This certificate is linked to another record and cannot be permanently deleted." })
+    throw err
+  } finally {
+    client.release()
+  }
+})
+
+app.patch("/certificates/:testid/restore", async (req, res) => {
+  const { testid } = req.params
+  if (req.user?.role !== "ADMIN") return res.status(403).json({ error: "Only admins may restore certificates" })
+
+  const current = await pool.query(
+    `SELECT testid, assetid, inspectiontype, testdate FROM atec.tblinspection
+     WHERE testid = $1 AND record_status = 'VOID'`, [testid]
+  )
+  const inspection = current.rows[0]
+  if (!inspection) return res.status(404).json({ error: "Voided certificate not found" })
+
+  const duplicate = await pool.query(
+    `SELECT testid FROM atec.tblinspection
+     WHERE assetid = $1 AND inspectiontype = $2 AND testdate = $3 AND record_status = 'ACTIVE'
+     ORDER BY testid DESC LIMIT 1`,
+    [inspection.assetid, inspection.inspectiontype, inspection.testdate]
+  )
+  if (duplicate.rows[0] && req.body?.force_restore !== true) {
+    return res.status(409).json({
+      error: "A matching active inspection already exists.",
+      code: "RESTORE_DUPLICATE",
+      existing_testid: duplicate.rows[0].testid
+    })
+  }
+
+  await pool.query(
+    `UPDATE atec.tblinspection SET record_status = 'ACTIVE', voided_at = NULL,
+       voided_by_user_id = NULL, void_reason = NULL WHERE testid = $1`, [testid]
+  )
+  await req.logAudit("RESTORE", "certificates", testid, {
+    restored_from_void: true,
+    duplicate_override: Boolean(duplicate.rows[0])
+  })
+  res.json({ success: true, testid })
+})
+
 app.delete("/certificates/:testid", async (req, res) => {
   const { testid } = req.params
 
   if (req.user?.role !== "ADMIN") {
-    return res.status(403).json({ error: "Only admins may delete certificates" })
+    return res.status(403).json({ error: "Only admins may void certificates" })
   }
 
   const client = await pool.connect()
@@ -9061,31 +9473,34 @@ app.delete("/certificates/:testid", async (req, res) => {
 
     await client.query("BEGIN")
 
-    await client.query(
-      "DELETE FROM atec.tblinspectionphoto WHERE testid = $1",
-      [testid]
-    )
+    const reason = String(req.body?.reason || "").trim()
+    if (reason.length < 3) {
+      await client.query("ROLLBACK")
+      return res.status(400).json({ error: "Enter a reason for voiding this certificate" })
+    }
 
-    await client.query(
-      "DELETE FROM atec.tblinspectionresult WHERE testid = $1",
-      [testid]
-    )
-
-    const deleteResult = await client.query(
-      "DELETE FROM atec.tblinspection WHERE testid = $1",
-      [testid]
+    const voidResult = await client.query(
+      `UPDATE atec.tblinspection
+       SET record_status = 'VOID',
+           voided_at = now(),
+           voided_by_user_id = $2,
+           void_reason = $3
+       WHERE testid = $1
+         AND COALESCE(record_status, 'ACTIVE') = 'ACTIVE'`,
+      [testid, req.user.user_id, reason.slice(0, 500)]
     )
 
     await client.query("COMMIT")
 
-    await req.logAudit("DELETE", "certificates", testid, {
+    await req.logAudit("VOID", "certificates", testid, {
       assetid: certificate.inspection?.assetid || null,
-      inspectiontype: certificate.inspection?.inspectiontype || null
+      inspectiontype: certificate.inspection?.inspectiontype || null,
+      reason: reason.slice(0, 500)
     })
 
     res.json({
       success: true,
-      deleted: deleteResult.rowCount
+      voided: voidResult.rowCount
     })
   } catch (err) {
     await client.query("ROLLBACK")
@@ -9888,8 +10303,13 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
 
   const customerValues = []
   const values = []
-  let customerWhere = "WHERE 1 = 1"
-  let assetWhere = "WHERE 1 = 1"
+  let customerWhere = "WHERE COALESCE(c.archived, false) = false"
+  let assetWhere = `
+    WHERE COALESCE(a.archived, false) = false
+      AND COALESCE(c.archived, false) = false
+      AND COALESCE(s.archived, false) = false
+      AND COALESCE(sec.archived, false) = false
+  `
   const inspectionWhere = []
   const paged = options.paginated === true
   const requestedPage = parsePositiveInteger(options.page, 1, 100000)
@@ -9912,6 +10332,7 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
       FROM atec.tblasset customer_asset
       WHERE customer_asset.clientid = c.clientid
         AND customer_asset.siteid = $${customerValues.length}
+        AND COALESCE(customer_asset.archived, false) = false
     )`
 
     values.push(siteid)
@@ -9925,6 +10346,7 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
       FROM atec.tblasset customer_asset
       WHERE customer_asset.clientid = c.clientid
         AND customer_asset.sectionid = $${customerValues.length}
+        AND COALESCE(customer_asset.archived, false) = false
     )`
 
     values.push(sectionid)
@@ -9940,6 +10362,8 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
         ON customer_asset.sectionid = customer_section.sectionid
       WHERE customer_asset.clientid = c.clientid
         AND customer_section.responsibleid = $${customerValues.length}
+        AND COALESCE(customer_asset.archived, false) = false
+        AND COALESCE(customer_section.archived, false) = false
     )`
 
     values.push(responsibleid)
@@ -9987,10 +10411,13 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
     FROM atec.tblclients c
     LEFT JOIN atec.tblsites s
       ON c.clientid = s.clientid
+      AND COALESCE(s.archived, false) = false
     LEFT JOIN atec.tblsection sec
       ON c.clientid = sec.clientid
+      AND COALESCE(sec.archived, false) = false
     LEFT JOIN atec.tblpeople section_person
       ON sec.responsibleid = section_person.personid
+      AND COALESCE(section_person.archived, false) = false
     ${customerWhere}
     GROUP BY c.clientid, c.clientname, c.clientaddr, c.archived
     ORDER BY c.clientname

@@ -7,6 +7,11 @@ let currentReportPage = 1
 let currentReportPageSize = 25
 
 export function renderCustomerDetailedReport(customers = [], equipmentTypes = [], sites = [], sections = [], responsiblePersons = [], options = {}) {
+  const isActive = item => item.archived !== true && item.archived !== 'true'
+  customers = customers.filter(isActive)
+  sites = sites.filter(isActive)
+  sections = sections.filter(isActive)
+  responsiblePersons = responsiblePersons.filter(isActive)
   const sortedCustomers = [...customers].sort((a, b) =>
     (a.clientname || "").localeCompare(b.clientname || "")
   )

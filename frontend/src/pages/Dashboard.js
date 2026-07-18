@@ -261,7 +261,7 @@ export function showDashboard(
 
       <div class="dashboard-buttons">
         <button onclick="showQuickInspection()">New Inspection</button>
-        <button onclick="showInspections()">Load Test</button>
+        <button onclick="showQuickInspection()">Load Test</button>
         <button onclick="showAssetSetup()">Assets</button>
         <button onclick="showCertificateSearch()">Certificates</button>
       </div>

@@ -7,6 +7,10 @@ Task 15 gives customer users a read-only landing page for their own ATEC records
 ## Access Model
 
 - Only `CUSTOMER` users can open the Customer Portal page.
+- Admin users create and manage customer login accounts from `Customer Portal Users` in the admin menu.
+- Manager users can also create, edit, activate, deactivate, and reset passwords for Customer Portal Users only.
+- Customer login usernames are always the user's email address. Correcting the email and saving a customer user also corrects the username.
+- Customer Portal Users are linked to customer/site scope and are not manually tied to one section on the user-management page.
 - The backend summary endpoint derives the customer scope from the logged-in user's `clientid`.
 - Customer users cannot pass another `clientid` to the portal summary endpoint.
 - Certificate and report detail links continue to use the existing customer-scoped certificate and report endpoints.
