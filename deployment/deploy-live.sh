@@ -31,7 +31,9 @@ if [ ! -d ".git" ]; then
   exit 1
 fi
 
-git restore -- "${NPM_LOCK_DRIFT_FILES[@]}" >/dev/null 2>&1 || true
+for drift_file in "${NPM_LOCK_DRIFT_FILES[@]}"; do
+  git restore -- "$drift_file" >/dev/null 2>&1 || true
+done
 
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   echo "ERROR: The live server has local code changes that would make this deploy unsafe."
@@ -96,7 +98,9 @@ else
 fi
 
 cd "$PROJECT_DIR"
-git restore -- "${NPM_LOCK_DRIFT_FILES[@]}" >/dev/null 2>&1 || true
+for drift_file in "${NPM_LOCK_DRIFT_FILES[@]}"; do
+  git restore -- "$drift_file" >/dev/null 2>&1 || true
+done
 
 echo "Restarting backend..."
 if pm2 describe "$PM2_APP" >/dev/null 2>&1; then
