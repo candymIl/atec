@@ -160,6 +160,15 @@ export function showDashboard(
       <div id="dashboardAlerts">Loading...</div>
     </div>
 
+    <div class="dashboard-section dashboard-notification-centre">
+      <div class="section-header">
+        <h2>Notification Centre</h2>
+        <button type="button" class="secondary-btn" onclick="exportDashboardNotifications()">Export CSV</button>
+      </div>
+
+      <div id="dashboardNotificationCentre">Loading...</div>
+    </div>
+
     <div class="dashboard-two-column">
       <div class="dashboard-section">
         <div class="section-header">

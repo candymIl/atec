@@ -82,6 +82,9 @@ let updateChecksStarted = false
 let browserHistoryReady = false
 let browserHistoryRestoring = false
 let googleMapsLoader = null
+let addressReviewQueue = []
+let addressReviewResults = []
+let addressReviewPosition = 0
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || ''
 
@@ -1187,7 +1190,7 @@ async function loadData() {
     ${menuButton('quick-inspection', 'Quick Inspection/Testing', 'showQuickInspection()')}
     ${menuButton('certificates', 'Certificates', 'showCertificateSearch()')}
     ${menuButton('customer-report', 'Reports', 'showCustomerDetailedReport()')}
-    ${menuButton('she', 'Risk Assessment / SHE', 'showRiskAssessments()')}
+    ${menuButton('she', 'SLAMM', 'showRiskAssessments()')}
     ${menuButton('criteria', 'Equipment Type Criteria', 'showEquipmentTypeCriteria()')}
     ${canManageInternalUsers() ? menuButton('users', 'ATEC Users', 'showInternalUserManagement()') : ''}
     ${canManageCustomerPortalUsers() ? menuButton('users', 'Customer Portal Users', 'showCustomerUserManagement()') : ''}
@@ -1306,7 +1309,7 @@ function renderCustomerForm(customer = null) {
         <div class="form-group customer-address-field">
           <label for="customerAddress">Registered or head-office address</label>
           <div id="customerAddressSearch">
-            <input id="customerAddressManual" type="text" value="${safeAttr(customer?.clientaddr || '')}" placeholder="Start typing a street address or business name" autocomplete="street-address" oninput="syncCustomerAddress(this.value)">
+            <input id="customerAddressManual" type="text" value="${safeAttr(customer?.clientaddr || '')}" placeholder="Start typing a street address or business name" autocomplete="street-address" required aria-required="true" oninput="syncCustomerAddress(this.value)">
           </div>
           <input id="customerAddress" type="hidden" value="${safeAttr(customer?.clientaddr || '')}">
           <p id="customerAddressStatus" class="field-note">${GOOGLE_MAPS_API_KEY ? 'Choose a suggestion to confirm the location, or enter the address manually.' : 'Enter the complete address manually. Address search will activate when the Google Maps key is configured.'}</p>
@@ -1362,10 +1365,13 @@ async function initializeCustomerAddressSearch(existingAddress) {
     const placeAutocomplete = new PlaceAutocompleteElement()
     placeAutocomplete.id = 'customerAddressAutocomplete'
     placeAutocomplete.placeholder = 'Start typing a street address or business name'
+    placeAutocomplete.setAttribute('required', '')
+    placeAutocomplete.setAttribute('aria-required', 'true')
     placeAutocomplete.includedRegionCodes = ['za']
     if (existingAddress) placeAutocomplete.value = existingAddress
     searchContainer.prepend(placeAutocomplete)
     manualInput.hidden = true
+    manualInput.required = false
 
     placeAutocomplete.addEventListener('input', () => {
       addressInput.value = placeAutocomplete.value || ''
@@ -1390,6 +1396,10 @@ async function initializeCustomerAddressSearch(existingAddress) {
     })
   } catch (err) {
     mapElement.hidden = true
+    if (manualInput) {
+      manualInput.hidden = false
+      manualInput.required = true
+    }
     status.textContent = 'Address search is unavailable right now. You can still enter the address manually.'
   }
 }
@@ -1397,6 +1407,314 @@ async function initializeCustomerAddressSearch(existingAddress) {
 window.syncCustomerAddress = function (value) {
   const addressInput = document.querySelector('#customerAddress')
   if (addressInput) addressInput.value = value
+}
+
+function currentAddressReviewCustomer() {
+  return addressReviewQueue[addressReviewPosition] || null
+}
+
+function renderAddressReview() {
+  const customer = currentAddressReviewCustomer()
+
+  if (!customer) {
+    document.querySelector('#page').innerHTML = `
+      <div class="address-review-complete">
+        <h2>Address Review Complete</h2>
+        <p>You have reached the end of this review list.</p>
+        <button type="button" onclick="showCustomerSetup()">Return to Customer Setup</button>
+      </div>
+    `
+    return
+  }
+
+  addressReviewResults = []
+  const remaining = addressReviewQueue.length - addressReviewPosition
+
+  document.querySelector('#page').innerHTML = `
+    <div class="address-review-page">
+      <div class="customer-form-heading">
+        <div>
+          <h2>Find Missing Addresses</h2>
+          <p>Reviewing ${addressReviewPosition + 1} of ${addressReviewQueue.length}. ${remaining} customer${remaining === 1 ? '' : 's'} remaining in this pass.</p>
+        </div>
+        <button class="secondary-button" type="button" onclick="showCustomerSetup()">Close</button>
+      </div>
+
+      <div class="address-review-customer">
+        <span>Customer</span>
+        <strong>${escapeHtml(customer.clientname || `Customer ${customer.clientid}`)}</strong>
+        <small>Client ID ${escapeHtml(customer.clientid)}</small>
+      </div>
+
+      <div class="address-review-search">
+        <div class="form-group">
+          <label for="addressReviewQuery">Google search</label>
+          <input id="addressReviewQuery" type="text" value="${safeAttr(`${customer.clientname || ''} South Africa`)}" onkeydown="if (event.key === 'Enter') { event.preventDefault(); searchAddressReview() }">
+        </div>
+        <button id="addressReviewSearchButton" type="button" onclick="searchAddressReview()">Search</button>
+      </div>
+
+      <p id="addressReviewMessage" class="field-note">Search by company name, then choose the correct branch or office.</p>
+      <div id="addressReviewResults" class="address-review-results"></div>
+      <div id="addressReviewMap" class="customer-address-map" hidden aria-label="Address result map"></div>
+
+      <div class="form-actions address-review-footer">
+        <button id="autoFillSingleAddressesButton" type="button" onclick="autoFillSingleCustomerAddresses()">Auto-fill Single Matches</button>
+        <button class="secondary-button" type="button" onclick="skipAddressReviewCustomer()">Skip for Now</button>
+        <button class="secondary-button" type="button" onclick="editClient(${customer.clientid})">Enter Manually</button>
+      </div>
+    </div>
+  `
+
+  window.searchAddressReview()
+}
+
+window.reviewMissingCustomerAddresses = function () {
+  if (currentUser?.role !== 'ADMIN') {
+    alert('Only administrators can review and update missing customer addresses.')
+    return
+  }
+
+  addressReviewQueue = customers.filter(customer => {
+    const isArchived = customer.archived === true || customer.archived === 'true'
+    return !isArchived && !String(customer.clientaddr || '').trim()
+  })
+  addressReviewPosition = 0
+
+  if (!addressReviewQueue.length) {
+    alert('All active customers already have an address.')
+    return
+  }
+
+  renderAddressReview()
+}
+
+window.searchAddressReview = async function () {
+  const query = document.querySelector('#addressReviewQuery')?.value.trim()
+  const resultsElement = document.querySelector('#addressReviewResults')
+  const message = document.querySelector('#addressReviewMessage')
+  const button = document.querySelector('#addressReviewSearchButton')
+
+  if (!query || !resultsElement || !message || !button) return
+
+  button.disabled = true
+  button.textContent = 'Searching...'
+  message.textContent = 'Searching Google Places...'
+  resultsElement.innerHTML = ''
+  document.querySelector('#addressReviewMap').hidden = true
+
+  try {
+    const google = await loadGoogleMaps()
+    if (!google) throw new Error('Google Maps is not configured')
+
+    const { Place } = await google.maps.importLibrary('places')
+    const response = await Place.searchByText({
+      textQuery: query,
+      fields: ['displayName', 'formattedAddress', 'location', 'businessStatus'],
+      language: 'en',
+      region: 'za',
+      maxResultCount: 5
+    })
+    addressReviewResults = (response.places || []).filter(place => place.formattedAddress && place.location)
+
+    if (!addressReviewResults.length) {
+      message.textContent = 'No suitable matches were found. Refine the search or enter the address manually.'
+      return
+    }
+
+    message.textContent = `${addressReviewResults.length} possible match${addressReviewResults.length === 1 ? '' : 'es'} found. Check the branch carefully before saving.`
+    resultsElement.innerHTML = addressReviewResults.map((place, index) => `
+      <div class="address-review-result">
+        <button class="address-result-preview" type="button" onclick="previewAddressReviewResult(${index})">
+          <strong>${escapeHtml(place.displayName || 'Google Maps result')}</strong>
+          <span>${escapeHtml(place.formattedAddress)}</span>
+          ${place.businessStatus && place.businessStatus !== 'OPERATIONAL' ? `<small>${escapeHtml(place.businessStatus.replaceAll('_', ' '))}</small>` : ''}
+        </button>
+        <button type="button" onclick="saveAddressReviewResult(${index})">Use Address</button>
+      </div>
+    `).join('')
+
+    window.previewAddressReviewResult(0)
+  } catch (err) {
+    message.textContent = `Address search failed: ${err.message}`
+  } finally {
+    button.disabled = false
+    button.textContent = 'Search'
+  }
+}
+
+window.previewAddressReviewResult = async function (index) {
+  const place = addressReviewResults[index]
+  const mapElement = document.querySelector('#addressReviewMap')
+  if (!place?.location || !mapElement) return
+
+  const google = await loadGoogleMaps()
+  mapElement.hidden = false
+  const map = new google.maps.Map(mapElement, {
+    center: place.location,
+    zoom: 15,
+    mapTypeControl: false,
+    streetViewControl: false,
+    fullscreenControl: false
+  })
+  new google.maps.Circle({
+    map,
+    center: place.location,
+    radius: 24,
+    strokeColor: '#ffffff',
+    strokeOpacity: 1,
+    strokeWeight: 3,
+    fillColor: '#2563eb',
+    fillOpacity: 1
+  })
+
+  document.querySelectorAll('.address-result-preview').forEach((element, resultIndex) => {
+    element.classList.toggle('selected', resultIndex === index)
+  })
+}
+
+window.saveAddressReviewResult = async function (index) {
+  const customer = currentAddressReviewCustomer()
+  const place = addressReviewResults[index]
+  const message = document.querySelector('#addressReviewMessage')
+  if (!customer || !place?.formattedAddress || !message) return
+
+  message.textContent = 'Saving address...'
+
+  const response = await fetch(`${API_BASE}/customers/${customer.clientid}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      clientname: customer.clientname,
+      clientaddr: place.formattedAddress
+    })
+  })
+  const result = await readApiResponse(response)
+
+  if (!response.ok) {
+    message.textContent = result.error || 'The address could not be saved.'
+    return
+  }
+
+  const originalCustomer = customers.find(item => String(item.clientid) === String(customer.clientid))
+  if (originalCustomer) originalCustomer.clientaddr = result.clientaddr || place.formattedAddress
+  addressReviewPosition += 1
+  renderAddressReview()
+}
+
+window.skipAddressReviewCustomer = function () {
+  addressReviewPosition += 1
+  renderAddressReview()
+}
+
+function normalizedCompanyName(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/\b(pty|ltd|limited|incorporated|inc|cc|holdings|group|south africa|sa)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+}
+
+function isStrongCompanyMatch(customerName, placeName) {
+  const customer = normalizedCompanyName(customerName)
+  const place = normalizedCompanyName(placeName)
+  if (!customer || !place) return false
+  if (customer.includes(place) || place.includes(customer)) return true
+
+  const customerTokens = customer.split(' ').filter(token => token.length > 2)
+  const placeTokens = new Set(place.split(' ').filter(token => token.length > 2))
+  if (!customerTokens.length) return false
+
+  const matchingTokens = customerTokens.filter(token => placeTokens.has(token)).length
+  return matchingTokens / customerTokens.length >= 0.75
+}
+
+function waitForAddressSearch(ms) {
+  return new Promise(resolve => window.setTimeout(resolve, ms))
+}
+
+window.autoFillSingleCustomerAddresses = async function () {
+  if (currentUser?.role !== 'ADMIN') {
+    alert('Only administrators can run automatic customer address matching.')
+    return
+  }
+
+  const button = document.querySelector('#autoFillSingleAddressesButton')
+  const message = document.querySelector('#addressReviewMessage')
+  if (!button || !message) return
+
+  const missingCustomers = customers.filter(customer => {
+    const isArchived = customer.archived === true || customer.archived === 'true'
+    return !isArchived && !String(customer.clientaddr || '').trim()
+  })
+  if (!missingCustomers.length) return
+
+  button.disabled = true
+  const google = await loadGoogleMaps()
+  const { Place } = await google.maps.importLibrary('places')
+  let saved = 0
+  let multiple = 0
+  let uncertain = 0
+  let failed = 0
+
+  for (let index = 0; index < missingCustomers.length; index += 1) {
+    const customer = missingCustomers[index]
+    message.textContent = `Checking ${index + 1} of ${missingCustomers.length}: ${customer.clientname}`
+
+    try {
+      const response = await Place.searchByText({
+        textQuery: `${customer.clientname || ''} South Africa`,
+        fields: ['displayName', 'formattedAddress', 'location', 'businessStatus'],
+        language: 'en',
+        region: 'za',
+        maxResultCount: 2
+      })
+      const places = (response.places || []).filter(place => place.formattedAddress && place.location)
+
+      if (places.length > 1) {
+        multiple += 1
+      } else if (
+        places.length !== 1 ||
+        places[0].businessStatus === 'CLOSED_PERMANENTLY' ||
+        !isStrongCompanyMatch(customer.clientname, places[0].displayName)
+      ) {
+        uncertain += 1
+      } else {
+        const updateResponse = await fetch(`${API_BASE}/customers/${customer.clientid}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clientname: customer.clientname,
+            clientaddr: places[0].formattedAddress
+          })
+        })
+        const result = await readApiResponse(updateResponse)
+        if (!updateResponse.ok) throw new Error(result.error || 'Address update failed')
+
+        customer.clientaddr = result.clientaddr || places[0].formattedAddress
+        saved += 1
+      }
+    } catch (err) {
+      failed += 1
+    }
+
+    await waitForAddressSearch(250)
+  }
+
+  addressReviewQueue = customers.filter(customer => {
+    const isArchived = customer.archived === true || customer.archived === 'true'
+    return !isArchived && !String(customer.clientaddr || '').trim()
+  })
+  addressReviewPosition = 0
+  renderAddressReview()
+  alert(
+    `Automatic address pass complete.\n\n` +
+    `${saved} single strong matches saved.\n` +
+    `${multiple} customers have multiple matches.\n` +
+    `${uncertain} customers had no result or an uncertain name match.\n` +
+    `${failed} searches or updates failed.\n\n` +
+    `The remaining customers are ready for manual review.`
+  )
 }
 
 window.addClient = function () {
@@ -1422,7 +1740,11 @@ window.saveCustomer = async function (event, clientid) {
   const saveButton = document.querySelector('#saveCustomerButton')
   const errorElement = document.querySelector('#customerFormError')
 
-  if (!clientname) return
+  if (!clientname || !clientaddr) {
+    errorElement.textContent = 'Customer name and registered or head-office address are required.'
+    errorElement.hidden = false
+    return
+  }
 
   saveButton.disabled = true
   saveButton.textContent = 'Saving...'
@@ -1432,7 +1754,7 @@ window.saveCustomer = async function (event, clientid) {
     const response = await fetch(clientid ? `${API_BASE}/customers/${clientid}` : `${API_BASE}/customers`, {
       method: clientid ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientname, clientaddr: clientaddr || null })
+      body: JSON.stringify({ clientname, clientaddr })
     })
     const result = await readApiResponse(response)
 
@@ -8018,6 +8340,7 @@ async function loadDashboardSummary() {
 
     const data = await response.json()
     loadDashboardAlerts(data.alerts || {})
+    loadDashboardNotificationCentre(data.notificationCentre || [])
     loadDashboardFailedEquipment(data.failedEquipmentByCustomer || [])
     loadDashboardUpcomingExpiries(data.upcomingExpiriesByCustomer || [])
     loadDashboardTopCustomers(data.topCustomers || [])
@@ -8025,6 +8348,7 @@ async function loadDashboardSummary() {
   } catch (err) {
     console.error("Failed to load dashboard summary:", err)
     loadDashboardAlerts()
+    loadDashboardNotificationCentre()
     loadDashboardFailedEquipment()
     loadDashboardUpcomingExpiries()
     loadDashboardTopCustomers()
@@ -8294,6 +8618,150 @@ async function loadDashboardAlerts(preloadedData = null) {
       `
     }
   }
+}
+
+async function loadDashboardNotificationCentre(preloadedData = null) {
+  const container = document.querySelector("#dashboardNotificationCentre")
+  if (!container) return
+
+  try {
+    let rows = preloadedData
+
+    if (!rows) {
+      const response = await fetch(`${API_BASE}/dashboard/notification-centre`)
+
+      if (!response.ok) {
+        throw new Error("Failed to load notification centre")
+      }
+
+      rows = await response.json()
+    }
+
+    if (!Array.isArray(rows) || !rows.length) {
+      window.dashboardNotificationRows = []
+      container.innerHTML = `
+        <div class="alert-card success">
+          No customer notifications need attention.
+        </div>
+      `
+      return
+    }
+
+    window.dashboardNotificationRows = rows
+
+    container.innerHTML = `
+      <div class="dashboard-notification-summary">
+        <span><strong>${escapeHtml(rows.length)}</strong> customer/site notification row(s)</span>
+        <span>Email sending is not switched on in this slice.</span>
+      </div>
+      <div class="dashboard-notification-table-wrap">
+        <table class="dashboard-table dashboard-notification-table">
+          <thead>
+            <tr>
+              <th>Customer</th>
+              <th>Site</th>
+              <th>Due</th>
+              <th>Overdue</th>
+              <th>Expiring</th>
+              <th>Failed</th>
+              <th>Visit Items</th>
+              <th>Portal Recipients</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(row => {
+              const reportArgs = safeAttr(JSON.stringify({
+                clientid: row.clientid,
+                siteid: row.siteid || '',
+                autoLoad: true
+              }))
+              const recipientClass = Number(row.portal_recipients || 0) > 0 ? "ready" : "missing"
+              const recipientText = Number(row.portal_recipients || 0) > 0
+                ? `${row.portal_recipients} ready`
+                : "No portal users"
+
+              return `
+                <tr>
+                  <td>${escapeHtml(row.clientname || "")}</td>
+                  <td>${escapeHtml(row.sitename || "All Sites")}</td>
+                  <td><strong>${escapeHtml(row.due_assets || 0)}</strong></td>
+                  <td><strong>${escapeHtml(row.overdue_assets || 0)}</strong></td>
+                  <td>${escapeHtml(row.expiring_certificates || 0)}</td>
+                  <td>${escapeHtml(row.failed_assets || 0)}</td>
+                  <td>${escapeHtml(row.unresolved_visit_items || 0)}</td>
+                  <td><span class="notification-recipient ${recipientClass}">${escapeHtml(recipientText)}</span></td>
+                  <td>
+                    <button class="small-btn" onclick="showCustomerDetailedReport(${reportArgs})">
+                      View Report
+                    </button>
+                  </td>
+                </tr>
+              `
+            }).join("")}
+          </tbody>
+        </table>
+      </div>
+    `
+  } catch (err) {
+    console.error("Failed to load notification centre:", err)
+    container.innerHTML = `
+      <div class="alert-card warning">
+        Unable to load notification centre
+      </div>
+    `
+  }
+}
+
+window.exportDashboardNotifications = function () {
+  const rows = window.dashboardNotificationRows || []
+
+  if (!rows.length) {
+    alert("There are no notification rows to export.")
+    return
+  }
+
+  const headers = [
+    "Customer",
+    "Site",
+    "Active Assets",
+    "Due Assets",
+    "Overdue Assets",
+    "Expiring Certificates",
+    "Failed Assets",
+    "Open Visits",
+    "Unresolved Visit Items",
+    "Deferred Follow-ups Due",
+    "Portal Recipients",
+    "Next Due Date",
+    "Next Expiry Date"
+  ]
+
+  const csvRows = rows.map(row => [
+    row.clientname,
+    row.sitename,
+    row.active_assets,
+    row.due_assets,
+    row.overdue_assets,
+    row.expiring_certificates,
+    row.failed_assets,
+    row.open_visits,
+    row.unresolved_visit_items,
+    row.deferred_followups_due,
+    row.portal_recipients,
+    formatDashboardReviewDate(row.next_due_date),
+    formatDashboardReviewDate(row.next_expiry_date)
+  ])
+
+  const csv = [headers, ...csvRows]
+    .map(values => values.map(dashboardCsvCell).join(","))
+    .join("\n")
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
+  const link = document.createElement("a")
+  link.href = URL.createObjectURL(blob)
+  link.download = `notification-centre-${dateInputValue()}.csv`
+  link.click()
+  URL.revokeObjectURL(link.href)
 }
 
 async function loadDashboardFailedEquipment(preloadedData = null) {

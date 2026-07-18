@@ -77,7 +77,7 @@ assertIncludes(style, ".portal-asset-filters", "Portal asset filter styles are m
 assertIncludes(style, ".portal-asset-table", "Portal asset table styles are missing")
 assertIncludes(style, ".user-management-mode-tabs", "User management mode tab styles are missing")
 
-assertIncludes(roadmap, "Task 15: Customer Portal - In Progress Locally", "Roadmap must mark Task 15 in progress locally")
+assertIncludes(roadmap, "Task 15: Customer Portal - Complete Locally", "Roadmap must mark Task 15 complete locally")
 assert.strictEqual(packageJson.scripts["test:task15"], "node scripts/regression/task15-customer-portal.test.js")
 
 console.log("Task 15 customer portal regression checks passed")

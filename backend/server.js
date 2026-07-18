@@ -2415,13 +2415,18 @@ app.get("/customers", async (req, res) => {
 
 app.post("/customers", async (req, res) => {
   try {
-    const { clientname, clientaddr } = req.body;
+    const clientname = String(req.body.clientname || "").trim();
+    const clientaddr = String(req.body.clientaddr || "").trim();
+
+    if (!clientname || !clientaddr) {
+      return res.status(400).json({ error: "Customer name and registered or head-office address are required" });
+    }
 
     const result = await pool.query(
       `INSERT INTO atec.tblclients (clientname, clientaddr)
        VALUES ($1, $2)
        RETURNING *`,
-      [clientname, clientaddr || null]
+      [clientname, clientaddr]
     );
 
     res.json(result.rows[0]);
@@ -2527,10 +2532,12 @@ app.put("/customers/:id", async (req, res) => {
 
     const { id } = req.params
 
-    const {
-      clientname,
-      clientaddr
-    } = req.body
+    const clientname = String(req.body.clientname || "").trim()
+    const clientaddr = String(req.body.clientaddr || "").trim()
+
+    if (!clientname || !clientaddr) {
+      return res.status(400).json({ error: "Customer name and registered or head-office address are required" })
+    }
 
     const result = await pool.query(
       `
@@ -11826,6 +11833,209 @@ function dashboardSummaryCacheKey(req) {
   return `${req.user?.role || ""}:${req.user?.clientid || ""}`
 }
 
+async function task14VisitTablesAvailable() {
+  const result = await pool.query(
+    `
+    SELECT
+      to_regclass('atec.tblinspectionvisit') IS NOT NULL AS has_visits,
+      to_regclass('atec.tblinspectionvisitasset') IS NOT NULL AS has_visit_assets
+    `
+  )
+
+  return Boolean(result.rows[0]?.has_visits && result.rows[0]?.has_visit_assets)
+}
+
+async function getNotificationCentreRows(req) {
+  const scopedToClient = dashboardClientScope(req)
+  const visitTablesAvailable = await task14VisitTablesAvailable()
+
+  const visitExceptionColumns = visitTablesAvailable
+    ? `
+      COALESCE(visit_exceptions.open_visits, 0)::int AS open_visits,
+      COALESCE(visit_exceptions.unresolved_visit_items, 0)::int AS unresolved_visit_items,
+      COALESCE(visit_exceptions.deferred_followups_due, 0)::int AS deferred_followups_due,
+    `
+    : `
+      0::int AS open_visits,
+      0::int AS unresolved_visit_items,
+      0::int AS deferred_followups_due,
+    `
+
+  const visitExceptionJoin = visitTablesAvailable
+    ? `
+      LEFT JOIN (
+        SELECT
+          v.clientid,
+          v.siteid,
+          COUNT(DISTINCT v.visitid) FILTER (WHERE v.visit_status IN ('OPEN','PAUSED','RECONCILIATION_REQUIRED'))::int AS open_visits,
+          COUNT(va.visitassetid) FILTER (
+            WHERE v.visit_status IN ('OPEN','PAUSED','RECONCILIATION_REQUIRED')
+              AND va.reconciliation_status IN ('OUTSTANDING','NOT_FOUND','INACCESSIBLE','CUSTOMER_MISSING','DEFERRED')
+          )::int AS unresolved_visit_items,
+          COUNT(va.visitassetid) FILTER (
+            WHERE va.reconciliation_status = 'DEFERRED'
+              AND va.deferred_follow_up_date IS NOT NULL
+              AND va.deferred_follow_up_date <= CURRENT_DATE + INTERVAL '14 days'
+          )::int AS deferred_followups_due
+        FROM atec.tblinspectionvisit v
+        LEFT JOIN atec.tblinspectionvisitasset va ON va.visitid = v.visitid
+        GROUP BY v.clientid, v.siteid
+      ) visit_exceptions
+        ON visit_exceptions.clientid = grouped.clientid
+       AND (
+          visit_exceptions.siteid = grouped.siteid
+          OR (visit_exceptions.siteid IS NULL AND grouped.siteid IS NULL)
+       )
+    `
+    : ""
+
+  const result = await pool.query(
+    `
+    WITH active_assets AS (
+      SELECT
+        a.assetid,
+        a.clientid,
+        a.siteid,
+        a.assettagno,
+        COALESCE(NULLIF(a.serialno, ''), a.hoistserialno) AS serialno
+      FROM atec.tblasset a
+      WHERE COALESCE(a.archived, false) = false
+      ${scopedToClient.clause}
+    ),
+    latest_visual AS (
+      SELECT DISTINCT ON (i.assetid)
+        i.assetid,
+        i.testid,
+        i.testdate,
+        i.validdate,
+        i.status
+      FROM atec.tblinspection i
+      JOIN active_assets a ON a.assetid = i.assetid
+      WHERE i.inspectiontype = 'VISUAL'
+      ORDER BY i.assetid, i.testdate DESC NULLS LAST, i.testid DESC
+    ),
+    latest_load AS (
+      SELECT DISTINCT ON (i.assetid)
+        i.assetid,
+        i.testid,
+        i.testdate,
+        i.validdate,
+        i.status
+      FROM atec.tblinspection i
+      JOIN active_assets a ON a.assetid = i.assetid
+      WHERE i.inspectiontype = 'LOADTEST'
+      ORDER BY i.assetid, i.testdate DESC NULLS LAST, i.testid DESC
+    ),
+    latest_inspections AS (
+      SELECT * FROM latest_visual
+      UNION ALL
+      SELECT * FROM latest_load
+    ),
+    grouped AS (
+      SELECT
+        a.clientid,
+        a.siteid,
+        COUNT(DISTINCT a.assetid)::int AS active_assets,
+        COUNT(DISTINCT a.assetid) FILTER (
+          WHERE v.testdate IS NULL
+             OR (v.testdate + INTERVAL '3 months')::date <= CURRENT_DATE + INTERVAL '30 days'
+             OR l.testdate IS NULL
+             OR (l.testdate + INTERVAL '12 months')::date <= CURRENT_DATE + INTERVAL '30 days'
+        )::int AS due_assets,
+        COUNT(DISTINCT a.assetid) FILTER (
+          WHERE (v.testdate + INTERVAL '3 months')::date < CURRENT_DATE
+             OR (l.testdate + INTERVAL '12 months')::date < CURRENT_DATE
+        )::int AS overdue_assets,
+        COUNT(DISTINCT a.assetid) FILTER (
+          WHERE v.status = 'NOT SAFE'
+             OR l.status = 'NOT SAFE'
+        )::int AS failed_assets,
+        MIN(LEAST(
+          COALESCE((v.testdate + INTERVAL '3 months')::date, CURRENT_DATE),
+          COALESCE((l.testdate + INTERVAL '12 months')::date, CURRENT_DATE)
+        )) AS next_due_date
+      FROM active_assets a
+      LEFT JOIN latest_visual v ON v.assetid = a.assetid
+      LEFT JOIN latest_load l ON l.assetid = a.assetid
+      GROUP BY a.clientid, a.siteid
+    ),
+    expiring AS (
+      SELECT
+        a.clientid,
+        a.siteid,
+        COUNT(i.testid)::int AS expiring_certificates,
+        MIN(i.validdate) AS next_expiry_date
+      FROM active_assets a
+      JOIN latest_inspections i ON i.assetid = a.assetid
+      WHERE i.validdate IS NOT NULL
+        AND i.validdate >= CURRENT_DATE
+        AND i.validdate <= CURRENT_DATE + INTERVAL '30 days'
+      GROUP BY a.clientid, a.siteid
+    ),
+    recipients AS (
+      SELECT
+        u.clientid,
+        COUNT(*) FILTER (
+          WHERE COALESCE(u.is_active, true) = true
+            AND COALESCE(u.email, '') <> ''
+        )::int AS portal_recipients
+      FROM atec.tblusers u
+      WHERE u.role = 'CUSTOMER'
+        AND u.clientid IS NOT NULL
+      GROUP BY u.clientid
+    )
+    SELECT
+      grouped.clientid,
+      COALESCE(c.clientname, 'Unknown Customer') AS clientname,
+      grouped.siteid,
+      COALESCE(s.sitename, 'All Sites') AS sitename,
+      grouped.active_assets,
+      grouped.due_assets,
+      grouped.overdue_assets,
+      grouped.failed_assets,
+      COALESCE(expiring.expiring_certificates, 0)::int AS expiring_certificates,
+      ${visitExceptionColumns}
+      COALESCE(recipients.portal_recipients, 0)::int AS portal_recipients,
+      grouped.next_due_date,
+      expiring.next_expiry_date,
+      CASE
+        WHEN grouped.overdue_assets > 0
+          OR grouped.failed_assets > 0
+          OR COALESCE(expiring.expiring_certificates, 0) > 0
+          ${visitTablesAvailable ? "OR COALESCE(visit_exceptions.unresolved_visit_items, 0) > 0" : ""}
+        THEN 'READY'
+        ELSE 'NO_ACTION'
+      END AS notification_status
+    FROM grouped
+    LEFT JOIN atec.tblclients c ON c.clientid = grouped.clientid
+    LEFT JOIN atec.tblsites s ON s.siteid = grouped.siteid
+    LEFT JOIN expiring
+      ON expiring.clientid = grouped.clientid
+     AND (
+        expiring.siteid = grouped.siteid
+        OR (expiring.siteid IS NULL AND grouped.siteid IS NULL)
+     )
+    LEFT JOIN recipients ON recipients.clientid = grouped.clientid
+    ${visitExceptionJoin}
+    WHERE grouped.due_assets > 0
+       OR grouped.overdue_assets > 0
+       OR grouped.failed_assets > 0
+       OR COALESCE(expiring.expiring_certificates, 0) > 0
+       ${visitTablesAvailable ? "OR COALESCE(visit_exceptions.unresolved_visit_items, 0) > 0" : ""}
+    ORDER BY
+      grouped.overdue_assets DESC,
+      grouped.failed_assets DESC,
+      COALESCE(expiring.expiring_certificates, 0) DESC,
+      COALESCE(c.clientname, 'Unknown Customer') ASC,
+      COALESCE(s.sitename, 'All Sites') ASC
+    LIMIT 100
+    `,
+    scopedToClient.values
+  )
+
+  return result.rows
+}
+
 async function getCachedDashboardSummary(req) {
   const key = dashboardSummaryCacheKey(req)
   const cached = dashboardSummaryCache.get(key)
@@ -12001,7 +12211,8 @@ async function getCachedDashboardSummary(req) {
       GROUP BY COALESCE(et.description, 'Unknown')
       ORDER BY COUNT(a.assetid) DESC, COALESCE(et.description, 'Unknown') ASC
       LIMIT 10
-    `, customerValues)
+    `, customerValues),
+    getNotificationCentreRows(req)
   ])
 
   const dashboardResultValue = (index, fallback, label) => {
@@ -12017,13 +12228,22 @@ async function getCachedDashboardSummary(req) {
   const upcomingResult = dashboardResultValue(2, { rows: [] }, "upcoming expiries")
   const topCustomersResult = dashboardResultValue(3, { rows: [] }, "top customers")
   const equipmentResult = dashboardResultValue(4, { rows: [] }, "equipment by type")
+  const notificationsResult = dashboardResults[5]
+  const notificationCentre = notificationsResult?.status === "fulfilled"
+    ? notificationsResult.value
+    : []
+
+  if (notificationsResult?.status === "rejected") {
+    console.error("Dashboard summary notification centre query failed:", notificationsResult.reason)
+  }
 
   const data = {
     alerts: alertsResult.rows[0] || {},
     failedEquipmentByCustomer: failedResult.rows,
     upcomingExpiriesByCustomer: upcomingResult.rows,
     topCustomers: topCustomersResult.rows,
-    equipmentByType: equipmentResult.rows
+    equipmentByType: equipmentResult.rows,
+    notificationCentre
   }
 
   dashboardSummaryCache.set(key, {
@@ -12042,6 +12262,10 @@ app.get("/dashboard/summary", async (req, res) => {
     res.status(500).json({ error: "Failed to load dashboard summary" })
   }
 })
+
+app.get("/dashboard/notification-centre", asyncRoute(async (req, res) => {
+  res.json(await getNotificationCentreRows(req))
+}))
 
 app.get("/dashboard/alerts", async (req, res) => {
   try {

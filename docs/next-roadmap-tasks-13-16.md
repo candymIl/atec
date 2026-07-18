@@ -8,10 +8,10 @@ Add secure NFC URL tags for assets while preserving QR workflows. NFC uses a sep
 
 Build visit/session-based coverage for due assets at a customer site. This depends on Task 13/QR-style fast asset identification and must track completed during visit, still due, not found, out of service, removed, inaccessible, deferred, customer says missing, and newly discovered unregistered assets.
 
-## Task 15: Customer Portal - In Progress Locally
+## Task 15: Customer Portal - Complete Locally
 
 Expose customer-facing certificate, asset, and report workflows through explicit customer scoping. This depends on the existing RBAC model and must not expose private data through NFC or QR endpoints.
 
-## Task 16: Email And Notifications - After Task 15
+## Task 16: Email And Notifications - In Progress Locally
 
 Add automated email and notification workflows for due assets, coverage exceptions, certificates, and portal events. This should depend on Task 14 visit events and Task 15 customer preferences, with audit logging and opt-in configuration.

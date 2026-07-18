@@ -113,11 +113,11 @@ function ratingClass(value) {
 export async function renderRiskAssessments(assets = [], canWrite = true) {
   const page = document.querySelector('#page')
   page.innerHTML = `
-    <h1>Risk Assessment / SHE</h1>
+    <h1>SLAMM</h1>
     <p>SLAMM - Stop, Look, Assess, Manage and Monitor before and after the task.</p>
 
     ${canWrite ? `<div class="filter-card">
-      <h2>New SLAMM Risk Assessment</h2>
+      <h2>New SLAMM</h2>
       <input type="hidden" id="riskId" value="">
 
       <div class="risk-form-grid risk-form-grid--top">
@@ -245,7 +245,7 @@ export async function renderRiskAssessments(assets = [], canWrite = true) {
       </div>
 
       <div class="slamm-section">
-        <h3>Team Members Involved in the SLAMM Process</h3>
+        <h3>Team Members Involved in the Risk Assessment / SHE Process</h3>
         <div class="slamm-team-grid">
           ${renderTeamRows()}
         </div>

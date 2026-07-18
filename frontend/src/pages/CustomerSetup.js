@@ -4,6 +4,10 @@ import { escapeHtml } from '../utils/security.js'
 
 export function renderCustomerSetup(customers, customerArchiveMode = "active") {
   const canArchiveCustomers = window.currentUser?.role === "ADMIN"
+  const missingAddressCount = customers.filter(customer => {
+    const isArchived = customer.archived === true || customer.archived === "true"
+    return !isArchived && !String(customer.clientaddr || "").trim()
+  }).length
   const filteredCustomers = customers.filter(customer => {
   const isArchived = customer.archived === true || customer.archived === "true";
 
@@ -22,10 +26,11 @@ export function renderCustomerSetup(customers, customerArchiveMode = "active") {
   document.querySelector("#page").innerHTML = `
     <h2>Customer Setup</h2>
 
-    <button onclick="addClient()">Add Client</button>
-    <button onclick="showCustomerSetup()">Refresh</button>
-
-    <br><br>
+    <div class="page-actions">
+      <button onclick="addClient()">Add Client</button>
+      ${canArchiveCustomers ? `<button onclick="reviewMissingCustomerAddresses()">Missing Addresses (${missingAddressCount})</button>` : ''}
+      <button class="secondary-button" onclick="showCustomerSetup()">Refresh</button>
+    </div>
 
     <div class="filter-card">
       <label>Show Customers</label>
