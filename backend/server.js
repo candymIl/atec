@@ -846,6 +846,24 @@ async function getActiveResponsiblePersonForClient(client, { personid, clientid 
   return result.rows[0] || null
 }
 
+async function customerUserSiteBelongsToClient(client, { siteid, clientid }) {
+  if (!siteid) return true
+
+  const result = await client.query(
+    `
+    SELECT 1
+    FROM atec.tblsites
+    WHERE siteid = $1
+      AND clientid = $2
+      AND COALESCE(archived, false) = false
+    LIMIT 1
+    `,
+    [siteid, clientid]
+  )
+
+  return result.rows.length > 0
+}
+
 async function getActiveVisitLocation(client, { clientid, siteid, sectionid = null }) {
   if (!clientid || !siteid) return null
 
@@ -2083,6 +2101,10 @@ app.post("/users", asyncRoute(async (req, res) => {
     return res.status(400).json({ error: "Customer portal users must be linked to a customer" })
   }
 
+  if (role === "CUSTOMER" && !(await customerUserSiteBelongsToClient(pool, { siteid, clientid }))) {
+    return res.status(400).json({ error: "The selected site does not belong to this customer" })
+  }
+
   const passwordHash = await bcrypt.hash(String(password), 12)
 
   const result = await pool.query(
@@ -2187,6 +2209,10 @@ app.put("/users/:id", asyncRoute(async (req, res) => {
     return res.status(400).json({ error: "Customer portal users must be linked to a customer" })
   }
 
+  if (role === "CUSTOMER" && !(await customerUserSiteBelongsToClient(pool, { siteid, clientid }))) {
+    return res.status(400).json({ error: "The selected site does not belong to this customer" })
+  }
+
   const params = [
     trimmedEmail || null,
     String(full_name).trim(),
@@ -2257,34 +2283,73 @@ app.delete("/users/:id", asyncRoute(async (req, res) => {
     return res.status(400).json({ error: "You cannot delete your own logged-in user" })
   }
 
-  const result = await pool.query(
-    `
-    UPDATE atec.tblusers
-    SET is_active = false,
-        updated_at = now()
-    WHERE userid = $1
-    RETURNING
-      userid AS user_id,
-      username,
-      email,
-      COALESCE(NULLIF(fullname, ''), username) AS full_name,
-      role,
-      lmi_no AS lmi_number,
-      usersignature AS signature_image,
-      clientid,
-      siteid,
-      sectionid,
-      is_active
-    `,
-    [req.params.id]
-  )
+  const client = await pool.connect()
+  try {
+    await client.query("BEGIN")
+    const userResult = await client.query(
+      `SELECT userid AS user_id, username, email, is_active
+       FROM atec.tblusers
+       WHERE userid = $1
+       FOR UPDATE`,
+      [req.params.id]
+    )
 
-  if (result.rows.length === 0) {
-    return res.status(404).json({ error: "User not found" })
+    if (userResult.rows.length === 0) {
+      await client.query("ROLLBACK")
+      return res.status(404).json({ error: "User not found" })
+    }
+
+    if (userResult.rows[0].is_active) {
+      await client.query("ROLLBACK")
+      return res.status(409).json({ error: "Deactivate this user before permanently deleting the account." })
+    }
+
+    const foreignKeys = await client.query(`
+      SELECT ns.nspname AS table_schema, rel.relname AS table_name, att.attname AS column_name
+      FROM pg_constraint con
+      JOIN pg_class rel ON rel.oid = con.conrelid
+      JOIN pg_namespace ns ON ns.oid = rel.relnamespace
+      JOIN LATERAL unnest(con.conkey) WITH ORDINALITY key(attnum, ord) ON true
+      JOIN pg_attribute att ON att.attrelid = rel.oid AND att.attnum = key.attnum
+      WHERE con.contype = 'f'
+        AND con.confrelid = 'atec.tblusers'::regclass
+    `)
+
+    const quoteIdentifier = value => `"${String(value).replaceAll('"', '""')}"`
+    const linkedRecords = []
+    for (const foreignKey of foreignKeys.rows) {
+      const countResult = await client.query(
+        `SELECT count(*)::int AS count
+         FROM ${quoteIdentifier(foreignKey.table_schema)}.${quoteIdentifier(foreignKey.table_name)}
+         WHERE ${quoteIdentifier(foreignKey.column_name)} = $1`,
+        [req.params.id]
+      )
+      if (countResult.rows[0].count > 0) {
+        linkedRecords.push({ table: foreignKey.table_name, count: countResult.rows[0].count })
+      }
+    }
+
+    if (linkedRecords.length > 0) {
+      await client.query("ROLLBACK")
+      return res.status(409).json({
+        error: "This user has historical records and must remain inactive.",
+        linked_records: linkedRecords
+      })
+    }
+
+    await client.query("DELETE FROM atec.tblusers WHERE userid = $1", [req.params.id])
+    await client.query("COMMIT")
+    await req.logAudit("PURGE", "users", req.params.id, { username: userResult.rows[0].username })
+    res.json({ success: true, permanently_deleted: true, user: userResult.rows[0] })
+  } catch (error) {
+    await client.query("ROLLBACK")
+    if (error.code === "23503") {
+      return res.status(409).json({ error: "This user has historical records and must remain inactive." })
+    }
+    throw error
+  } finally {
+    client.release()
   }
-
-  await req.logAudit("DELETE", "users", req.params.id)
-  res.json({ success: true, user: result.rows[0] })
 }))
 
 app.post("/users/me/signature",

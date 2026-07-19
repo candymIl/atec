@@ -721,6 +721,7 @@ window.showUserManagement = async function () {
               <div class="user-row-action-buttons">
                 <button onclick="saveUser(${user.user_id})">Save</button>
                 <button class="secondary-small-btn" onclick="resetUserPassword(${user.user_id})">Reset Password</button>
+                ${user.is_active ? '' : `<button class="secondary-small-btn" onclick="deleteUser(${user.user_id})">Delete Permanently</button>`}
               </div>
             </td>
           </tr>
@@ -903,7 +904,7 @@ window.resetUserPassword = async function (userId) {
 }
 
 window.deleteUser = async function (userId) {
-  if (!confirm('Delete this user? This will deactivate the login and keep old records safe.')) return
+  if (!confirm('Permanently delete this inactive user? This is allowed only when the account has no linked history and cannot be undone.')) return
 
   const response = await fetch(`${API_BASE}/users/${userId}`, {
     method: 'DELETE'
