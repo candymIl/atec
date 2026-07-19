@@ -61,6 +61,13 @@ SMTP_USER=
 SMTP_PASS=
 MAIL_FROM=ATEC <no-reply@atecinspections.co.za>
 
+# Microsoft Graph application email (recommended for Microsoft 365)
+MAIL_PROVIDER=graph
+GRAPH_TENANT_ID=
+GRAPH_CLIENT_ID=
+GRAPH_CLIENT_SECRET=
+GRAPH_SENDER=certificates@atecinspections.co.za
+
 ATEC_BACKUP_ROOT=/var/www/atec/backups
 BACKUP_MEDIA_ROOT=/var/www/atec/ATEC/backend/uploads
 BACKUP_MAX_AGE_HOURS=26

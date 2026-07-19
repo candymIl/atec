@@ -9316,15 +9316,99 @@ function getMailTransport() {
   })
 }
 
+let graphTokenCache = { accessToken: null, expiresAt: 0 }
+
+function useMicrosoftGraphMail() {
+  return String(process.env.MAIL_PROVIDER || "").trim().toLowerCase() === "graph"
+}
+
+async function getMicrosoftGraphAccessToken() {
+  if (graphTokenCache.accessToken && graphTokenCache.expiresAt > Date.now() + 60000) return graphTokenCache.accessToken
+
+  const tenantId = String(process.env.GRAPH_TENANT_ID || "").trim()
+  const response = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(tenantId)}/oauth2/v2.0/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: String(process.env.GRAPH_CLIENT_ID || "").trim(),
+      client_secret: String(process.env.GRAPH_CLIENT_SECRET || ""),
+      scope: "https://graph.microsoft.com/.default",
+      grant_type: "client_credentials"
+    })
+  })
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok || !payload.access_token) {
+    const error = new Error(payload.error_description || payload.error || "Microsoft Graph token request failed")
+    error.code = "GRAPH_AUTH"
+    throw error
+  }
+
+  graphTokenCache = {
+    accessToken: payload.access_token,
+    expiresAt: Date.now() + Number(payload.expires_in || 3600) * 1000
+  }
+  return graphTokenCache.accessToken
+}
+
+function graphRecipients(value) {
+  const recipients = Array.isArray(value) ? value : String(value || "").split(",")
+  return recipients.map(address => String(address || "").trim()).filter(Boolean)
+    .map(address => ({ emailAddress: { address } }))
+}
+
+async function sendApplicationEmail(options) {
+  if (!useMicrosoftGraphMail()) {
+    const transport = getMailTransport()
+    if (!transport) throw new Error("SMTP transport is not configured")
+    return transport.sendMail(options)
+  }
+
+  const sender = String(process.env.GRAPH_SENDER || "").trim()
+  const accessToken = await getMicrosoftGraphAccessToken()
+  const attachments = (options.attachments || []).map(attachment => ({
+    "@odata.type": "#microsoft.graph.fileAttachment",
+    name: attachment.filename,
+    contentType: attachment.contentType || "application/octet-stream",
+    contentBytes: Buffer.isBuffer(attachment.content)
+      ? attachment.content.toString("base64")
+      : Buffer.from(attachment.content || "").toString("base64")
+  }))
+  const response = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: {
+        subject: String(options.subject || ""),
+        body: { contentType: "Text", content: String(options.text || "") },
+        toRecipients: graphRecipients(options.to),
+        ...(attachments.length ? { attachments } : {})
+      },
+      saveToSentItems: true
+    })
+  })
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    const error = new Error(payload.error?.message || `Microsoft Graph send failed with HTTP ${response.status}`)
+    error.code = "GRAPH_SEND"
+    throw error
+  }
+}
+
 function getMailConfigIssues() {
-  return [
+  const required = useMicrosoftGraphMail() ? [
+    ["GRAPH_TENANT_ID", process.env.GRAPH_TENANT_ID],
+    ["GRAPH_CLIENT_ID", process.env.GRAPH_CLIENT_ID],
+    ["GRAPH_CLIENT_SECRET", process.env.GRAPH_CLIENT_SECRET],
+    ["GRAPH_SENDER", process.env.GRAPH_SENDER]
+  ] : [
     ["SMTP_HOST", process.env.SMTP_HOST],
     ["SMTP_PORT", process.env.SMTP_PORT],
     ["SMTP_USER", process.env.SMTP_USER],
     ["SMTP_PASS", process.env.SMTP_PASS],
     ["MAIL_FROM", process.env.MAIL_FROM]
   ]
-    .filter(([, value]) => !String(value || "").trim())
+  return required.filter(([, value]) => !String(value || "").trim())
     .map(([key]) => key)
 }
 
@@ -9332,6 +9416,14 @@ function getMailErrorMessage(err) {
   const code = String(err?.code || "").toUpperCase()
   const command = err?.command ? ` (${err.command})` : ""
   const response = String(err?.response || err?.message || "").replace(/\s+/g, " ").trim()
+
+  if (code === "GRAPH_AUTH") {
+    return "Microsoft Graph authentication failed. Check the tenant ID, client ID, client secret, and Mail.Send admin consent."
+  }
+
+  if (code === "GRAPH_SEND") {
+    return response ? `Microsoft Graph could not send the email: ${response}` : "Microsoft Graph could not send the email."
+  }
 
   if (["EAUTH", "AUTH"].includes(code) || /auth|credential|login|password/i.test(response)) {
     return `SMTP login failed${command}. Check SMTP_USER and SMTP_PASS.`
@@ -9708,14 +9800,6 @@ app.post("/certificates/:testid/email", emailLimiter, async (req, res) => {
       })
     }
 
-    const transport = getMailTransport()
-
-    if (!transport) {
-      return res.status(400).json({
-        error: "Email is not configured yet. Add SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS and MAIL_FROM to backend/.env."
-      })
-    }
-
     const certificate = await getCertificateData(testid)
 
     if (!certificate) {
@@ -9753,7 +9837,7 @@ app.post("/certificates/:testid/email", emailLimiter, async (req, res) => {
       `ATEC Inspection Platform`
     ].join("\n")
 
-    await transport.sendMail({
+    await sendApplicationEmail({
       from: process.env.MAIL_FROM,
       to: recipient,
       subject: String(subject || defaultSubject).trim(),
@@ -9798,9 +9882,7 @@ app.post("/admin/email-test", emailLimiter, async (req, res) => {
       })
     }
 
-    const transport = getMailTransport()
-
-    await transport.sendMail({
+    await sendApplicationEmail({
       from: process.env.MAIL_FROM,
       to: recipient,
       subject: "ATEC email test",
@@ -9809,7 +9891,7 @@ app.post("/admin/email-test", emailLimiter, async (req, res) => {
         "",
         "This is a test email from ATEC.",
         "",
-        "If you received this, SMTP is working."
+        "If you received this, Microsoft Graph email is working."
       ].join("\n")
     })
 
@@ -12558,17 +12640,9 @@ app.post("/dashboard/notification-centre/send", emailLimiter, asyncRoute(async (
     })
   }
 
-  const transport = getMailTransport()
-
-  if (!transport) {
-    return res.status(400).json({
-      error: "Email is not configured yet. Add SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS and MAIL_FROM to backend/.env."
-    })
-  }
-
   const recipients = preview.recipients.map(recipient => recipient.email)
 
-  await transport.sendMail({
+  await sendApplicationEmail({
     from: process.env.MAIL_FROM,
     to: recipients,
     subject: preview.subject,
