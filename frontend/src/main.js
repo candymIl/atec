@@ -378,6 +378,37 @@ function renderUserLookupOptions(items, idKey, nameKey, selectedId, emptyLabel) 
   `
 }
 
+function userSitesForCustomer(clientid, selectedSiteId = '') {
+  if (!clientid) return []
+
+  return getUserManagementLookups().sites
+    .filter(site =>
+      String(site.clientid) === String(clientid) &&
+      (isActiveRecord(site) || String(site.siteid) === String(selectedSiteId || ''))
+    )
+    .sort((left, right) => String(left.sitename || '').localeCompare(String(right.sitename || '')))
+}
+
+function renderCustomerUserSiteOptions(clientid, selectedSiteId = '') {
+  const emptyLabel = clientid ? 'No site selected' : 'Select customer first'
+  return renderUserLookupOptions(
+    userSitesForCustomer(clientid, selectedSiteId),
+    'siteid',
+    'sitename',
+    selectedSiteId,
+    emptyLabel
+  )
+}
+
+window.filterCustomerUserSites = function (userId = '') {
+  const isCreateForm = userId === '' || userId === null || userId === undefined
+  const clientSelect = document.querySelector(isCreateForm ? '#newUserClientId' : `#user-client-${userId}`)
+  const siteSelect = document.querySelector(isCreateForm ? '#newUserSiteId' : `#user-site-${userId}`)
+  if (!clientSelect || !siteSelect) return
+
+  siteSelect.innerHTML = renderCustomerUserSiteOptions(clientSelect.value)
+}
+
 function getUserManagementSort() {
   window.userManagementSort = window.userManagementSort || {
     key: 'username',
@@ -619,14 +650,14 @@ window.showUserManagement = async function () {
         ${managementMode === 'customers' ? `
           <div class="form-group">
             <label>Customer Name</label>
-            <select id="newUserClientId">
+            <select id="newUserClientId" onchange="filterCustomerUserSites()">
               ${renderUserLookupOptions(userCustomers, "clientid", "clientname", "", "No customer selected")}
             </select>
           </div>
           <div class="form-group">
             <label>Site Name</label>
             <select id="newUserSiteId">
-              ${renderUserLookupOptions(userSites, "siteid", "sitename", "", "No site selected")}
+              ${renderCustomerUserSiteOptions("")}
             </select>
           </div>
         ` : ''}
@@ -697,13 +728,13 @@ window.showUserManagement = async function () {
             <td><input id="user-lmi-${safeAttr(user.user_id)}" value="${safeAttr(user.lmi_number || '')}"></td>
             ${managementMode === 'customers' ? `
               <td>
-                <select id="user-client-${user.user_id}">
+                <select id="user-client-${user.user_id}" onchange="filterCustomerUserSites(${user.user_id})">
                   ${renderUserLookupOptions(userCustomers, "clientid", "clientname", user.clientid, "No customer selected")}
                 </select>
               </td>
               <td>
                 <select id="user-site-${user.user_id}">
-                  ${renderUserLookupOptions(userSites, "siteid", "sitename", user.siteid, "No site selected")}
+                  ${renderCustomerUserSiteOptions(user.clientid, user.siteid)}
                 </select>
               </td>
             ` : ''}
@@ -4163,6 +4194,7 @@ window.filterAssetDropdowns = function () {
 }
 
 window.filterAssetSections = function () {
+  const clientid = document.querySelector('#assetClient').value
   const siteid =
     document.querySelector('#assetSite').value
 
@@ -4181,6 +4213,7 @@ window.filterAssetSections = function () {
 
   const filteredSections = sections
     .filter(section =>
+      String(section.clientid) === String(clientid) &&
       String(section.siteid) === String(siteid) &&
       !(section.archived === true || section.archived === "true")
     )

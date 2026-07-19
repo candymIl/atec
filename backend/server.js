@@ -615,6 +615,24 @@ function dueReasonForAsset(visualDue, loadDue, visualOverdue, loadOverdue) {
   return parts.join("; ") || "Not due"
 }
 
+function assetSupportsLoadTestSql(assetAlias = "a") {
+  return `EXISTS (
+    SELECT 1
+    FROM atec.tblequiptype load_et
+    WHERE load_et.equiptypeid = ${assetAlias}.equiptypeid
+      AND (
+        load_et.equipgroupid::text IN ('100', '400', '500')
+        OR EXISTS (
+          SELECT 1
+          FROM atec.tblequiptypecriteria load_criteria
+          WHERE load_criteria.equiptypeid = ${assetAlias}.equiptypeid
+            AND UPPER(COALESCE(load_criteria.inspectioncategory, '')) = 'LOADTEST'
+            AND COALESCE(load_criteria.active, true) = true
+        )
+      )
+  )`
+}
+
 function resolveUploadFilePath(uploadPath) {
   if (!uploadPath) return null
 
@@ -1238,8 +1256,8 @@ app.get("/customer-portal/summary", requireAuth, trackActiveUser, asyncRoute(asy
   const assetSummary = await pool.query(
     `
     WITH customer_assets AS (
-      SELECT assetid, siteid
-      FROM atec.tblasset
+      SELECT assetid, siteid, equiptypeid, ${assetSupportsLoadTestSql("a")} AS supports_load_test
+      FROM atec.tblasset a
       WHERE clientid = $1
         AND COALESCE(archived, false) = false
         AND ($2::int IS NULL OR siteid = $2)
@@ -1272,9 +1290,9 @@ app.get("/customer-portal/summary", requireAuth, trackActiveUser, asyncRoute(asy
       count(DISTINCT a.assetid)::int AS active_assets,
       count(DISTINCT a.siteid)::int AS active_sites,
       count(*) FILTER (WHERE latest_visual.assetid IS NULL)::int AS no_visual_assets,
-      count(*) FILTER (WHERE latest_load.assetid IS NULL)::int AS no_loadtest_assets,
+      count(*) FILTER (WHERE a.supports_load_test AND latest_load.assetid IS NULL)::int AS no_loadtest_assets,
       count(*) FILTER (WHERE latest_visual.validdate < CURRENT_DATE)::int AS visual_overdue_assets,
-      count(*) FILTER (WHERE latest_load.validdate < CURRENT_DATE)::int AS loadtest_overdue_assets,
+      count(*) FILTER (WHERE a.supports_load_test AND latest_load.validdate < CURRENT_DATE)::int AS loadtest_overdue_assets,
       count(*) FILTER (
         WHERE latest_visual.status = 'NOT SAFE'
            OR latest_load.status = 'NOT SAFE'
@@ -1495,9 +1513,9 @@ app.get("/customer-portal/assets", requireAuth, trackActiveUser, asyncRoute(asyn
         CASE
           WHEN lv.status = 'NOT SAFE' OR ll.status = 'NOT SAFE' THEN 'NOT SAFE'
           WHEN lv.assetid IS NULL THEN 'NO VISUAL'
-          WHEN ll.assetid IS NULL THEN 'NO LOAD TEST'
+          WHEN ${assetSupportsLoadTestSql("a")} AND ll.assetid IS NULL THEN 'NO LOAD TEST'
           WHEN lv.validdate < CURRENT_DATE THEN 'VISUAL OVERDUE'
-          WHEN ll.validdate < CURRENT_DATE THEN 'LOAD TEST OVERDUE'
+          WHEN ${assetSupportsLoadTestSql("a")} AND ll.validdate < CURRENT_DATE THEN 'LOAD TEST OVERDUE'
           ELSE 'OK'
         END AS asset_status
       FROM atec.tblasset a
@@ -1974,6 +1992,18 @@ app.use((req, res, next) => {
 app.get("/users", asyncRoute(async (req, res) => {
   await ensureTblUsersHaveIds()
 
+  const values = []
+  let roleFilterSql = ""
+  if (!canManageAllUsers(req.user)) {
+    values.push("CUSTOMER")
+    roleFilterSql = `
+      WHERE COALESCE(
+        role,
+        CASE WHEN userlevel = 5 THEN 'CUSTOMER' ELSE 'VIEWER' END
+      ) = $1
+    `
+  }
+
   const result = await pool.query(
     `
     SELECT
@@ -2001,8 +2031,10 @@ app.get("/users", asyncRoute(async (req, res) => {
       created_at,
       last_login_at
     FROM atec.tblusers
+    ${roleFilterSql}
     ORDER BY COALESCE(NULLIF(fullname, ''), username), username
-    `
+    `,
+    values
   )
 
   res.json(result.rows)
@@ -4864,7 +4896,8 @@ async function buildVisitWorklistRows(client, {
       latest_visual.testid AS visual_testid,
       latest_visual.validdate AS visual_due_date,
       latest_load.testid AS load_testid,
-      latest_load.validdate AS load_due_date
+      latest_load.validdate AS load_due_date,
+      ${assetSupportsLoadTestSql("a")} AS supports_load_test
     FROM atec.tblasset a
     LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
     LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
@@ -4906,9 +4939,10 @@ async function buildVisitWorklistRows(client, {
     const visualDate = row.visual_due_date ? new Date(row.visual_due_date) : null
     const loadDate = row.load_due_date ? new Date(row.load_due_date) : null
     const visualDue = includesVisual && (!visualDate || visualDate <= cutoffDate)
-    const loadDue = includesLoad && (!loadDate || loadDate <= cutoffDate)
+    const loadRequired = includesLoad && row.supports_load_test === true
+    const loadDue = loadRequired && (!loadDate || loadDate <= cutoffDate)
     const visualOverdue = includesVisual && (!visualDate || visualDate < today)
-    const loadOverdue = includesLoad && (!loadDate || loadDate < today)
+    const loadOverdue = loadRequired && (!loadDate || loadDate < today)
     const requiredScope = scope === "SURVEY"
       ? "SURVEY"
       : requiredScopeForDue(visualDue, loadDue)
@@ -10761,6 +10795,7 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
       ll.inspector AS loadinspector,
       ll.result_count AS loadresultcount,
       CASE
+        WHEN NOT ${assetSupportsLoadTestSql("a")} THEN 'NOT REQUIRED'
         WHEN ll.testid IS NULL THEN 'NO LOAD TEST'
         WHEN COALESCE(ll.result_count, 0) = 0 THEN 'INCOMPLETE'
         WHEN COALESCE(ll.inspector, '') = '' THEN 'INCOMPLETE'
@@ -10781,7 +10816,7 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
         ELSE (lv.testdate + INTERVAL '3 months')::date
       END AS nextvisualdue,
       CASE
-        WHEN ll.testdate IS NULL THEN NULL
+        WHEN NOT ${assetSupportsLoadTestSql("a")} OR ll.testdate IS NULL THEN NULL
         ELSE (ll.testdate + INTERVAL '12 months')::date
       END AS nextloaddue,
       CASE
@@ -10792,9 +10827,9 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
         WHEN lv.testid IS NOT NULL AND (COALESCE(lv.inspector_lmi_number, '') = '' OR COALESCE(lv.inspector_signature_image, '') = '') THEN 'MISSING CERTIFICATE METADATA'
         WHEN ll.testid IS NOT NULL AND (COALESCE(ll.inspector_lmi_number, '') = '' OR COALESCE(ll.inspector_signature_image, '') = '') THEN 'MISSING CERTIFICATE METADATA'
         WHEN lv.testdate IS NULL THEN 'NO VISUAL'
-        WHEN ll.testdate IS NULL THEN 'NO LOAD TEST'
+        WHEN ${assetSupportsLoadTestSql("a")} AND ll.testdate IS NULL THEN 'NO LOAD TEST'
         WHEN (lv.testdate + INTERVAL '3 months')::date < CURRENT_DATE THEN 'VISUAL OVERDUE'
-        WHEN (ll.testdate + INTERVAL '12 months')::date < CURRENT_DATE THEN 'LOAD TEST OVERDUE'
+        WHEN ${assetSupportsLoadTestSql("a")} AND (ll.testdate + INTERVAL '12 months')::date < CURRENT_DATE THEN 'LOAD TEST OVERDUE'
         ELSE 'OK'
       END AS reportstatus
     FROM atec.tblasset a
@@ -11402,7 +11437,8 @@ app.get("/dashboard/stats", async (req, res) => {
           FROM active_assets a
           LEFT JOIN latest_load i
             ON a.assetid = i.assetid
-          WHERE (
+          WHERE ${assetSupportsLoadTestSql("a")}
+            AND (
             i.testdate IS NULL
             OR i.testdate + INTERVAL '12 months' <= CURRENT_DATE + INTERVAL '30 days'
           )
@@ -11417,7 +11453,7 @@ app.get("/dashboard/stats", async (req, res) => {
             ON a.assetid = l.assetid
           WHERE (
             v.testdate + INTERVAL '3 months' < CURRENT_DATE
-            OR l.testdate + INTERVAL '12 months' < CURRENT_DATE
+            OR (${assetSupportsLoadTestSql("a")} AND l.testdate + INTERVAL '12 months' < CURRENT_DATE)
           )
         ) AS overdue
     `, scopedToClient.values)
@@ -11642,10 +11678,13 @@ app.get("/dashboard/review-queue/:queue", async (req, res) => {
           lv.testdate AS visualtestdate,
           (lv.testdate + INTERVAL '3 months')::date AS nextvisualdue,
           ll.testdate AS loadtestdate,
-          (ll.testdate + INTERVAL '12 months')::date AS nextloaddue,
+          CASE WHEN ${assetSupportsLoadTestSql("a")}
+            THEN (ll.testdate + INTERVAL '12 months')::date
+            ELSE NULL
+          END AS nextloaddue,
           CONCAT_WS(', ',
             CASE WHEN lv.testdate IS NOT NULL AND (lv.testdate + INTERVAL '3 months')::date < CURRENT_DATE THEN 'Visual overdue' END,
-            CASE WHEN ll.testdate IS NOT NULL AND (ll.testdate + INTERVAL '12 months')::date < CURRENT_DATE THEN 'Load test overdue' END
+            CASE WHEN ${assetSupportsLoadTestSql("a")} AND ll.testdate IS NOT NULL AND (ll.testdate + INTERVAL '12 months')::date < CURRENT_DATE THEN 'Load test overdue' END
           ) AS issue
         FROM active_assets a
         LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
@@ -11655,7 +11694,7 @@ app.get("/dashboard/review-queue/:queue", async (req, res) => {
         LEFT JOIN latest_visual lv ON a.assetid = lv.assetid
         LEFT JOIN latest_load ll ON a.assetid = ll.assetid
         WHERE (lv.testdate + INTERVAL '3 months')::date < CURRENT_DATE
-           OR (ll.testdate + INTERVAL '12 months')::date < CURRENT_DATE
+           OR (${assetSupportsLoadTestSql("a")} AND (ll.testdate + INTERVAL '12 months')::date < CURRENT_DATE)
         ORDER BY
           LEAST(
             COALESCE((lv.testdate + INTERVAL '3 months')::date, CURRENT_DATE),
@@ -11782,8 +11821,8 @@ app.get("/dashboard/attention", async (req, res) => {
         CASE
           WHEN lv.lastvisual IS NULL THEN 'No Visual Inspection'
           WHEN lv.lastvisual < CURRENT_DATE - INTERVAL '3 months' THEN 'Visual Overdue'
-          WHEN ll.lastload IS NULL THEN 'No Load Test'
-          WHEN ll.lastload < CURRENT_DATE - INTERVAL '12 months' THEN 'Load Test Overdue'
+          WHEN ${assetSupportsLoadTestSql("a")} AND ll.lastload IS NULL THEN 'No Load Test'
+          WHEN ${assetSupportsLoadTestSql("a")} AND ll.lastload < CURRENT_DATE - INTERVAL '12 months' THEN 'Load Test Overdue'
           ELSE 'OK'
         END AS reason,
 
@@ -11791,8 +11830,8 @@ app.get("/dashboard/attention", async (req, res) => {
           WHEN lv.lastvisual IS NULL THEN NULL
           WHEN lv.lastvisual < CURRENT_DATE - INTERVAL '3 months'
             THEN CURRENT_DATE - (lv.lastvisual + INTERVAL '3 months')::date
-          WHEN ll.lastload IS NULL THEN NULL
-          WHEN ll.lastload < CURRENT_DATE - INTERVAL '12 months'
+          WHEN ${assetSupportsLoadTestSql("a")} AND ll.lastload IS NULL THEN NULL
+          WHEN ${assetSupportsLoadTestSql("a")} AND ll.lastload < CURRENT_DATE - INTERVAL '12 months'
             THEN CURRENT_DATE - (ll.lastload + INTERVAL '12 months')::date
           ELSE 0
         END AS daysoverdue
@@ -11806,8 +11845,8 @@ app.get("/dashboard/attention", async (req, res) => {
       WHERE (
         lv.lastvisual IS NULL
         OR lv.lastvisual < CURRENT_DATE - INTERVAL '3 months'
-        OR ll.lastload IS NULL
-        OR ll.lastload < CURRENT_DATE - INTERVAL '12 months'
+        OR (${assetSupportsLoadTestSql("a")} AND ll.lastload IS NULL)
+        OR (${assetSupportsLoadTestSql("a")} AND ll.lastload < CURRENT_DATE - INTERVAL '12 months')
       )
       ORDER BY daysoverdue DESC NULLS LAST, a.assetid DESC
       LIMIT 50
@@ -12138,7 +12177,8 @@ async function getNotificationCentreRows(req) {
         a.clientid,
         a.siteid,
         a.assettagno,
-        COALESCE(NULLIF(a.serialno, ''), a.hoistserialno) AS serialno
+        COALESCE(NULLIF(a.serialno, ''), a.hoistserialno) AS serialno,
+        ${assetSupportsLoadTestSql("a")} AS supports_load_test
       FROM atec.tblasset a
       WHERE COALESCE(a.archived, false) = false
       ${scopedToClient.clause}
@@ -12180,12 +12220,14 @@ async function getNotificationCentreRows(req) {
         COUNT(DISTINCT a.assetid) FILTER (
           WHERE v.testdate IS NULL
              OR (v.testdate + INTERVAL '3 months')::date <= CURRENT_DATE + INTERVAL '30 days'
-             OR l.testdate IS NULL
-             OR (l.testdate + INTERVAL '12 months')::date <= CURRENT_DATE + INTERVAL '30 days'
+             OR (a.supports_load_test AND (
+               l.testdate IS NULL
+               OR (l.testdate + INTERVAL '12 months')::date <= CURRENT_DATE + INTERVAL '30 days'
+             ))
         )::int AS due_assets,
         COUNT(DISTINCT a.assetid) FILTER (
           WHERE (v.testdate + INTERVAL '3 months')::date < CURRENT_DATE
-             OR (l.testdate + INTERVAL '12 months')::date < CURRENT_DATE
+             OR (a.supports_load_test AND (l.testdate + INTERVAL '12 months')::date < CURRENT_DATE)
         )::int AS overdue_assets,
         COUNT(DISTINCT a.assetid) FILTER (
           WHERE v.status = 'NOT SAFE'
@@ -12193,7 +12235,10 @@ async function getNotificationCentreRows(req) {
         )::int AS failed_assets,
         MIN(LEAST(
           COALESCE((v.testdate + INTERVAL '3 months')::date, CURRENT_DATE),
-          COALESCE((l.testdate + INTERVAL '12 months')::date, CURRENT_DATE)
+          CASE WHEN a.supports_load_test
+            THEN COALESCE((l.testdate + INTERVAL '12 months')::date, CURRENT_DATE)
+            ELSE 'infinity'::date
+          END
         )) AS next_due_date
       FROM active_assets a
       LEFT JOIN latest_visual v ON v.assetid = a.assetid
