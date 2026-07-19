@@ -1166,6 +1166,8 @@ app.get("/customer-portal/summary", requireAuth, trackActiveUser, asyncRoute(asy
   }
 
   const effectiveClientId = req.user.clientid
+  const effectiveSiteId = req.user.siteid || null
+  const effectiveSectionId = req.user.sectionid || null
 
   if (!effectiveClientId) {
     return res.status(400).json({ error: "No customer is linked to this user." })
@@ -1193,6 +1195,8 @@ app.get("/customer-portal/summary", requireAuth, trackActiveUser, asyncRoute(asy
       FROM atec.tblasset
       WHERE clientid = $1
         AND COALESCE(archived, false) = false
+        AND ($2::int IS NULL OR siteid = $2)
+        AND ($3::int IS NULL OR sectionid = $3)
     ),
     latest_visual AS (
       SELECT DISTINCT ON (i.assetid)
@@ -1231,7 +1235,7 @@ app.get("/customer-portal/summary", requireAuth, trackActiveUser, asyncRoute(asy
     LEFT JOIN latest_visual ON latest_visual.assetid = a.assetid
     LEFT JOIN latest_load ON latest_load.assetid = a.assetid
     `,
-    [effectiveClientId]
+    [effectiveClientId, effectiveSiteId, effectiveSectionId]
   )
 
   const certificateSummary = await pool.query(
@@ -1248,8 +1252,10 @@ app.get("/customer-portal/summary", requireAuth, trackActiveUser, asyncRoute(asy
     FROM atec.tblinspection i
     JOIN atec.tblasset a ON a.assetid = i.assetid
     WHERE a.clientid = $1
+      AND ($2::int IS NULL OR a.siteid = $2)
+      AND ($3::int IS NULL OR a.sectionid = $3)
     `,
-    [effectiveClientId]
+    [effectiveClientId, effectiveSiteId, effectiveSectionId]
   )
 
   const recentCertificates = await pool.query(
@@ -1271,10 +1277,12 @@ app.get("/customer-portal/summary", requireAuth, trackActiveUser, asyncRoute(asy
     LEFT JOIN atec.tblsites s ON s.siteid = a.siteid
     LEFT JOIN atec.tblsection sec ON sec.sectionid = a.sectionid
     WHERE a.clientid = $1
+      AND ($2::int IS NULL OR a.siteid = $2)
+      AND ($3::int IS NULL OR a.sectionid = $3)
     ORDER BY i.testdate DESC NULLS LAST, i.testid DESC
     LIMIT 8
     `,
-    [effectiveClientId]
+    [effectiveClientId, effectiveSiteId, effectiveSectionId]
   )
 
   let visitSummary = {
@@ -1306,8 +1314,9 @@ app.get("/customer-portal/summary", requireAuth, trackActiveUser, asyncRoute(asy
       FROM atec.tblinspectionvisit v
       LEFT JOIN atec.tblinspectionvisitasset va ON va.visitid = v.visitid
       WHERE v.clientid = $1
+        AND ($2::int IS NULL OR v.siteid = $2)
       `,
-      [effectiveClientId]
+      [effectiveClientId, effectiveSiteId]
     )
 
     visitSummary = visits.rows[0] || visitSummary
@@ -1341,6 +1350,16 @@ app.get("/customer-portal/assets", requireAuth, trackActiveUser, asyncRoute(asyn
   const status = String(req.query.status || "").trim().toUpperCase()
   const values = [effectiveClientId]
   const filters = ["a.clientid = $1", "COALESCE(a.archived, false) = false"]
+
+  if (req.user.siteid) {
+    values.push(req.user.siteid)
+    filters.push(`a.siteid = $${values.length}`)
+  }
+
+  if (req.user.sectionid) {
+    values.push(req.user.sectionid)
+    filters.push(`a.sectionid = $${values.length}`)
+  }
 
   if (search) {
     values.push(`%${search}%`)
@@ -1517,6 +1536,10 @@ function authorizeRequest(req, res, next) {
     }
 
     if (method === "POST" && /^\/certificates\/[^/]+\/email$/.test(routePath)) {
+      return next()
+    }
+
+    if (method === "POST" && routePath === "/dashboard/notification-centre/send") {
       return next()
     }
 
@@ -12079,6 +12102,90 @@ async function getNotificationCentreRows(req) {
   return result.rows
 }
 
+async function findNotificationCentreRow(req, { clientid, siteid }) {
+  const rows = await getNotificationCentreRows(req)
+
+  return rows.find(row =>
+    String(row.clientid || "") === String(clientid || "") &&
+    String(row.siteid || "") === String(siteid || "")
+  )
+}
+
+async function getNotificationRecipients({ clientid, siteid }) {
+  const result = await pool.query(
+    `
+    SELECT DISTINCT
+      LOWER(TRIM(email)) AS email,
+      COALESCE(NULLIF(fullname, ''), username, email) AS full_name
+    FROM atec.tblusers
+    WHERE role = 'CUSTOMER'
+      AND clientid = $1
+      AND COALESCE(is_active, true) = true
+      AND COALESCE(email, '') <> ''
+      AND (
+        $2::int IS NULL
+        OR siteid IS NULL
+        OR siteid = $2::int
+      )
+    ORDER BY LOWER(TRIM(email))
+    `,
+    [clientid, siteid || null]
+  )
+
+  return result.rows
+}
+
+function notificationEmailSubject(row) {
+  const siteLabel = row.siteid ? ` - ${row.sitename || "Site"}` : ""
+  return `ATEC notification: ${row.clientname || "Customer"}${siteLabel}`
+}
+
+function notificationEmailText(row) {
+  const lines = [
+    "Good day,",
+    "",
+    "The ATEC system has the following items needing attention:",
+    "",
+    `Customer: ${valueOrDash(row.clientname)}`,
+    `Site: ${valueOrDash(row.sitename)}`,
+    `Due assets: ${row.due_assets || 0}`,
+    `Overdue assets: ${row.overdue_assets || 0}`,
+    `Certificates expiring soon: ${row.expiring_certificates || 0}`,
+    `Failed assets: ${row.failed_assets || 0}`,
+    `Unresolved visit items: ${row.unresolved_visit_items || 0}`,
+    `Deferred follow-ups due: ${row.deferred_followups_due || 0}`,
+    "",
+    "Please log in to the ATEC Customer Portal or contact ATEC if you need assistance.",
+    "",
+    "Regards,",
+    "ATEC Inspection Platform"
+  ]
+
+  return lines.join("\n")
+}
+
+async function buildNotificationEmailPreview(req, body = {}) {
+  const clientid = body.clientid || req.query?.clientid
+  const siteid = body.siteid || req.query?.siteid || null
+  const row = await findNotificationCentreRow(req, { clientid, siteid })
+
+  if (!row) {
+    return null
+  }
+
+  const recipients = await getNotificationRecipients({
+    clientid: row.clientid,
+    siteid: row.siteid
+  })
+
+  return {
+    row,
+    recipients,
+    subject: notificationEmailSubject(row),
+    message: notificationEmailText(row)
+  }
+}
+
 async function getCachedDashboardSummary(req) {
   const key = dashboardSummaryCacheKey(req)
   const cached = dashboardSummaryCache.get(key)
@@ -12308,6 +12415,81 @@ app.get("/dashboard/summary", async (req, res) => {
 
 app.get("/dashboard/notification-centre", asyncRoute(async (req, res) => {
   res.json(await getNotificationCentreRows(req))
+}))
+
+app.get("/dashboard/notification-centre/preview", asyncRoute(async (req, res) => {
+  const preview = await buildNotificationEmailPreview(req)
+
+  if (!preview) {
+    return res.status(404).json({ error: "Notification row not found" })
+  }
+
+  res.json({
+    ...preview,
+    can_send: preview.recipients.length > 0 && getMailConfigIssues().length === 0,
+    mail_config_issues: getMailConfigIssues()
+  })
+}))
+
+app.post("/dashboard/notification-centre/send", emailLimiter, asyncRoute(async (req, res) => {
+  if (!["ADMIN", "MANAGER"].includes(req.user?.role)) {
+    return res.status(403).json({ error: "Only admins and managers can send customer notifications" })
+  }
+
+  const preview = await buildNotificationEmailPreview(req, req.body || {})
+
+  if (!preview) {
+    return res.status(404).json({ error: "Notification row not found" })
+  }
+
+  if (!preview.recipients.length) {
+    return res.status(400).json({ error: "No active customer portal users with email addresses are available for this customer/site." })
+  }
+
+  const mailConfigIssues = getMailConfigIssues()
+
+  if (mailConfigIssues.length) {
+    return res.status(400).json({
+      error: `Email is not configured yet. Missing: ${mailConfigIssues.join(", ")}. Add these values to backend/.env and restart the backend.`
+    })
+  }
+
+  const transport = getMailTransport()
+
+  if (!transport) {
+    return res.status(400).json({
+      error: "Email is not configured yet. Add SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS and MAIL_FROM to backend/.env."
+    })
+  }
+
+  const recipients = preview.recipients.map(recipient => recipient.email)
+
+  await transport.sendMail({
+    from: process.env.MAIL_FROM,
+    to: recipients,
+    subject: preview.subject,
+    text: preview.message
+  })
+
+  await req.logAudit("SEND_NOTIFICATION", "notifications", preview.row.clientid, {
+    clientid: preview.row.clientid,
+    siteid: preview.row.siteid,
+    recipients,
+    counts: {
+      due_assets: preview.row.due_assets,
+      overdue_assets: preview.row.overdue_assets,
+      expiring_certificates: preview.row.expiring_certificates,
+      failed_assets: preview.row.failed_assets,
+      unresolved_visit_items: preview.row.unresolved_visit_items,
+      deferred_followups_due: preview.row.deferred_followups_due
+    }
+  })
+
+  res.json({
+    success: true,
+    sent_to: recipients.length,
+    recipients
+  })
 }))
 
 app.get("/dashboard/alerts", async (req, res) => {

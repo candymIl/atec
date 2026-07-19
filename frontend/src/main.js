@@ -8707,8 +8707,9 @@ async function loadDashboardNotificationCentre(preloadedData = null) {
     container.innerHTML = `
       <div class="dashboard-notification-summary">
         <span><strong>${escapeHtml(rows.length)}</strong> customer/site notification row(s)</span>
-        <span>Email sending is not switched on in this slice.</span>
+        <span>Preview before sending to customer portal users.</span>
       </div>
+      <div id="dashboardNotificationPreview" class="dashboard-notification-preview" hidden></div>
       <div class="dashboard-notification-table-wrap">
         <table class="dashboard-table dashboard-notification-table">
           <thead>
@@ -8746,7 +8747,13 @@ async function loadDashboardNotificationCentre(preloadedData = null) {
                   <td>${escapeHtml(row.failed_assets || 0)}</td>
                   <td>${escapeHtml(row.unresolved_visit_items || 0)}</td>
                   <td><span class="notification-recipient ${recipientClass}">${escapeHtml(recipientText)}</span></td>
-                  <td>
+                  <td class="dashboard-notification-actions">
+                    <button class="small-btn" onclick="previewDashboardNotification(${safeAttr(row.clientid)}, '${safeAttr(row.siteid || '')}')">
+                      Preview
+                    </button>
+                    <button class="small-btn" onclick="sendDashboardNotification(${safeAttr(row.clientid)}, '${safeAttr(row.siteid || '')}')">
+                      Send
+                    </button>
                     <button class="small-btn" onclick="showCustomerDetailedReport(${reportArgs})">
                       View Report
                     </button>
@@ -8765,6 +8772,82 @@ async function loadDashboardNotificationCentre(preloadedData = null) {
         Unable to load notification centre
       </div>
     `
+  }
+}
+
+window.previewDashboardNotification = async function (clientid, siteid = '') {
+  const preview = document.querySelector('#dashboardNotificationPreview')
+  if (!preview) return
+
+  preview.hidden = false
+  preview.innerHTML = '<div class="report-preview-empty">Loading notification preview...</div>'
+
+  try {
+    const params = new URLSearchParams()
+    params.set('clientid', clientid)
+    if (siteid) params.set('siteid', siteid)
+
+    const response = await fetch(`${API_BASE}/dashboard/notification-centre/preview?${params.toString()}`)
+    const result = await readApiResponse(response)
+
+    if (!response.ok) throw new Error(result.error || 'Unable to load notification preview')
+
+    const recipients = result.recipients || []
+
+    preview.innerHTML = `
+      <div class="section-header">
+        <h3>Email Preview</h3>
+        <button type="button" class="secondary-small-btn" onclick="closeDashboardNotificationPreview()">Close</button>
+      </div>
+      <div class="notification-preview-grid">
+        <div>
+          <span>To</span>
+          <strong>${escapeHtml(recipients.length ? recipients.map(item => item.email).join(', ') : 'No active customer portal users')}</strong>
+        </div>
+        <div>
+          <span>Subject</span>
+          <strong>${escapeHtml(result.subject || '')}</strong>
+        </div>
+      </div>
+      ${result.mail_config_issues?.length ? `
+        <div class="alert-card warning">
+          Email settings missing: ${escapeHtml(result.mail_config_issues.join(', '))}
+        </div>
+      ` : ''}
+      <pre class="notification-preview-message">${escapeHtml(result.message || '')}</pre>
+    `
+  } catch (err) {
+    preview.innerHTML = `
+      <div class="alert-card warning">
+        ${escapeHtml(err.message || 'Unable to load notification preview')}
+      </div>
+    `
+  }
+}
+
+window.closeDashboardNotificationPreview = function () {
+  const preview = document.querySelector('#dashboardNotificationPreview')
+  if (preview) preview.hidden = true
+}
+
+window.sendDashboardNotification = async function (clientid, siteid = '') {
+  const proceed = window.confirm('Send this customer notification email now?')
+  if (!proceed) return
+
+  try {
+    const response = await fetch(`${API_BASE}/dashboard/notification-centre/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clientid, siteid: siteid || null })
+    })
+    const result = await readApiResponse(response)
+
+    if (!response.ok) throw new Error(result.error || 'Unable to send notification')
+
+    alert(`Notification sent to ${result.sent_to || 0} recipient(s).`)
+    loadDashboardNotificationCentre()
+  } catch (err) {
+    alert(err.message || 'Unable to send notification')
   }
 }
 

@@ -1367,6 +1367,48 @@ tr:hover {
   white-space: nowrap;
 }
 
+.dashboard-notification-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dashboard-notification-preview {
+  background: #f8fafc;
+  border: 1px solid #d9e1ec;
+  border-radius: 8px;
+  margin: 10px 0 14px;
+  padding: 14px;
+}
+
+.notification-preview-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  margin-bottom: 12px;
+}
+
+.notification-preview-grid span {
+  color: #52606d;
+  display: block;
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 3px;
+}
+
+.notification-preview-message {
+  background: #ffffff;
+  border: 1px solid #d9e1ec;
+  border-radius: 6px;
+  color: #172033;
+  font-family: inherit;
+  line-height: 1.45;
+  margin: 0;
+  overflow-x: auto;
+  padding: 12px;
+  white-space: pre-wrap;
+}
+
 .notification-recipient {
   border-radius: 999px;
   display: inline-block;

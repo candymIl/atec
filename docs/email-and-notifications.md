@@ -14,6 +14,9 @@ Task 16 adds notification workflows on top of the customer portal, due-asset cov
 - Per-customer expiry reminder lead days.
 - CSV export of the notification rows.
 - Customer report shortcut from each notification row.
+- Manual email preview from each notification row.
+- Manual notification sending to active Customer Portal Users for the selected customer/site.
+- Audit logging for manually sent notifications.
 - Dashboard summary cache includes notification data.
 - Standalone `/dashboard/notification-centre` endpoint for fallback loading.
 
@@ -26,7 +29,6 @@ Task 16 adds notification workflows on top of the customer portal, due-asset cov
 
 ## Not Yet In This Slice
 
-- Automatic email sending.
 - Scheduled daily or weekly jobs.
 - Per-event notification audit records.
 - Email templates for due assets, visit exceptions, or portal events.
