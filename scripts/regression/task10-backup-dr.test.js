@@ -11,7 +11,7 @@ const {
   summarizeBackupStatus,
   writeJsonAtomic
 } = require("../../backend/services/backupStatus")
-const { buildSystemInfo } = require("../../backend/services/systemInfo")
+const { buildSystemInfo, getBackupStatus } = require("../../backend/services/systemInfo")
 const { applyRetention, parseArgs } = require("../atec-backup")
 
 function tempDir(name) {
@@ -96,6 +96,26 @@ async function main() {
   const oldStatus = summarizeBackupStatus({ ATEC_BACKUP_ROOT: oldRoot, BACKUP_MAX_AGE_HOURS: "26" }, now)
   assert.strictEqual(oldStatus.status, "Critical")
 
+  const mixedRoot = tempDir("atec-task10-mixed")
+  writeManifest(mixedRoot, "atec-20260714T080000Z", successfulManifest(
+    "atec-20260714T080000Z",
+    "2026-07-14T08:00:00.000Z"
+  ))
+  const newerFlatDump = path.join(mixedRoot, "fbcranes-20260718-2200.dump")
+  const newerFlatMedia = path.join(mixedRoot, "uploads-20260718-2215.tar.gz")
+  fs.writeFileSync(newerFlatDump, "database backup")
+  fs.writeFileSync(newerFlatMedia, "media backup")
+  const newerTime = new Date("2026-07-18T20:00:00.000Z")
+  fs.utimesSync(newerFlatDump, newerTime, newerTime)
+  fs.utimesSync(newerFlatMedia, newerTime, newerTime)
+  const mixedStatus = getBackupStatus(
+    { ATEC_BACKUP_ROOT: mixedRoot, BACKUP_MAX_AGE_HOURS: "26" },
+    new Date("2026-07-19T10:00:00.000Z")
+  )
+  assert.strictEqual(mixedStatus.status, "Current")
+  assert.strictEqual(mixedStatus.latestDatabaseBackup.filename, "fbcranes-20260718-2200.dump")
+  assert.match(mixedStatus.message, /legacy flat-file format/i)
+
   const restoreFailedRoot = tempDir("atec-task10-restore-failed")
   writeManifest(restoreFailedRoot, "atec-20260714T060000Z", successfulManifest(
     "atec-20260714T060000Z",
@@ -176,6 +196,7 @@ async function main() {
   fs.rmSync(root, { recursive: true, force: true })
   fs.rmSync(failedRoot, { recursive: true, force: true })
   fs.rmSync(oldRoot, { recursive: true, force: true })
+  fs.rmSync(mixedRoot, { recursive: true, force: true })
   fs.rmSync(restoreFailedRoot, { recursive: true, force: true })
   fs.rmSync(incompleteRoot, { recursive: true, force: true })
   fs.rmSync(retentionRoot, { recursive: true, force: true })

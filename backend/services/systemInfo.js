@@ -84,6 +84,58 @@ function backupKind(filename) {
   return null
 }
 
+function getFlatFileBackupStatus(backupRoot, maxAgeHours, now = new Date()) {
+  const entries = fs.readdirSync(backupRoot)
+  const files = entries
+    .map(entry => {
+      try {
+        return fileInfo(backupRoot, entry)
+      } catch (err) {
+        return null
+      }
+    })
+    .filter(Boolean)
+
+  const latestDatabaseBackup = newest(files.filter(file => backupKind(file.filename) === "database"))
+  const latestUploadsBackup = newest(files.filter(file => backupKind(file.filename) === "uploads"))
+
+  if (!latestDatabaseBackup) return null
+
+  const ageHours = (now.getTime() - latestDatabaseBackup.modifiedAt.getTime()) / 3600000
+  const withinExpectedAge = ageHours <= maxAgeHours
+
+  return {
+    directoryConfigured: backupRoot ? "configured" : "default",
+    accessible: true,
+    status: withinExpectedAge ? "Current" : "Overdue",
+    expectedMaxAgeHours: maxAgeHours,
+    latestBackupSetId: null,
+    latestSuccessfulDatabaseBackupAt: latestDatabaseBackup.modifiedAt.toISOString(),
+    latestSuccessfulMediaBackupAt: latestUploadsBackup?.modifiedAt.toISOString() || null,
+    latestDatabaseBackup: {
+      filename: latestDatabaseBackup.filename,
+      modifiedAt: latestDatabaseBackup.modifiedAt.toISOString(),
+      sizeBytes: latestDatabaseBackup.sizeBytes,
+      ageHours: Math.round(ageHours * 10) / 10,
+      withinExpectedAge
+    },
+    latestUploadsBackup: latestUploadsBackup
+      ? {
+          filename: latestUploadsBackup.filename,
+          modifiedAt: latestUploadsBackup.modifiedAt.toISOString(),
+          sizeBytes: latestUploadsBackup.sizeBytes
+        }
+      : null,
+    backupAgeHours: Math.round(ageHours * 10) / 10,
+    validation: { status: "not-run", timestamp: null, ageHours: null },
+    restoreVerification: { status: "not-run", timestamp: null, ageHours: null },
+    checksumStatus: "not-run",
+    message: withinExpectedAge
+      ? "Latest database backup is within the expected age (legacy flat-file format)."
+      : "Latest database backup is older than the expected maximum age."
+  }
+}
+
 function getBackupStatus(env = process.env, now = new Date()) {
   const backupRoot = env.ATEC_BACKUP_ROOT || env.BACKUP_ROOT || DEFAULT_BACKUP_ROOT
   const maxAgeHours = positiveNumber(
@@ -92,6 +144,23 @@ function getBackupStatus(env = process.env, now = new Date()) {
     24 * 30
   )
   const manifestStatus = summarizeBackupStatus(env, now)
+  let flatFileStatus = null
+
+  try {
+    flatFileStatus = getFlatFileBackupStatus(backupRoot, maxAgeHours, now)
+  } catch (err) {
+    flatFileStatus = null
+  }
+
+  const manifestBackupAt = new Date(manifestStatus.latestSuccessfulDatabaseBackupAt || 0).getTime()
+  const flatFileBackupAt = new Date(flatFileStatus?.latestSuccessfulDatabaseBackupAt || 0).getTime()
+
+  // Production may still use the original cron jobs, which write .dump and
+  // media archives directly into the backup root. Do not let an older
+  // manifest-based set hide a newer successful flat-file backup.
+  if (flatFileStatus && flatFileBackupAt > manifestBackupAt) {
+    return flatFileStatus
+  }
 
   if (manifestStatus.latestBackupSetId || (manifestStatus.accessible && manifestStatus.status === "Critical")) {
     return {
@@ -113,6 +182,8 @@ function getBackupStatus(env = process.env, now = new Date()) {
         : null
     }
   }
+
+  if (flatFileStatus) return flatFileStatus
 
   const result = {
     directoryConfigured: backupRoot ? "configured" : "default",
