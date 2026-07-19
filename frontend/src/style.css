@@ -1003,6 +1003,68 @@ td {
   background: #f8fafc;
 }
 
+/* Internal users have eight columns. Keep the editable fields roomy and pin
+   the complete action cell instead of applying the customer-table widths. */
+.internal-users-table {
+  min-width: 1200px;
+}
+
+.internal-users-table th:nth-child(1),
+.internal-users-table td:nth-child(1) {
+  width: 13%;
+}
+
+.internal-users-table th:nth-child(2),
+.internal-users-table td:nth-child(2),
+.internal-users-table th:nth-child(3),
+.internal-users-table td:nth-child(3) {
+  width: 16%;
+}
+
+.internal-users-table th:nth-child(4),
+.internal-users-table td:nth-child(4) {
+  width: 12%;
+}
+
+.internal-users-table th:nth-child(5),
+.internal-users-table td:nth-child(5) {
+  width: 15%;
+}
+
+.internal-users-table th:nth-child(6),
+.internal-users-table td:nth-child(6) {
+  text-align: center;
+  width: 7%;
+}
+
+.internal-users-table th:nth-child(7),
+.internal-users-table td:nth-child(7) {
+  text-align: center;
+  width: 10%;
+}
+
+.internal-users-table th:nth-child(8),
+.internal-users-table td:nth-child(8) {
+  box-shadow: -6px 0 10px rgba(15, 45, 79, 0.08);
+  position: sticky;
+  right: 0;
+  width: 190px;
+  z-index: 2;
+}
+
+.internal-users-table th:nth-child(8) {
+  background: #1f3a5f;
+  z-index: 3;
+}
+
+.internal-users-table td:nth-child(8) {
+  background: #ffffff;
+}
+
+.internal-users-table tr:nth-child(even) td:nth-child(8) {
+  background: #f8fafc;
+}
+
 .user-table-heading {
   align-items: center;
   display: flex;
@@ -1154,6 +1216,7 @@ td {
 .user-row-action-buttons {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   justify-content: center;
 }
