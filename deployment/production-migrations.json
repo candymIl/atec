@@ -1,6 +1,10 @@
 {
   "schema": "atec",
   "migrations": [
+    "2026-07-14-inspection-frequency.sql",
+    "2026-07-15-task12a-optional-inspection-tag.sql",
+    "2026-07-15-task13-nfc-asset-support.sql",
+    "2026-07-15-task14-onsite-inspection-visits.sql",
     "2026-07-18-task16-customer-notification-preferences.sql",
     "2026-07-18-void-inspections-entered-in-error.sql"
   ]

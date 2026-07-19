@@ -26,4 +26,11 @@ for (const migration of manifest.migrations) {
   assert(fs.existsSync(path.join(root, "database", migration)), `Missing production migration: ${migration}`)
 }
 
+for (const requirement of contract.requirements) {
+  assert(
+    manifest.migrations.includes(requirement.migration),
+    `Schema contract migration is not approved for deployment: ${requirement.migration}`
+  )
+}
+
 console.log("Deployment safety regression checks passed.")
