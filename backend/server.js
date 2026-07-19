@@ -1480,6 +1480,7 @@ app.get("/customer-portal/assets", requireAuth, trackActiveUser, asyncRoute(asyn
         a.description,
         a.siteid,
         a.sectionid,
+        a.responsibleid,
         et.description AS equipmenttype,
         s.sitename,
         sec.sectionname,
