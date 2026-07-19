@@ -9,7 +9,10 @@ Create `frontend/.env.production` on the Ubuntu production server before buildin
 ```env
 VITE_API_URL=https://www.atecinspections.co.za/api
 VITE_BASE_PATH=/
+VITE_GOOGLE_MAPS_API_KEY=your_browser_restricted_google_maps_key
 ```
+
+The Maps key must allow the live site origin and have the Maps JavaScript API and Places API enabled. The deployment script stops before publishing if this setting is absent.
 
 Then build on Ubuntu:
 
@@ -72,6 +75,22 @@ BACKUP_LOCK_DIR=/var/www/atec/backups/.locks
 ```
 
 ## Live Verification
+
+The live deployment helper now enforces this order automatically:
+
+1. Create and validate a pre-migration backup.
+2. Apply only migrations listed in `deployment/production-migrations.json`.
+3. Record each applied filename and checksum in `atec.schema_migrations`.
+4. Verify `deployment/production-schema-contract.json` against the live database.
+5. Restart the backend only after all earlier checks pass.
+6. Verify the website and API health endpoint.
+
+When a release introduces a required database change, add its SQL filename to
+`deployment/production-migrations.json` and add the required tables/columns to
+`deployment/production-schema-contract.json` in the same commit. Never edit a
+migration after it has been applied; create a new migration instead. A checksum
+mismatch or missing schema requirement stops deployment while the existing
+backend process remains running.
 
 After deployment, confirm:
 

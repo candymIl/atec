@@ -19,6 +19,12 @@ export function renderCustomerSetup(customers, customerArchiveMode = "active") {
     clientid: customer => customer.clientid,
     clientname: customer => customer.clientname,
     clientaddr: customer => customer.clientaddr,
+    notifications: customer => [
+      customer.notify_expiring_certificates,
+      customer.notify_overdue_assets,
+      customer.notify_failed_assets,
+      customer.notify_visit_exceptions
+    ].filter(value => value !== false).length,
     archived: customer => customer.archived ? 'Archived' : 'Active'
   }, 'clientname')
   const pagination = getPaginationState(sortedCustomers, "customerCurrentPage", "customerRowsPerPage")
@@ -96,6 +102,7 @@ export function renderCustomerSetup(customers, customerArchiveMode = "active") {
           <th>${sortHeader('Client ID', 'customers', 'clientid', 'showCustomerSetup')}</th>
           <th>${sortHeader('Client Name', 'customers', 'clientname', 'showCustomerSetup')}</th>
           <th>${sortHeader('Address', 'customers', 'clientaddr', 'showCustomerSetup')}</th>
+          <th>${sortHeader('Notifications', 'customers', 'notifications', 'showCustomerSetup')}</th>
           <th>${sortHeader('Status', 'customers', 'archived', 'showCustomerSetup')}</th>
           <th>Actions</th>
         </tr>
@@ -107,6 +114,7 @@ export function renderCustomerSetup(customers, customerArchiveMode = "active") {
             <td>${escapeHtml(customer.clientid)}</td>
             <td>${escapeHtml(customer.clientname || "")}</td>
             <td>${escapeHtml(customer.clientaddr || "")}</td>
+            <td>${renderCustomerNotificationStatus(customer)}</td>
             <td>${customer.archived ? "Archived" : "Active"}</td>
             <td>
               <button onclick="editClient(${customer.clientid})">Edit</button>
@@ -124,4 +132,15 @@ export function renderCustomerSetup(customers, customerArchiveMode = "active") {
       </tbody>
     </table>
   `;
+}
+
+function renderCustomerNotificationStatus(customer) {
+  const enabled = [
+    customer.notify_expiring_certificates,
+    customer.notify_overdue_assets,
+    customer.notify_failed_assets,
+    customer.notify_visit_exceptions
+  ].filter(value => value !== false).length
+
+  return `<span class="customer-notification-status ${enabled ? 'enabled' : 'disabled'}">${enabled}/4 on</span>`
 }

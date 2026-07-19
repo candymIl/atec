@@ -2417,16 +2417,33 @@ app.post("/customers", async (req, res) => {
   try {
     const clientname = String(req.body.clientname || "").trim();
     const clientaddr = String(req.body.clientaddr || "").trim();
+    const notificationLeadDays = Math.max(0, Number(req.body.notification_lead_days ?? 30) || 30)
 
     if (!clientname || !clientaddr) {
       return res.status(400).json({ error: "Customer name and registered or head-office address are required" });
     }
 
     const result = await pool.query(
-      `INSERT INTO atec.tblclients (clientname, clientaddr)
-       VALUES ($1, $2)
+      `INSERT INTO atec.tblclients (
+         clientname,
+         clientaddr,
+         notify_expiring_certificates,
+         notify_overdue_assets,
+         notify_failed_assets,
+         notify_visit_exceptions,
+         notification_lead_days
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [clientname, clientaddr]
+      [
+        clientname,
+        clientaddr,
+        req.body.notify_expiring_certificates !== false,
+        req.body.notify_overdue_assets !== false,
+        req.body.notify_failed_assets !== false,
+        req.body.notify_visit_exceptions !== false,
+        notificationLeadDays
+      ]
     );
 
     res.json(result.rows[0]);
@@ -2534,6 +2551,7 @@ app.put("/customers/:id", async (req, res) => {
 
     const clientname = String(req.body.clientname || "").trim()
     const clientaddr = String(req.body.clientaddr || "").trim()
+    const notificationLeadDays = Math.max(0, Number(req.body.notification_lead_days ?? 30) || 30)
 
     if (!clientname || !clientaddr) {
       return res.status(400).json({ error: "Customer name and registered or head-office address are required" })
@@ -2544,13 +2562,23 @@ app.put("/customers/:id", async (req, res) => {
       UPDATE atec.tblclients
       SET
         clientname = $1,
-        clientaddr = $2
-      WHERE clientid = $3
+        clientaddr = $2,
+        notify_expiring_certificates = COALESCE($3, notify_expiring_certificates),
+        notify_overdue_assets = COALESCE($4, notify_overdue_assets),
+        notify_failed_assets = COALESCE($5, notify_failed_assets),
+        notify_visit_exceptions = COALESCE($6, notify_visit_exceptions),
+        notification_lead_days = COALESCE($7, notification_lead_days)
+      WHERE clientid = $8
       RETURNING *
       `,
       [
         clientname,
         clientaddr,
+        typeof req.body.notify_expiring_certificates === "boolean" ? req.body.notify_expiring_certificates : null,
+        typeof req.body.notify_overdue_assets === "boolean" ? req.body.notify_overdue_assets : null,
+        typeof req.body.notify_failed_assets === "boolean" ? req.body.notify_failed_assets : null,
+        typeof req.body.notify_visit_exceptions === "boolean" ? req.body.notify_visit_exceptions : null,
+        req.body.notification_lead_days === undefined ? null : notificationLeadDays,
         id
       ]
     )
@@ -11967,9 +11995,10 @@ async function getNotificationCentreRows(req) {
         MIN(i.validdate) AS next_expiry_date
       FROM active_assets a
       JOIN latest_inspections i ON i.assetid = a.assetid
+      LEFT JOIN atec.tblclients c ON c.clientid = a.clientid
       WHERE i.validdate IS NOT NULL
         AND i.validdate >= CURRENT_DATE
-        AND i.validdate <= CURRENT_DATE + INTERVAL '30 days'
+        AND i.validdate <= CURRENT_DATE + make_interval(days => COALESCE(c.notification_lead_days, 30))
       GROUP BY a.clientid, a.siteid
     ),
     recipients AS (
@@ -11990,19 +12019,27 @@ async function getNotificationCentreRows(req) {
       grouped.siteid,
       COALESCE(s.sitename, 'All Sites') AS sitename,
       grouped.active_assets,
-      grouped.due_assets,
-      grouped.overdue_assets,
-      grouped.failed_assets,
-      COALESCE(expiring.expiring_certificates, 0)::int AS expiring_certificates,
-      ${visitExceptionColumns}
+      CASE WHEN COALESCE(c.notify_overdue_assets, true) THEN grouped.due_assets ELSE 0 END::int AS due_assets,
+      CASE WHEN COALESCE(c.notify_overdue_assets, true) THEN grouped.overdue_assets ELSE 0 END::int AS overdue_assets,
+      CASE WHEN COALESCE(c.notify_failed_assets, true) THEN grouped.failed_assets ELSE 0 END::int AS failed_assets,
+      CASE WHEN COALESCE(c.notify_expiring_certificates, true) THEN COALESCE(expiring.expiring_certificates, 0) ELSE 0 END::int AS expiring_certificates,
+      ${visitExceptionColumns.replaceAll("COALESCE(visit_exceptions.", "CASE WHEN COALESCE(c.notify_visit_exceptions, true) THEN COALESCE(visit_exceptions.").replaceAll(")::int AS", ") ELSE 0 END::int AS")}
       COALESCE(recipients.portal_recipients, 0)::int AS portal_recipients,
+      COALESCE(c.notify_expiring_certificates, true) AS notify_expiring_certificates,
+      COALESCE(c.notify_overdue_assets, true) AS notify_overdue_assets,
+      COALESCE(c.notify_failed_assets, true) AS notify_failed_assets,
+      COALESCE(c.notify_visit_exceptions, true) AS notify_visit_exceptions,
+      COALESCE(c.notification_lead_days, 30)::int AS notification_lead_days,
       grouped.next_due_date,
       expiring.next_expiry_date,
       CASE
-        WHEN grouped.overdue_assets > 0
-          OR grouped.failed_assets > 0
-          OR COALESCE(expiring.expiring_certificates, 0) > 0
-          ${visitTablesAvailable ? "OR COALESCE(visit_exceptions.unresolved_visit_items, 0) > 0" : ""}
+        WHEN (
+            COALESCE(c.notify_overdue_assets, true) = true
+            AND (grouped.due_assets > 0 OR grouped.overdue_assets > 0)
+          )
+          OR (COALESCE(c.notify_failed_assets, true) = true AND grouped.failed_assets > 0)
+          OR (COALESCE(c.notify_expiring_certificates, true) = true AND COALESCE(expiring.expiring_certificates, 0) > 0)
+          ${visitTablesAvailable ? "OR (COALESCE(c.notify_visit_exceptions, true) = true AND COALESCE(visit_exceptions.unresolved_visit_items, 0) > 0)" : ""}
         THEN 'READY'
         ELSE 'NO_ACTION'
       END AS notification_status
@@ -12017,11 +12054,13 @@ async function getNotificationCentreRows(req) {
      )
     LEFT JOIN recipients ON recipients.clientid = grouped.clientid
     ${visitExceptionJoin}
-    WHERE grouped.due_assets > 0
-       OR grouped.overdue_assets > 0
-       OR grouped.failed_assets > 0
-       OR COALESCE(expiring.expiring_certificates, 0) > 0
-       ${visitTablesAvailable ? "OR COALESCE(visit_exceptions.unresolved_visit_items, 0) > 0" : ""}
+    WHERE (
+        COALESCE(c.notify_overdue_assets, true) = true
+        AND (grouped.due_assets > 0 OR grouped.overdue_assets > 0)
+      )
+       OR (COALESCE(c.notify_failed_assets, true) = true AND grouped.failed_assets > 0)
+       OR (COALESCE(c.notify_expiring_certificates, true) = true AND COALESCE(expiring.expiring_certificates, 0) > 0)
+       ${visitTablesAvailable ? "OR (COALESCE(c.notify_visit_exceptions, true) = true AND COALESCE(visit_exceptions.unresolved_visit_items, 0) > 0)" : ""}
     ORDER BY
       grouped.overdue_assets DESC,
       grouped.failed_assets DESC,

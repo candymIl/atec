@@ -1289,6 +1289,7 @@ function loadGoogleMaps() {
 
 function renderCustomerForm(customer = null) {
   const isEditing = Boolean(customer)
+  const notificationLeadDays = Number(customer?.notification_lead_days ?? 30)
 
   document.querySelector('#page').innerHTML = `
     <div class="customer-form-page">
@@ -1316,6 +1317,49 @@ function renderCustomerForm(customer = null) {
         </div>
 
         <div id="customerAddressMap" class="customer-address-map" ${GOOGLE_MAPS_API_KEY ? '' : 'hidden'} aria-label="Selected customer address map"></div>
+
+        <fieldset class="customer-notification-preferences">
+          <legend>Notification Preferences</legend>
+          <div class="customer-notification-grid">
+            <label>
+              <input
+                id="notifyExpiringCertificates"
+                type="checkbox"
+                ${customer?.notify_expiring_certificates === false ? '' : 'checked'}
+              >
+              Certificate expiry reminders
+            </label>
+            <label>
+              <input
+                id="notifyOverdueAssets"
+                type="checkbox"
+                ${customer?.notify_overdue_assets === false ? '' : 'checked'}
+              >
+              Overdue asset reminders
+            </label>
+            <label>
+              <input
+                id="notifyFailedAssets"
+                type="checkbox"
+                ${customer?.notify_failed_assets === false ? '' : 'checked'}
+              >
+              Failed asset alerts
+            </label>
+            <label>
+              <input
+                id="notifyVisitExceptions"
+                type="checkbox"
+                ${customer?.notify_visit_exceptions === false ? '' : 'checked'}
+              >
+              Visit exception alerts
+            </label>
+          </div>
+          <div class="form-group customer-notification-days">
+            <label for="notificationLeadDays">Expiry reminder days</label>
+            <input id="notificationLeadDays" type="number" min="0" max="365" value="${safeAttr(Number.isFinite(notificationLeadDays) ? notificationLeadDays : 30)}">
+          </div>
+        </fieldset>
+
         <p id="customerFormError" class="login-error" hidden></p>
 
         <div class="form-actions">
@@ -1737,6 +1781,7 @@ window.saveCustomer = async function (event, clientid) {
 
   const clientname = document.querySelector('#customerName')?.value.trim() || ''
   const clientaddr = document.querySelector('#customerAddress')?.value.trim() || ''
+  const notificationLeadDays = Math.max(0, Number(document.querySelector('#notificationLeadDays')?.value || 30) || 30)
   const saveButton = document.querySelector('#saveCustomerButton')
   const errorElement = document.querySelector('#customerFormError')
 
@@ -1754,7 +1799,15 @@ window.saveCustomer = async function (event, clientid) {
     const response = await fetch(clientid ? `${API_BASE}/customers/${clientid}` : `${API_BASE}/customers`, {
       method: clientid ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientname, clientaddr })
+      body: JSON.stringify({
+        clientname,
+        clientaddr,
+        notify_expiring_certificates: document.querySelector('#notifyExpiringCertificates')?.checked === true,
+        notify_overdue_assets: document.querySelector('#notifyOverdueAssets')?.checked === true,
+        notify_failed_assets: document.querySelector('#notifyFailedAssets')?.checked === true,
+        notify_visit_exceptions: document.querySelector('#notifyVisitExceptions')?.checked === true,
+        notification_lead_days: notificationLeadDays
+      })
     })
     const result = await readApiResponse(response)
 
@@ -9218,7 +9271,12 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
   if (!response.ok) {
     const errorMessage = savedInspection.error || "An unexpected server error occurred"
     const referenceMessage = savedInspection.referenceId ? `\nReference: ${savedInspection.referenceId}` : ""
-    alert("Error saving inspection: " + errorMessage + referenceMessage)
+    const userMessage = response.status >= 500
+      ? `The inspection was not saved because the server encountered a problem. Please keep this page open and contact the system administrator.${referenceMessage}`
+      : response.status === 401
+        ? "Your session has expired. Please sign in again before saving this inspection."
+        : `Error saving inspection: ${errorMessage}${referenceMessage}`
+    alert(userMessage)
     window.inspectionSaveInProgress = false
     document.querySelectorAll(".crane-wizard-nav button, .filter-card button").forEach(button => {
       button.disabled = false

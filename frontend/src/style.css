@@ -612,6 +612,56 @@ input[type="radio"] {
   max-width: none;
 }
 
+.customer-notification-preferences {
+  border: 1px solid #d9e1ec;
+  border-radius: 8px;
+  margin: 16px 0;
+  padding: 14px;
+}
+
+.customer-notification-preferences legend {
+  color: #12345a;
+  font-weight: 800;
+  padding: 0 6px;
+}
+
+.customer-notification-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.customer-notification-grid label {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.customer-notification-days {
+  margin-top: 14px;
+  max-width: 220px;
+}
+
+.customer-notification-status {
+  border-radius: 999px;
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.customer-notification-status.enabled {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.customer-notification-status.disabled {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .checkbox-row {
   margin: 12px 0 18px 0;
 }

@@ -9,6 +9,9 @@ Task 16 adds notification workflows on top of the customer portal, due-asset cov
 - Dashboard Notification Centre grouped by customer and site.
 - Counts for due assets, overdue assets, expiring certificates, failed assets, open visits, unresolved visit items, and deferred follow-ups due.
 - Customer portal recipient readiness based on active customer users with email addresses.
+- Customer notification preferences on the Customer Setup form.
+- Per-customer toggles for certificate expiry, overdue assets, failed assets, and visit exceptions.
+- Per-customer expiry reminder lead days.
 - CSV export of the notification rows.
 - Customer report shortcut from each notification row.
 - Dashboard summary cache includes notification data.
@@ -19,11 +22,11 @@ Task 16 adds notification workflows on top of the customer portal, due-asset cov
 - Internal dashboard roles use the same dashboard access as existing operational alerts.
 - Customer/viewer scoping follows the existing dashboard customer scope.
 - Customer portal users are counted as recipients only when active and carrying an email address.
+- Notification Centre rows respect the customer preference toggles before showing counts.
 
 ## Not Yet In This Slice
 
 - Automatic email sending.
-- Customer opt-in/opt-out preferences.
 - Scheduled daily or weekly jobs.
 - Per-event notification audit records.
 - Email templates for due assets, visit exceptions, or portal events.

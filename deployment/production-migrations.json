@@ -1,0 +1,7 @@
+{
+  "schema": "atec",
+  "migrations": [
+    "2026-07-18-task16-customer-notification-preferences.sql",
+    "2026-07-18-void-inspections-entered-in-error.sql"
+  ]
+}

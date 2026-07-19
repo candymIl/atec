@@ -12,6 +12,7 @@ SITE_URL="${ATEC_SITE_URL:-https://www.atecinspections.co.za}"
 API_HEALTH_URL="${ATEC_API_HEALTH_URL:-$SITE_URL/api/health}"
 VITE_BASE_PATH="${VITE_BASE_PATH:-/}"
 VITE_API_URL="${VITE_API_URL:-$SITE_URL/api}"
+FRONTEND_ENV_FILE="$PROJECT_DIR/frontend/.env.production"
 ENV_FILE="$PROJECT_DIR/backend/.env"
 ENV_BACKUP="$PROJECT_DIR/backend/.env.live.backup"
 NPM_LOCK_DRIFT_FILES=(
@@ -83,10 +84,23 @@ else
 fi
 
 echo "Building frontend..."
+if [ -z "${VITE_GOOGLE_MAPS_API_KEY:-}" ] && [ ! -f "$FRONTEND_ENV_FILE" ]; then
+  echo "ERROR: Google Maps is not configured for the production frontend build."
+  echo "Set VITE_GOOGLE_MAPS_API_KEY in frontend/.env.production, then rerun this deploy."
+  exit 1
+fi
+
+if [ -f "$FRONTEND_ENV_FILE" ] && ! grep -Eq '^VITE_GOOGLE_MAPS_API_KEY=.+$' "$FRONTEND_ENV_FILE"; then
+  echo "ERROR: VITE_GOOGLE_MAPS_API_KEY is missing or empty in frontend/.env.production."
+  exit 1
+fi
+
 export VITE_BASE_PATH
 export VITE_API_URL
+export VITE_GOOGLE_MAPS_API_KEY
 echo "Frontend base path: $VITE_BASE_PATH"
 echo "Frontend API URL: $VITE_API_URL"
+echo "Google Maps configuration: present"
 npm run build
 
 echo "Installing backend packages..."
@@ -101,6 +115,16 @@ cd "$PROJECT_DIR"
 for drift_file in "${NPM_LOCK_DRIFT_FILES[@]}"; do
   git restore -- "$drift_file" >/dev/null 2>&1 || true
 done
+
+echo "Checking production database compatibility..."
+echo "Creating a verified pre-migration backup..."
+npm run backup:create
+
+echo "Applying approved production migrations..."
+node "$PROJECT_DIR/scripts/apply-production-migrations.js"
+
+echo "Verifying the production database schema..."
+node "$PROJECT_DIR/scripts/check-production-schema.js"
 
 echo "Restarting backend..."
 if pm2 describe "$PM2_APP" >/dev/null 2>&1; then

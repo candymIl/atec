@@ -1,0 +1,45 @@
+{
+  "schema": "atec",
+  "requirements": [
+    {
+      "table": "tblinspection",
+      "columns": ["inspectionfrequency"],
+      "migration": "2026-07-14-inspection-frequency.sql"
+    },
+    {
+      "table": "tblinspection",
+      "columns": ["tagnumber"],
+      "migration": "2026-07-15-task12a-optional-inspection-tag.sql"
+    },
+    {
+      "table": "tblasset",
+      "columns": ["nfc_token", "nfc_enabled", "nfc_issued_at", "nfc_revoked_at"],
+      "migration": "2026-07-15-task13-nfc-asset-support.sql"
+    },
+    {
+      "table": "tblinspectionvisit",
+      "columns": ["visitid", "visit_status", "visit_type"],
+      "migration": "2026-07-15-task14-onsite-inspection-visits.sql"
+    },
+    {
+      "table": "tblinspectionvisitasset",
+      "columns": ["visitassetid", "visitid", "assetid"],
+      "migration": "2026-07-15-task14-onsite-inspection-visits.sql"
+    },
+    {
+      "table": "tblinspectionvisitactivity",
+      "columns": ["visitactivityid", "visitid", "activity_type"],
+      "migration": "2026-07-15-task14-onsite-inspection-visits.sql"
+    },
+    {
+      "table": "tblinspection",
+      "columns": ["record_status", "voided_at", "voided_by_user_id", "void_reason"],
+      "migration": "2026-07-18-void-inspections-entered-in-error.sql"
+    },
+    {
+      "table": "tblclients",
+      "columns": ["notify_expiring_certificates", "notify_overdue_assets", "notify_failed_assets", "notify_visit_exceptions", "notification_lead_days"],
+      "migration": "2026-07-18-task16-customer-notification-preferences.sql"
+    }
+  ]
+}
