@@ -864,6 +864,33 @@ async function customerUserSiteBelongsToClient(client, { siteid, clientid }) {
   return result.rows.length > 0
 }
 
+async function resolveCustomerPortalScope(user) {
+  const emailName = String(user?.email || user?.username || "").split("@")[0]
+  const normalizedEmailName = emailName.replace(/[^a-z0-9]/gi, "").toLowerCase()
+
+  if (!user?.clientid || !normalizedEmailName) {
+    return { responsibleid: null, siteid: user?.siteid || null, sectionid: user?.sectionid || null }
+  }
+
+  const result = await pool.query(
+    `
+    SELECT personid
+    FROM atec.tblpeople
+    WHERE clientid = $1
+      AND COALESCE(archived, false) = false
+      AND lower(regexp_replace(name, '[^a-zA-Z0-9]', '', 'g')) = $2
+    LIMIT 2
+    `,
+    [user.clientid, normalizedEmailName]
+  )
+
+  if (result.rows.length === 1) {
+    return { responsibleid: result.rows[0].personid, siteid: null, sectionid: null }
+  }
+
+  return { responsibleid: null, siteid: user.siteid || null, sectionid: user.sectionid || null }
+}
+
 async function getActiveVisitLocation(client, { clientid, siteid, sectionid = null }) {
   if (!clientid || !siteid) return null
 
@@ -1184,8 +1211,10 @@ app.get("/customer-portal/summary", requireAuth, trackActiveUser, asyncRoute(asy
   }
 
   const effectiveClientId = req.user.clientid
-  const effectiveSiteId = req.user.siteid || null
-  const effectiveSectionId = req.user.sectionid || null
+  const portalScope = await resolveCustomerPortalScope(req.user)
+  const effectiveResponsibleId = portalScope.responsibleid
+  const effectiveSiteId = portalScope.siteid
+  const effectiveSectionId = portalScope.sectionid
 
   if (!effectiveClientId) {
     return res.status(400).json({ error: "No customer is linked to this user." })
@@ -1215,6 +1244,7 @@ app.get("/customer-portal/summary", requireAuth, trackActiveUser, asyncRoute(asy
         AND COALESCE(archived, false) = false
         AND ($2::int IS NULL OR siteid = $2)
         AND ($3::int IS NULL OR sectionid = $3)
+        AND ($4::int IS NULL OR responsibleid = $4)
     ),
     latest_visual AS (
       SELECT DISTINCT ON (i.assetid)
@@ -1253,7 +1283,7 @@ app.get("/customer-portal/summary", requireAuth, trackActiveUser, asyncRoute(asy
     LEFT JOIN latest_visual ON latest_visual.assetid = a.assetid
     LEFT JOIN latest_load ON latest_load.assetid = a.assetid
     `,
-    [effectiveClientId, effectiveSiteId, effectiveSectionId]
+    [effectiveClientId, effectiveSiteId, effectiveSectionId, effectiveResponsibleId]
   )
 
   const certificateSummary = await pool.query(
@@ -1272,8 +1302,9 @@ app.get("/customer-portal/summary", requireAuth, trackActiveUser, asyncRoute(asy
     WHERE a.clientid = $1
       AND ($2::int IS NULL OR a.siteid = $2)
       AND ($3::int IS NULL OR a.sectionid = $3)
+      AND ($4::int IS NULL OR a.responsibleid = $4)
     `,
-    [effectiveClientId, effectiveSiteId, effectiveSectionId]
+    [effectiveClientId, effectiveSiteId, effectiveSectionId, effectiveResponsibleId]
   )
 
   const recentCertificates = await pool.query(
@@ -1297,10 +1328,11 @@ app.get("/customer-portal/summary", requireAuth, trackActiveUser, asyncRoute(asy
     WHERE a.clientid = $1
       AND ($2::int IS NULL OR a.siteid = $2)
       AND ($3::int IS NULL OR a.sectionid = $3)
+      AND ($4::int IS NULL OR a.responsibleid = $4)
     ORDER BY i.testdate DESC NULLS LAST, i.testid DESC
     LIMIT 8
     `,
-    [effectiveClientId, effectiveSiteId, effectiveSectionId]
+    [effectiveClientId, effectiveSiteId, effectiveSectionId, effectiveResponsibleId]
   )
 
   let visitSummary = {
@@ -1368,14 +1400,20 @@ app.get("/customer-portal/assets", requireAuth, trackActiveUser, asyncRoute(asyn
   const status = String(req.query.status || "").trim().toUpperCase()
   const values = [effectiveClientId]
   const filters = ["a.clientid = $1", "COALESCE(a.archived, false) = false"]
+  const portalScope = await resolveCustomerPortalScope(req.user)
 
-  if (req.user.siteid) {
-    values.push(req.user.siteid)
+  if (portalScope.responsibleid) {
+    values.push(portalScope.responsibleid)
+    filters.push(`a.responsibleid = $${values.length}`)
+  }
+
+  if (portalScope.siteid) {
+    values.push(portalScope.siteid)
     filters.push(`a.siteid = $${values.length}`)
   }
 
-  if (req.user.sectionid) {
-    values.push(req.user.sectionid)
+  if (portalScope.sectionid) {
+    values.push(portalScope.sectionid)
     filters.push(`a.sectionid = $${values.length}`)
   }
 

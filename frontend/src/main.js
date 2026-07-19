@@ -1114,6 +1114,17 @@ async function loadData() {
 
   assets = []
 
+  if (currentUser.role === 'CUSTOMER') {
+    customers = []
+    sites = []
+    responsiblePersons = []
+    sections = []
+    equipmentTypes = []
+    dashboardStats = {}
+    criteria = []
+    window.atecCriteria = []
+  } else {
+
   try {
     const [
       customersData,
@@ -1147,6 +1158,7 @@ async function loadData() {
       err.cause || {}
     )
     return
+  }
   }
 
          document.querySelector('#app').innerHTML = `
