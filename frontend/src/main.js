@@ -273,7 +273,7 @@ function renderLogin(message = '') {
   window.removePageScrollControls?.()
   document.querySelector('#app').innerHTML = `
     <div class="login-page">
-      <div class="login-card">
+      <form class="login-card" onsubmit="event.preventDefault(); loginUser()">
         <img src="${assetUrl('logo.jpg')}" alt="ATEC Logo" class="login-logo">
         <h1>ATEC Login</h1>
         ${message ? `<p class="login-error">${message}</p>` : ''}
@@ -281,8 +281,8 @@ function renderLogin(message = '') {
         <input id="loginUsername" type="text" autocomplete="username">
         <label>Password</label>
         <input id="loginPassword" type="password" autocomplete="current-password">
-        <button onclick="loginUser()">Login</button>
-      </div>
+        <button type="submit">Login</button>
+      </form>
     </div>
   `
 }
@@ -521,13 +521,11 @@ window.showUserManagement = async function () {
   const [
     response,
     userCustomers,
-    userSites,
-    userSections
+    userSites
   ] = await Promise.all([
     fetch(`${API_BASE}/users`),
     fetchJsonOrDefault(`${API_BASE}/customers`, []),
-    fetchJsonOrDefault(`${API_BASE}/sites`, []),
-    fetchJsonOrDefault(`${API_BASE}/sections`, [])
+    fetchJsonOrDefault(`${API_BASE}/sites`, [])
   ])
   const users = await response.json()
 
@@ -538,8 +536,7 @@ window.showUserManagement = async function () {
 
   window.userManagementLookups = {
     customers: userCustomers,
-    sites: userSites,
-    sections: userSections
+    sites: userSites
   }
 
   const managementMode = getUserManagementMode()
@@ -591,6 +588,9 @@ window.showUserManagement = async function () {
           <input
             id="newUserUsername"
             type="text"
+            autocomplete="off"
+            data-1p-ignore
+            data-lpignore="true"
             ${managementMode === 'customers' ? 'readonly placeholder="Filled from email address"' : ''}
           >
         </div>
@@ -600,7 +600,7 @@ window.showUserManagement = async function () {
         </div>
         <div class="form-group">
           <label>Password</label>
-          <input id="newUserPassword" type="password">
+          <input id="newUserPassword" type="password" autocomplete="new-password" data-1p-ignore data-lpignore="true">
         </div>
         <div class="form-group">
           <label>Full Name</label>
@@ -616,23 +616,17 @@ window.showUserManagement = async function () {
           <label>LMI Number</label>
           <input id="newUserLmi" type="text">
         </div>
-        <div class="form-group">
-          <label>Customer Name</label>
-          <select id="newUserClientId">
-            ${renderUserLookupOptions(userCustomers, "clientid", "clientname", "", "No customer selected")}
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Site Name</label>
-          <select id="newUserSiteId">
-            ${renderUserLookupOptions(userSites, "siteid", "sitename", "", "No site selected")}
-          </select>
-        </div>
-        ${managementMode === 'internal' ? `
+        ${managementMode === 'customers' ? `
           <div class="form-group">
-            <label>Section Name</label>
-            <select id="newUserSectionId">
-              ${renderUserLookupOptions(userSections, "sectionid", "sectionname", "", "No section selected")}
+            <label>Customer Name</label>
+            <select id="newUserClientId">
+              ${renderUserLookupOptions(userCustomers, "clientid", "clientname", "", "No customer selected")}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Site Name</label>
+            <select id="newUserSiteId">
+              ${renderUserLookupOptions(userSites, "siteid", "sitename", "", "No site selected")}
             </select>
           </div>
         ` : ''}
@@ -678,9 +672,10 @@ window.showUserManagement = async function () {
           <th>${userSortHeader('Full Name', 'full_name')}</th>
           <th>${userSortHeader('Role', 'role')}</th>
           <th>${userSortHeader('LMI Number', 'lmi_number')}</th>
-          <th>${userSortHeader('Customer Name', 'clientid')}</th>
-          <th>${userSortHeader('Site Name', 'siteid')}</th>
-          ${managementMode === 'internal' ? `<th>${userSortHeader('Section Name', 'sectionid')}</th>` : ''}
+          ${managementMode === 'customers' ? `
+            <th>${userSortHeader('Customer Name', 'clientid')}</th>
+            <th>${userSortHeader('Site Name', 'siteid')}</th>
+          ` : ''}
           <th>${userSortHeader('Active', 'is_active')}</th>
           <th>${userSortHeader('Signature', 'signature_image')}</th>
           <th>Actions</th>
@@ -700,20 +695,15 @@ window.showUserManagement = async function () {
               </select>
             </td>
             <td><input id="user-lmi-${safeAttr(user.user_id)}" value="${safeAttr(user.lmi_number || '')}"></td>
-            <td>
-              <select id="user-client-${user.user_id}">
-                ${renderUserLookupOptions(userCustomers, "clientid", "clientname", user.clientid, "No customer selected")}
-              </select>
-            </td>
-            <td>
-              <select id="user-site-${user.user_id}">
-                ${renderUserLookupOptions(userSites, "siteid", "sitename", user.siteid, "No site selected")}
-              </select>
-            </td>
-            ${managementMode === 'internal' ? `
+            ${managementMode === 'customers' ? `
               <td>
-                <select id="user-section-${user.user_id}">
-                  ${renderUserLookupOptions(userSections, "sectionid", "sectionname", user.sectionid, "No section selected")}
+                <select id="user-client-${user.user_id}">
+                  ${renderUserLookupOptions(userCustomers, "clientid", "clientname", user.clientid, "No customer selected")}
+                </select>
+              </td>
+              <td>
+                <select id="user-site-${user.user_id}">
+                  ${renderUserLookupOptions(userSites, "siteid", "sitename", user.siteid, "No site selected")}
                 </select>
               </td>
             ` : ''}
@@ -736,7 +726,7 @@ window.showUserManagement = async function () {
           </tr>
         `).join('') : `
           <tr>
-            <td class="user-list-empty" colspan="${managementMode === 'internal' ? 11 : 10}">
+            <td class="user-list-empty" colspan="${managementMode === 'internal' ? 8 : 10}">
               No ${statusFilter === 'both' ? '' : `${statusFilter} `}${managementMode === 'customers' ? 'customer portal users' : 'ATEC users'} found.
             </td>
           </tr>
@@ -753,7 +743,9 @@ window.createUser = async function () {
   const role = managementMode === 'customers'
     ? 'CUSTOMER'
     : document.querySelector('#newUserRole').value
-  const clientid = document.querySelector('#newUserClientId').value
+  const clientid = managementMode === 'customers'
+    ? document.querySelector('#newUserClientId').value
+    : null
   const email = document.querySelector('#newUserEmail').value.trim()
   const username = managementMode === 'customers'
     ? email
@@ -780,10 +772,10 @@ window.createUser = async function () {
       role,
       lmi_number: document.querySelector('#newUserLmi').value,
       clientid,
-      siteid: document.querySelector('#newUserSiteId').value,
-      sectionid: managementMode === 'customers'
-        ? null
-        : document.querySelector('#newUserSectionId')?.value || null
+      siteid: managementMode === 'customers'
+        ? document.querySelector('#newUserSiteId').value
+        : null,
+      sectionid: null
     })
   })
 
@@ -815,11 +807,13 @@ window.saveUser = async function (userId) {
       full_name: document.querySelector(`#user-name-${userId}`).value,
       role: document.querySelector(`#user-role-${userId}`).value,
       lmi_number: document.querySelector(`#user-lmi-${userId}`).value,
-      clientid: document.querySelector(`#user-client-${userId}`).value,
-      siteid: document.querySelector(`#user-site-${userId}`).value,
-      sectionid: managementMode === 'customers'
-        ? null
-        : document.querySelector(`#user-section-${userId}`)?.value || null,
+      clientid: managementMode === 'customers'
+        ? document.querySelector(`#user-client-${userId}`).value
+        : null,
+      siteid: managementMode === 'customers'
+        ? document.querySelector(`#user-site-${userId}`).value
+        : null,
+      sectionid: null,
       is_active: document.querySelector(`#user-active-${userId}`).checked
     })
   })
@@ -8286,6 +8280,9 @@ window.dashboardFindAsset = async function () {
                 <td>${escapeHtml(asset.description || "")}</td>
                 <td>${escapeHtml(asset.equipmenttype || "")}</td>
                 <td class="dashboard-search-actions">
+                  ${!canManageAssetRecords()
+                    ? `<button onclick="quickOpenAsset(${asset.assetid})">View Asset</button>`
+                    : `
                   ${
                     assetSupportsInspectionWizard(asset, criteria, 'VISUAL')
                       ? `<button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'VISUAL', 'quick', 'wizard')">${escapeHtml(wizardActionLabel(asset, criteria, 'VISUAL'))}</button>`
@@ -8296,6 +8293,7 @@ window.dashboardFindAsset = async function () {
                       ? `<button class="load-test-btn" onclick="startInspection(${asset.assetid}, 'LOADTEST', 'quick', '${assetSupportsCraneWizard(asset) ? 'wizard' : 'auto'}')">${assetSupportsCraneWizard(asset) ? 'Wizard Load Test' : 'Load Test'}</button>`
                       : ""
                   }
+                  `}
                 </td>
               </tr>
             `).join("")}
@@ -8451,7 +8449,9 @@ const dashboardReviewQueues = {
       ["Equipment", row => row.equipmenttype],
       ["Issue", row => row.issue]
     ],
-    action: row => `<button class="small-btn" onclick="editAsset(${safeAttr(row.assetid)})">Edit Asset</button>`
+    action: row => canManageAssetRecords()
+      ? `<button class="small-btn" onclick="editAsset(${safeAttr(row.assetid)})">Edit Asset</button>`
+      : `<button class="small-btn" onclick="quickOpenAsset(${safeAttr(row.assetid)})">View Asset</button>`
   },
   "types-without-criteria": {
     title: "Types Without Criteria",
@@ -8463,7 +8463,9 @@ const dashboardReviewQueues = {
       ["Sample Asset", row => row.sampleassetid],
       ["Issue", row => row.issue]
     ],
-    action: row => `<button class="small-btn" onclick="openCriteriaForEquipmentType(${safeAttr(row.equiptypeid)})">Open Criteria</button>`
+    action: row => currentUser?.role === 'ADMIN'
+      ? `<button class="small-btn" onclick="openCriteriaForEquipmentType(${safeAttr(row.equiptypeid)})">Open Criteria</button>`
+      : `<button class="small-btn" onclick="showCustomerDetailedReport(${safeAttr(JSON.stringify({ equiptypeid: row.equiptypeid, autoLoad: true }))})">View Assets</button>`
   },
   overdue: {
     title: "Overdue Assets",

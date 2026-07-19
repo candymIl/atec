@@ -1578,9 +1578,17 @@ function authorizeRequest(req, res, next) {
   }
 
   if (role === "VIEWER") {
+    if (method === "POST" && /^\/certificates\/[^/]+\/email$/.test(routePath)) {
+      return next()
+    }
+
     if (
       isRead &&
       (
+        routePath === "/customers" ||
+        routePath === "/sites" ||
+        routePath === "/sections" ||
+        routePath === "/responsible-persons" ||
         routePath.startsWith("/assets") ||
         routePath.startsWith("/certificates") ||
         routePath.includes("/certificate") ||
@@ -2081,9 +2089,9 @@ app.post("/users", asyncRoute(async (req, res) => {
       roleToUserLevel(role),
       role,
       lmi_number ? String(lmi_number).trim() : null,
-      clientid || null,
-      siteid || null,
-      role === "CUSTOMER" ? null : sectionid || null,
+      role === "CUSTOMER" ? clientid || null : null,
+      role === "CUSTOMER" ? siteid || null : null,
+      null,
       is_active
     ]
   )
@@ -2162,9 +2170,9 @@ app.put("/users/:id", asyncRoute(async (req, res) => {
     roleToUserLevel(role),
     role,
     lmi_number ? String(lmi_number).trim() : null,
-    clientid || null,
-    siteid || null,
-    role === "CUSTOMER" ? null : sectionid || null,
+    role === "CUSTOMER" ? clientid || null : null,
+    role === "CUSTOMER" ? siteid || null : null,
+    null,
     is_active === false ? false : true,
     req.params.id
   ]
@@ -10243,7 +10251,7 @@ app.get("/dashboard/visual-due", async (req, res) => {
 })
 
 function dashboardClientScope(req, tableAlias = "a", prefix = "AND") {
-  if (["CUSTOMER", "VIEWER"].includes(req.user?.role) && req.user?.clientid) {
+  if (req.user?.role === "CUSTOMER" && req.user?.clientid) {
     return {
       clause: `${prefix} ${tableAlias}.clientid = $1`,
       values: [req.user.clientid]
@@ -10296,11 +10304,11 @@ function customerReportFilters(query = {}) {
 function customerScopedReportFilters(req) {
   const filters = customerReportFilters(req.query)
 
-  if (["CUSTOMER", "VIEWER"].includes(req.user.role) && req.user.clientid) {
+  if (req.user.role === "CUSTOMER" && req.user.clientid) {
     filters.clientid = req.user.clientid || "-1"
   }
 
-  if (["CUSTOMER", "VIEWER"].includes(req.user.role) && !req.user.clientid) {
+  if (req.user.role === "CUSTOMER" && !req.user.clientid) {
     filters.clientid = "-1"
   }
 
@@ -11467,9 +11475,7 @@ app.get("/dashboard/review-queue/:queue", async (req, res) => {
 
 app.get("/dashboard/top-customers", async (req, res) => {
   try {
-    const scopedToClient =
-      ["CUSTOMER", "VIEWER"].includes(req.user?.role) &&
-      req.user?.clientid
+    const scopedToClient = req.user?.role === "CUSTOMER" && req.user?.clientid
 
     const whereClause = scopedToClient ? "WHERE c.clientid = $1" : ""
     const values = scopedToClient ? [req.user.clientid] : []
@@ -11501,9 +11507,7 @@ app.get("/dashboard/top-customers", async (req, res) => {
 
 app.get("/dashboard/equipment-by-type", async (req, res) => {
   try {
-    const scopedToClient =
-      ["CUSTOMER", "VIEWER"].includes(req.user?.role) &&
-      req.user?.clientid
+    const scopedToClient = req.user?.role === "CUSTOMER" && req.user?.clientid
 
     const clientFilter = scopedToClient ? "AND a.clientid = $1" : ""
     const values = scopedToClient ? [req.user.clientid] : []

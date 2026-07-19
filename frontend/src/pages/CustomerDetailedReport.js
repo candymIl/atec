@@ -5,6 +5,9 @@ import { escapeHtml, safeAttr } from '../utils/security.js'
 let currentReport = null
 let currentReportPage = 1
 let currentReportPageSize = 25
+let reportSites = []
+let reportSections = []
+let reportResponsiblePersons = []
 
 export function renderCustomerDetailedReport(customers = [], equipmentTypes = [], sites = [], sections = [], responsiblePersons = [], options = {}) {
   const isActive = item => item.archived !== true && item.archived !== 'true'
@@ -12,6 +15,9 @@ export function renderCustomerDetailedReport(customers = [], equipmentTypes = []
   sites = sites.filter(isActive)
   sections = sections.filter(isActive)
   responsiblePersons = responsiblePersons.filter(isActive)
+  reportSites = sites
+  reportSections = sections
+  reportResponsiblePersons = responsiblePersons
   const sortedCustomers = [...customers].sort((a, b) =>
     (a.clientname || "").localeCompare(b.clientname || "")
   )
@@ -159,6 +165,9 @@ export function renderCustomerDetailedReport(customers = [], equipmentTypes = []
     }
   }
 
+  refreshCustomerReportHierarchy()
+  applyCustomerReportOptions(options)
+
   updateCustomerReportLinks()
 
   if (options?.autoLoad) {
@@ -167,13 +176,25 @@ export function renderCustomerDetailedReport(customers = [], equipmentTypes = []
 }
 
 function bindCustomerReportEvents() {
+  document.querySelector("#customerReportClient")?.addEventListener("change", () => {
+    refreshCustomerReportHierarchy({ resetSite: true, resetSection: true, resetResponsible: true })
+    customerReportFilterChanged()
+  })
+
+  document.querySelector("#customerReportSite")?.addEventListener("change", () => {
+    refreshCustomerReportHierarchy({ resetSection: true, resetResponsible: true })
+    customerReportFilterChanged()
+  })
+
+  document.querySelector("#customerReportSection")?.addEventListener("change", () => {
+    refreshCustomerReportHierarchy({ resetResponsible: true })
+    customerReportFilterChanged()
+  })
+
   document
-    .querySelectorAll("#customerReportClient, #customerReportSite, #customerReportSection, #customerReportResponsible, #customerReportEquipment, #customerReportDateFrom, #customerReportDateTo")
+    .querySelectorAll("#customerReportResponsible, #customerReportEquipment, #customerReportDateFrom, #customerReportDateTo")
     .forEach(input => {
-      input.addEventListener("change", () => {
-        currentReportPage = 1
-        updateCustomerReportLinks()
-      })
+      input.addEventListener("change", customerReportFilterChanged)
     })
 
   document
@@ -182,6 +203,102 @@ function bindCustomerReportEvents() {
       currentReportPage = 1
       loadCustomerDetailedReport()
     })
+}
+
+function applyCustomerReportOptions(options = {}) {
+  const siteSelect = document.querySelector("#customerReportSite")
+  if (options.siteid && siteSelect) {
+    siteSelect.value = String(options.siteid)
+    refreshCustomerReportHierarchy()
+  }
+
+  const sectionSelect = document.querySelector("#customerReportSection")
+  if (options.sectionid && sectionSelect) {
+    sectionSelect.value = String(options.sectionid)
+    refreshCustomerReportHierarchy()
+  }
+
+  const optionValues = {
+    customerReportResponsible: options.responsibleid,
+    customerReportEquipment: options.equiptypeid,
+    customerReportDateFrom: options.datefrom,
+    customerReportDateTo: options.dateto
+  }
+
+  Object.entries(optionValues).forEach(([id, value]) => {
+    if (value === undefined || value === null || value === "") return
+    const input = document.querySelector(`#${id}`)
+    if (input) input.value = String(value)
+  })
+}
+
+function customerReportFilterChanged() {
+  currentReportPage = 1
+  updateCustomerReportLinks()
+}
+
+function refreshCustomerReportHierarchy(options = {}) {
+  const customerSelect = document.querySelector("#customerReportClient")
+  const siteSelect = document.querySelector("#customerReportSite")
+  const sectionSelect = document.querySelector("#customerReportSection")
+  const responsibleSelect = document.querySelector("#customerReportResponsible")
+  if (!customerSelect || !siteSelect || !sectionSelect || !responsibleSelect) return
+
+  const clientid = customerSelect.value
+  const previousSite = options.resetSite ? "" : siteSelect.value
+  const filteredSites = clientid
+    ? reportSites.filter(site => String(site.clientid) === String(clientid))
+    : reportSites
+
+  siteSelect.innerHTML = reportFilterOptions(filteredSites, "siteid", "sitename", "All Sites")
+  if (filteredSites.some(site => String(site.siteid) === String(previousSite))) {
+    siteSelect.value = previousSite
+  }
+
+  const siteid = siteSelect.value
+  const previousSection = options.resetSection ? "" : sectionSelect.value
+  const filteredSections = reportSections.filter(section => {
+    if (siteid) return String(section.siteid) === String(siteid)
+    if (clientid) return String(section.clientid) === String(clientid)
+    return true
+  })
+
+  sectionSelect.innerHTML = reportFilterOptions(filteredSections, "sectionid", "sectionname", "All Sections")
+  if (filteredSections.some(section => String(section.sectionid) === String(previousSection))) {
+    sectionSelect.value = previousSection
+  }
+
+  const sectionid = sectionSelect.value
+  const allowedResponsibleIds = new Set(
+    filteredSections
+      .filter(section => !sectionid || String(section.sectionid) === String(sectionid))
+      .map(section => String(section.responsibleid || ""))
+      .filter(Boolean)
+  )
+  const previousResponsible = options.resetResponsible ? "" : responsibleSelect.value
+  const filteredResponsible = reportResponsiblePersons.filter(person => {
+    if (clientid && String(person.clientid) !== String(clientid)) return false
+    if ((siteid || sectionid) && !allowedResponsibleIds.has(String(person.personid))) return false
+    return true
+  })
+
+  responsibleSelect.innerHTML = reportFilterOptions(filteredResponsible, "personid", "name", "All Responsible Persons")
+  if (filteredResponsible.some(person => String(person.personid) === String(previousResponsible))) {
+    responsibleSelect.value = previousResponsible
+  }
+}
+
+function reportFilterOptions(rows, valueKey, labelKey, allLabel) {
+  const sortedRows = [...rows].sort((a, b) =>
+    String(a[labelKey] || "").localeCompare(String(b[labelKey] || ""))
+  )
+
+  return `
+    <option value="">${allLabel}</option>
+    ${sortedRows.map(row => `
+      <option value="${safeAttr(row[valueKey])}">${escapeHtml(row[labelKey] || "")}</option>
+    `).join("")}
+  `
 }
 
 function updateCustomerReportLinks() {
