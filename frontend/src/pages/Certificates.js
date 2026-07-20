@@ -3,6 +3,12 @@ import { getTableSortState, sortTableRows } from '../tableSort.js'
 import { API_BASE, assetUrl } from '../api.js'
 import { escapeHtml, safeAttr } from '../utils/security.js'
 
+const certificateVoidRoles = ["ADMIN", "MANAGER", "INSPECTOR"]
+
+function canVoidCertificates() {
+  return certificateVoidRoles.includes(window.currentUser?.role)
+}
+
 async function readCertificateJson(response) {
   const text = await response.text()
 
@@ -571,7 +577,7 @@ function renderCertificateResults(certificates) {
     return
   }
 
-  const canVoidCertificates = window.currentUser?.role === "ADMIN"
+  const showVoidCertificateAction = canVoidCertificates()
 
   const sortedCertificates = window.currentCertificatePageInfo ? certificates : sortTableRows(certificates, 'certificates', {
     testid: cert => cert.testid,
@@ -660,14 +666,15 @@ function renderCertificateResults(certificates) {
                 Mail
               </button>
 
-              ${canVoidCertificates ? `
+              ${showVoidCertificateAction ? `
                 <button
                   type="button"
                   class="cert-delete-btn"
                   data-testid="${testid}"
-                  title="Remove this mistaken certificate from normal lists and retain it in the audit history"
+                  title="Mark this certificate as entered in error and retain it in the audit history"
+                  aria-label="Mark certificate ${testid} as entered in error"
                 >
-                  Remove Error
+                  Mark as Error
                 </button>
               ` : ""}
             </td>
@@ -1420,8 +1427,8 @@ window.mailCertificate = async function (testid) {
 }
 
 window.deleteCertificate = async function (testid) {
-  if (window.currentUser?.role !== "ADMIN") {
-    alert("Only admins may void certificates.")
+  if (!canVoidCertificates()) {
+    alert("Only inspectors, managers, and administrators may mark certificates as entered in error.")
     return
   }
 

@@ -432,12 +432,12 @@ function renderCustomerReportPreview(report) {
         ${summaryTile("Customers", report.summary.customers)}
         ${summaryTile("Assets", report.summary.assets)}
         ${summaryTile("Active Assets", report.summary.activeAssets)}
-        ${summaryTile("OK", report.summary.safeAssets)}
-        ${summaryTile("Not Safe", report.summary.notSafeAssets)}
-        ${summaryTile("Incomplete", report.summary.incompleteInspectionAssets)}
-        ${summaryTile("Missing Metadata", report.summary.missingCertificateMetadataAssets)}
-        ${summaryTile("Visual Overdue", report.summary.visualOverdueAssets)}
-        ${summaryTile("Load Overdue", report.summary.loadOverdueAssets)}
+        ${summaryTile("OK", report.summary.safeAssets, "OK")}
+        ${summaryTile("Not Safe", report.summary.notSafeAssets, "NOT SAFE")}
+        ${summaryTile("Incomplete", report.summary.incompleteInspectionAssets, "INCOMPLETE INSPECTION")}
+        ${summaryTile("Missing Metadata", report.summary.missingCertificateMetadataAssets, "MISSING CERTIFICATE METADATA")}
+        ${summaryTile("Visual Overdue", report.summary.visualOverdueAssets, "VISUAL OVERDUE")}
+        ${summaryTile("Load Overdue", report.summary.loadOverdueAssets, "LOAD TEST OVERDUE")}
         ${summaryTile("No Visual", report.summary.noVisualAssets, "NO VISUAL")}
         ${summaryTile("No Load Test", report.summary.noLoadAssets, "NO LOAD TEST")}
       </div>

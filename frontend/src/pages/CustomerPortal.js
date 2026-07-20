@@ -59,9 +59,9 @@ function renderRecentCertificates(rows = []) {
             <td>${escapeHtml(formatDate(row.validdate))}</td>
             <td><strong class="${statusClass(row.status)}">${escapeHtml(row.status || "-")}</strong></td>
             <td>
-              <a class="cert-action-link" href="${API_BASE}/inspections/${encodeURIComponent(row.testid)}/certificate.pdf" download>
+              <button type="button" class="cert-action-link" onclick="customerPortalDownloadCertificate(this, '${escapeHtml(row.testid)}')">
                 Download
-              </a>
+              </button>
             </td>
           </tr>
         `).join("")}
@@ -82,10 +82,53 @@ function certificateLink(testid, label = "PDF") {
   if (!testid) return "-"
 
   return `
-    <a class="cert-action-link" href="${API_BASE}/inspections/${encodeURIComponent(testid)}/certificate.pdf" download>
+    <button type="button" class="cert-action-link" onclick="customerPortalDownloadCertificate(this, '${escapeHtml(testid)}')">
       ${escapeHtml(label)}
-    </a>
+    </button>
   `
+}
+
+async function downloadPortalCertificate(button, testid) {
+  if (!testid || button?.disabled) return
+
+  const originalLabel = button?.textContent || "Download"
+  if (button) {
+    button.disabled = true
+    button.textContent = "Preparing..."
+  }
+
+  try {
+    const response = await fetch(
+      `${API_BASE}/inspections/${encodeURIComponent(testid)}/certificate.pdf?t=${Date.now()}`
+    )
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({
+        error: "Unable to download certificate PDF."
+      }))
+      const reasons = Array.isArray(error.reasons) && error.reasons.length
+        ? `\n\n${error.reasons.join("\n")}`
+        : ""
+      throw new Error(`${error.error || "Unable to download certificate PDF."}${reasons}`)
+    }
+
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `certificate-${testid}.pdf`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch (error) {
+    alert(`Certificate download failed: ${error.message}`)
+  } finally {
+    if (button) {
+      button.disabled = false
+      button.textContent = originalLabel
+    }
+  }
 }
 
 function renderPortalAssetsTable(rows = []) {
@@ -320,6 +363,7 @@ function bindPortalAssetControls() {
 }
 
 window.loadPortalAssets = loadPortalAssets
+window.customerPortalDownloadCertificate = downloadPortalCertificate
 
 window.searchPortalAssets = function () {
   portalAssetPage = 1

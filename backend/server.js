@@ -1604,6 +1604,13 @@ function authorizeRequest(req, res, next) {
     }
 
     if (
+      method === "PUT" &&
+      /^\/assets\/[^/]+\/(archive|unarchive|move|allocate)$/.test(routePath)
+    ) {
+      return next()
+    }
+
+    if (
       ["POST", "PUT", "DELETE"].includes(method) &&
       /^\/assets\/[^/]+\/nfc/.test(routePath)
     ) {
@@ -1611,6 +1618,10 @@ function authorizeRequest(req, res, next) {
     }
 
     if (method === "POST" && /^\/certificates\/[^/]+\/email$/.test(routePath)) {
+      return next()
+    }
+
+    if (method === "DELETE" && /^\/certificates\/[^/]+$/.test(routePath)) {
       return next()
     }
 
@@ -1664,6 +1675,7 @@ function authorizeRequest(req, res, next) {
         routePath.startsWith("/reports") ||
         routePath.startsWith("/dashboard") ||
         routePath.startsWith("/equipment-types") ||
+        routePath.startsWith("/equipment-type-criteria") ||
         routePath.startsWith("/inspection-photos") ||
         routePath.startsWith("/inspection-visits") ||
         routePath.startsWith("/she/")
@@ -1725,6 +1737,10 @@ function authorizeRequest(req, res, next) {
 
   if (role === "INSPECTOR") {
     if (isSetupMaintenanceRoute(method, routePath)) {
+      return next()
+    }
+
+    if (method === "DELETE" && /^\/certificates\/[^/]+$/.test(routePath)) {
       return next()
     }
 
@@ -2204,7 +2220,7 @@ app.post("/users", asyncRoute(async (req, res) => {
       String(full_name).trim(),
       roleToUserLevel(role),
       role,
-      lmi_number ? String(lmi_number).trim() : null,
+      role === "CUSTOMER" ? null : (lmi_number ? String(lmi_number).trim() : null),
       role === "CUSTOMER" ? clientid || null : null,
       role === "CUSTOMER" ? siteid || null : null,
       null,
@@ -2289,7 +2305,7 @@ app.put("/users/:id", asyncRoute(async (req, res) => {
     String(full_name).trim(),
     roleToUserLevel(role),
     role,
-    lmi_number ? String(lmi_number).trim() : null,
+    role === "CUSTOMER" ? null : (lmi_number ? String(lmi_number).trim() : null),
     role === "CUSTOMER" ? clientid || null : null,
     role === "CUSTOMER" ? siteid || null : null,
     null,
@@ -3048,6 +3064,7 @@ const assetSortColumns = {
   clientname: "c.clientname",
   sitename: "s.sitename",
   sectionname: "sec.sectionname",
+  responsiblename: "p.name",
   equipmenttype: "et.description",
   description: "a.description",
   qrcode: "a.qrcode"
@@ -3061,6 +3078,7 @@ const assetSearchColumns = {
   clientname: "c.clientname",
   sitename: "s.sitename",
   sectionname: "sec.sectionname",
+  responsiblename: "p.name",
   equipmenttype: "et.description",
   description: "a.description",
   qrcode: "a.qrcode"
@@ -3110,6 +3128,7 @@ async function getPagedAssets(req, defaultSortKey = "assetid", defaultSortDirect
         OR LOWER(COALESCE(c.clientname, '')) LIKE ${searchParam}
         OR LOWER(COALESCE(s.sitename, '')) LIKE ${searchParam}
         OR LOWER(COALESCE(sec.sectionname, '')) LIKE ${searchParam}
+        OR LOWER(COALESCE(p.name, '')) LIKE ${searchParam}
         OR LOWER(COALESCE(et.description, '')) LIKE ${searchParam}
       )`)
     }
@@ -3360,12 +3379,14 @@ app.get("/assets/nfc/:token", searchLimiter, asyncRoute(async (req, res) => {
       c.clientname,
       s.sitename,
       sec.sectionname,
+      p.name AS responsiblename,
       et.description AS equipmenttype,
       et.equipgroupid
     FROM atec.tblasset a
     LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
     LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
     LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
+    LEFT JOIN atec.tblpeople p ON a.responsibleid = p.personid
     LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
     WHERE a.nfc_token = $1
     LIMIT 1
@@ -4392,6 +4413,9 @@ app.put("/assets/:id", async (req, res) => {
 
 app.put("/assets/:id/move", async (req, res) => {
   try {
+    if (!["ADMIN", "MANAGER"].includes(req.user?.role)) {
+      return res.status(403).json({ error: "Only managers and administrators may move assets." })
+    }
     const { id } = req.params
     const { siteid, sectionid } = req.body
 
@@ -4467,11 +4491,61 @@ app.put("/assets/:id/move", async (req, res) => {
   }
 })
 
-app.put("/assets/:id/archive", async (req, res) => {
+app.put("/assets/:id/allocate", async (req, res) => {
   try {
-    const { id } = req.params;
+    if (!["ADMIN", "MANAGER"].includes(req.user?.role)) {
+      return res.status(403).json({ error: "Only managers and administrators may allocate assets." })
+    }
+
+    const { id } = req.params
+    const { responsibleid } = req.body
+    if (!responsibleid) return res.status(400).json({ error: "Responsible person is required." })
 
     const result = await pool.query(
+      `UPDATE atec.tblasset a
+       SET responsibleid = p.personid
+       FROM atec.tblpeople p
+       WHERE a.assetid = $1
+         AND p.personid = $2
+         AND p.clientid = a.clientid
+         AND COALESCE(p.archived, false) = false
+       RETURNING a.*`,
+      [id, responsibleid]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({ error: "Select an active responsible person for the asset's customer." })
+    }
+
+    await req.logAudit("ALLOCATE", "assets", id, { responsibleid })
+    res.json(result.rows[0])
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
+
+app.put("/assets/:id/archive", async (req, res) => {
+  let client
+  try {
+    if (!["ADMIN", "MANAGER"].includes(req.user?.role)) {
+      return res.status(403).json({ error: "Only managers and administrators may archive assets." })
+    }
+    const { id } = req.params;
+    const reason = String(req.body?.reason || "").trim()
+
+    if (!reason) {
+      return res.status(400).json({ error: "An archive reason is required." })
+    }
+
+    if (reason.length > 1000) {
+      return res.status(400).json({ error: "The archive reason must be 1000 characters or fewer." })
+    }
+
+    client = await pool.connect()
+    await client.query("BEGIN")
+
+    const result = await client.query(
       `UPDATE atec.tblasset
        SET archived = true
        WHERE assetid = $1
@@ -4479,15 +4553,33 @@ app.put("/assets/:id/archive", async (req, res) => {
       [id]
     );
 
+    if (result.rows.length === 0) {
+      await client.query("ROLLBACK")
+      return res.status(404).json({ error: "Asset not found" })
+    }
+
+    await client.query(
+      `INSERT INTO atec.audit_log
+         (user_id, action, module, record_id, ip_address, details)
+       VALUES ($1, 'ARCHIVE', 'assets', $2, NULLIF($3, '')::inet, $4)`,
+      [req.user?.user_id || null, String(id), req.ip || null, JSON.stringify({ reason })]
+    )
+    await client.query("COMMIT")
     res.json(result.rows[0]);
   } catch (err) {
+    if (client) await client.query("ROLLBACK").catch(() => {})
     console.error(err);
     res.status(500).json({ error: "An unexpected server error occurred" });
+  } finally {
+    client?.release()
   }
 });
 
 app.put("/assets/:id/unarchive", async (req, res) => {
   try {
+    if (!["ADMIN", "MANAGER"].includes(req.user?.role)) {
+      return res.status(403).json({ error: "Only managers and administrators may restore assets." })
+    }
     const { id } = req.params;
 
     const result = await pool.query(
@@ -4498,6 +4590,11 @@ app.put("/assets/:id/unarchive", async (req, res) => {
       [id]
     );
 
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Asset not found" })
+    }
+
+    await req.logAudit("RESTORE", "assets", id)
     res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
@@ -4617,6 +4714,32 @@ app.get("/assets/:id/inspection-history", async (req, res) => {
     res.status(500).json({
       error: "An unexpected server error occurred"
     })
+  }
+})
+
+app.get("/assets/:id/archive-history", async (req, res) => {
+  try {
+    const { id } = req.params
+    const result = await pool.query(
+      `SELECT
+         audit.audit_id,
+         audit.action,
+         audit.details ->> 'reason' AS reason,
+         audit.created_at,
+         COALESCE(NULLIF(TRIM(users.full_name), ''), users.username, 'System') AS performed_by
+       FROM atec.audit_log audit
+       LEFT JOIN atec.tblusers users ON users.user_id = audit.user_id
+       WHERE audit.module = 'assets'
+         AND audit.record_id = $1
+         AND audit.action IN ('ARCHIVE', 'RESTORE')
+       ORDER BY audit.created_at DESC, audit.audit_id DESC`,
+      [String(id)]
+    )
+
+    res.json(result.rows)
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
   }
 })
 
@@ -4902,6 +5025,7 @@ async function buildVisitWorklistRows(client, {
     LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
     LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
     LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
+    LEFT JOIN atec.tblpeople p ON a.responsibleid = p.personid
     LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
     LEFT JOIN LATERAL (
       SELECT i.testid, i.validdate
@@ -7773,6 +7897,7 @@ async function getCertificatesData(testids = []) {
       c.clientname,
       s.sitename,
       sec.sectionname,
+      p.name AS responsiblename,
       et.description AS equipmenttype,
       et.equipgroupid
     FROM atec.tblinspection i
@@ -7784,6 +7909,8 @@ async function getCertificatesData(testids = []) {
       ON a.siteid = s.siteid
     LEFT JOIN atec.tblsection sec
       ON a.sectionid = sec.sectionid
+    LEFT JOIN atec.tblpeople p
+      ON a.responsibleid = p.personid
     LEFT JOIN atec.tblequiptype et
       ON a.equiptypeid = et.equiptypeid
     WHERE i.testid = ANY($1::int[])
@@ -9754,8 +9881,8 @@ app.patch("/certificates/:testid/restore", async (req, res) => {
 app.delete("/certificates/:testid", async (req, res) => {
   const { testid } = req.params
 
-  if (req.user?.role !== "ADMIN") {
-    return res.status(403).json({ error: "Only admins may void certificates" })
+  if (!["ADMIN", "MANAGER", "INSPECTOR"].includes(req.user?.role)) {
+    return res.status(403).json({ error: "Only inspectors, managers, and administrators may void certificates" })
   }
 
   const client = await pool.connect()
@@ -11542,9 +11669,10 @@ app.get("/dashboard/review-queue/:queue", async (req, res) => {
         FROM atec.tblinspection i
         JOIN active_assets a ON a.assetid = i.assetid
         LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
-        LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
-        LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
-        LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
+    LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
+    LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
+    LEFT JOIN atec.tblpeople p ON a.responsibleid = p.personid
+    LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
         WHERE NOT EXISTS (
           SELECT 1
           FROM atec.tblinspectionresult r

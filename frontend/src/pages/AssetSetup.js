@@ -24,7 +24,7 @@ function assetSupportsLoadTest(asset) {
 export function renderAssetRow(asset) {
   const serialDisplay = asset.serialno || asset.hoistserialno || ''
   const canManageAssets = ['ADMIN', 'MANAGER', 'INSPECTOR'].includes(window.currentUser?.role)
-  const canArchiveOrMoveAssets = window.currentUser?.role === 'ADMIN'
+  const canArchiveOrMoveAssets = ['ADMIN', 'MANAGER'].includes(window.currentUser?.role)
   const assetid = escapeHtml(asset.assetid)
   const assetTag = escapeHtml(asset.assettagno || '')
   const serial = escapeHtml(serialDisplay)
@@ -34,6 +34,8 @@ export function renderAssetRow(asset) {
   const section = escapeHtml(asset.sectionname || '')
   const equipmentType = escapeHtml(asset.equipmenttype || '')
   const description = escapeHtml(asset.description || '')
+  const responsiblePerson = escapeHtml(asset.responsiblename || '')
+  const isArchived = asset.archived === true || asset.archived === 'true'
 
   return `
     <tr>
@@ -48,6 +50,7 @@ export function renderAssetRow(asset) {
       <td>${client}</td>
       <td>${site}</td>
       <td>${section}</td>
+      <td>${responsiblePerson}</td>
       <td>${equipmentType}</td>
       <td>${description}</td>
       <td>
@@ -84,13 +87,13 @@ export function renderAssetRow(asset) {
           </button>
 
           ${canArchiveOrMoveAssets ? `
-            <button class="move-btn" onclick="showMoveAssetForm(${asset.assetid})">
-              Move
+            <button class="move-btn" onclick="showAllocateAssetForm(${asset.assetid})">
+              Allocate
             </button>
 
-            <button onclick="archiveAsset(${asset.assetid})">
-              Archive
-            </button>
+            ${isArchived
+              ? `<button onclick="unarchiveAsset(${asset.assetid})">Unarchive</button>`
+              : `<button onclick="archiveAsset(${asset.assetid})">Archive</button>`}
           ` : ''}
         </div>
       </td>
@@ -156,6 +159,20 @@ export function renderAssetSetup(assets, pageInfo = {}) {
 
       <h2>Search Assets</h2>
 
+      ${['ADMIN', 'MANAGER'].includes(window.currentUser?.role) ? `
+        <div class="archive-filter-row">
+          <label><strong>Show Assets</strong></label>
+          ${['active', 'archived', 'all'].map(mode => `
+            <label>
+              <input type="radio" name="assetArchiveMode" value="${mode}"
+                ${(window.assetListState?.archiveMode || 'active') === mode ? 'checked' : ''}
+                onchange="setAssetArchiveMode('${mode}')">
+              ${mode.charAt(0).toUpperCase() + mode.slice(1)}
+            </label>
+          `).join('')}
+        </div>
+      ` : ''}
+
       <div class="form-row">
         <div class="form-group">
           <label>Search By</label>
@@ -220,6 +237,7 @@ export function renderAssetSetup(assets, pageInfo = {}) {
           <th>${sortHeader('Client', 'assets', 'clientname', 'showAssetSetup')}</th>
           <th>${sortHeader('Site', 'assets', 'sitename', 'showAssetSetup')}</th>
           <th>${sortHeader('Section', 'assets', 'sectionname', 'showAssetSetup')}</th>
+          <th>${sortHeader('Responsible Person', 'assets', 'responsiblename', 'showAssetSetup')}</th>
           <th>${sortHeader('Equipment Type', 'assets', 'equipmenttype', 'showAssetSetup')}</th>
           <th>${sortHeader('Description', 'assets', 'description', 'showAssetSetup')}</th>
           <th>Action</th>

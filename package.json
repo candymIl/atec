@@ -28,7 +28,9 @@
     "test:customer-report-responsible": "node scripts/regression/customer-report-responsible-ownership.test.js",
     "test:milestone1d-hierarchy": "node scripts/regression/milestone1d-asset-hierarchy-repair.test.js",
     "test:work-package-2-integrity": "node scripts/regression/work-package-2-inspection-integrity.test.js",
-    "test:deployment-safety": "node scripts/regression/deployment-safety.test.js"
+    "test:deployment-safety": "node scripts/regression/deployment-safety.test.js",
+    "test:certificate-error-access": "node scripts/regression/certificate-entered-in-error-access.test.js",
+    "test:asset-archive-reason": "node scripts/regression/asset-archive-reason.test.js"
   },
   "dependencies": {
     "multer": "^2.1.1"

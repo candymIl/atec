@@ -968,21 +968,21 @@ td {
   background: #f8fafc;
 }
 
-/* Customer users have no Section column, so keep the final three columns aligned. */
-.customer-users-table th:nth-child(8),
-.customer-users-table td:nth-child(8) {
+/* Customer users have no LMI or Section column, so keep the final columns aligned. */
+.customer-users-table th:nth-child(7),
+.customer-users-table td:nth-child(7) {
   text-align: center;
   width: 58px;
 }
 
-.customer-users-table th:nth-child(9),
-.customer-users-table td:nth-child(9) {
+.customer-users-table th:nth-child(8),
+.customer-users-table td:nth-child(8) {
   text-align: center;
   width: 150px;
 }
 
-.customer-users-table th:nth-child(10),
-.customer-users-table td:nth-child(10) {
+.customer-users-table th:nth-child(9),
+.customer-users-table td:nth-child(9) {
   box-shadow: -6px 0 10px rgba(15, 45, 79, 0.08);
   position: sticky;
   right: 0;
@@ -990,16 +990,16 @@ td {
   z-index: 2;
 }
 
-.customer-users-table th:nth-child(10) {
+.customer-users-table th:nth-child(9) {
   background: #1f3a5f;
   z-index: 3;
 }
 
-.customer-users-table td:nth-child(10) {
+.customer-users-table td:nth-child(9) {
   background: #ffffff;
 }
 
-.customer-users-table tr:nth-child(even) td:nth-child(10) {
+.customer-users-table tr:nth-child(even) td:nth-child(9) {
   background: #f8fafc;
 }
 
@@ -4847,9 +4847,10 @@ tr:hover {
 
 #certificateResults td:last-child .cert-delete-btn {
   background: #dc2626;
+  border-color: #b91c1c;
   grid-column: 1 / -1;
   justify-self: center;
-  width: 100px;
+  width: 154px;
   max-width: 100%;
   white-space: nowrap;
 }

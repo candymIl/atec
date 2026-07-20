@@ -46,8 +46,16 @@ function inspectionTypeMatchesCriteria(inspection = {}, criteriaRow = {}) {
   return true
 }
 
+function isRetiredCriteria(criteriaRow = {}) {
+  return normalizeUpper(
+    criteriaRow.criterianame || criteriaRow.criteriadescription
+  ).includes("HOOK WEAR DOES NOT EXCEED ALLOWABLE LIMITS")
+}
+
 function relevantCriteriaRows(inspection = {}, criteriaRows = []) {
-  return criteriaRows.filter(row => inspectionTypeMatchesCriteria(inspection, row))
+  return criteriaRows
+    .filter(row => !isRetiredCriteria(row))
+    .filter(row => inspectionTypeMatchesCriteria(inspection, row))
 }
 
 function resultCriteriaIdSet(results = []) {

@@ -163,7 +163,7 @@ function canManageAssetRecords() {
 }
 
 function canArchiveOrMoveAssetRecords() {
-  return currentUser?.role === 'ADMIN'
+  return ['ADMIN', 'MANAGER'].includes(currentUser?.role)
 }
 
 function showUpdateAvailableNotice() {
@@ -384,7 +384,10 @@ function userSitesForCustomer(clientid, selectedSiteId = '') {
   return getUserManagementLookups().sites
     .filter(site =>
       String(site.clientid) === String(clientid) &&
-      (isActiveRecord(site) || String(site.siteid) === String(selectedSiteId || ''))
+      (
+        !(site?.archived === true || site?.archived === 'true') ||
+        String(site.siteid) === String(selectedSiteId || '')
+      )
     )
     .sort((left, right) => String(left.sitename || '').localeCompare(String(right.sitename || '')))
 }
@@ -499,6 +502,11 @@ window.showInternalUserManagement = function () {
 }
 
 window.showCustomerUserManagement = function () {
+  if (!canManageCustomerPortalUsers()) {
+    showAccessDenied()
+    return
+  }
+
   localStorage.setItem('userManagementMode', 'customers')
   showUserManagement()
 }
@@ -549,19 +557,52 @@ window.showUserManagement = async function () {
 
   setCurrentPage('users')
 
-  const [
-    response,
-    userCustomers,
-    userSites
-  ] = await Promise.all([
-    fetch(`${API_BASE}/users`),
-    fetchJsonOrDefault(`${API_BASE}/customers`, []),
-    fetchJsonOrDefault(`${API_BASE}/sites`, [])
-  ])
-  const users = await response.json()
+  document.querySelector('#page').innerHTML = `
+    <div class="user-management-page">
+      <h1>${getUserManagementMode() === 'customers' ? 'Customer Portal Users' : 'ATEC Users'}</h1>
+      <div class="filter-card">
+        <p>Loading users...</p>
+      </div>
+    </div>
+  `
+
+  let response
+  let userCustomers
+  let userSites
+
+  try {
+    [response, userCustomers, userSites] = await Promise.all([
+      fetch(`${API_BASE}/users`),
+      fetchJsonOrDefault(`${API_BASE}/customers`, []),
+      fetchJsonOrDefault(`${API_BASE}/sites`, [])
+    ])
+  } catch (err) {
+    document.querySelector('#page').innerHTML = `
+      <div class="user-management-page">
+        <h1>Customer Portal Users</h1>
+        <div class="filter-card">
+          <h2>Unable to load users</h2>
+          <p>Could not connect to the server. Please try again.</p>
+          <button type="button" onclick="showCustomerUserManagement()">Try Again</button>
+        </div>
+      </div>
+    `
+    return
+  }
+
+  const users = await readApiResponse(response)
 
   if (!response.ok) {
-    alert(users.error || 'Unable to load users')
+    document.querySelector('#page').innerHTML = `
+      <div class="user-management-page">
+        <h1>Customer Portal Users</h1>
+        <div class="filter-card">
+          <h2>Unable to load users</h2>
+          <p>${escapeHtml(users.error || 'You do not have permission to load customer portal users.')}</p>
+          <button type="button" onclick="showCustomerUserManagement()">Try Again</button>
+        </div>
+      </div>
+    `
     return
   }
 
@@ -643,10 +684,12 @@ window.showUserManagement = async function () {
             ${modeRoles.map(role => `<option value="${role}">${role}</option>`).join('')}
           </select>
         </div>
-        <div class="form-group">
-          <label>LMI Number</label>
-          <input id="newUserLmi" type="text">
-        </div>
+        ${managementMode === 'internal' ? `
+          <div class="form-group">
+            <label>LMI Number</label>
+            <input id="newUserLmi" type="text">
+          </div>
+        ` : ''}
         ${managementMode === 'customers' ? `
           <div class="form-group">
             <label>Customer Name</label>
@@ -662,7 +705,7 @@ window.showUserManagement = async function () {
           </div>
         ` : ''}
       </div>
-      <button onclick="createUser()">Create User</button>
+      <button id="createUserButton" type="button" onclick="createUser()">Create User</button>
     </div>
 
     <div class="filter-card user-signature-card">
@@ -702,7 +745,7 @@ window.showUserManagement = async function () {
           <th>${userSortHeader('Email', 'email')}</th>
           <th>${userSortHeader('Full Name', 'full_name')}</th>
           <th>${userSortHeader('Role', 'role')}</th>
-          <th>${userSortHeader('LMI Number', 'lmi_number')}</th>
+          ${managementMode === 'internal' ? `<th>${userSortHeader('LMI Number', 'lmi_number')}</th>` : ''}
           ${managementMode === 'customers' ? `
             <th>${userSortHeader('Customer Name', 'clientid')}</th>
             <th>${userSortHeader('Site Name', 'siteid')}</th>
@@ -725,7 +768,7 @@ window.showUserManagement = async function () {
                 `).join('')}
               </select>
             </td>
-            <td><input id="user-lmi-${safeAttr(user.user_id)}" value="${safeAttr(user.lmi_number || '')}"></td>
+            ${managementMode === 'internal' ? `<td><input id="user-lmi-${safeAttr(user.user_id)}" value="${safeAttr(user.lmi_number || '')}"></td>` : ''}
             ${managementMode === 'customers' ? `
               <td>
                 <select id="user-client-${user.user_id}" onchange="filterCustomerUserSites(${user.user_id})">
@@ -758,7 +801,7 @@ window.showUserManagement = async function () {
           </tr>
         `).join('') : `
           <tr>
-            <td class="user-list-empty" colspan="${managementMode === 'internal' ? 8 : 10}">
+            <td class="user-list-empty" colspan="${managementMode === 'internal' ? 8 : 9}">
               No ${statusFilter === 'both' ? '' : `${statusFilter} `}${managementMode === 'customers' ? 'customer portal users' : 'ATEC users'} found.
             </td>
           </tr>
@@ -771,6 +814,9 @@ window.showUserManagement = async function () {
 }
 
 window.createUser = async function () {
+  const createButton = document.querySelector('#createUserButton')
+  if (createButton?.disabled) return
+
   const managementMode = getUserManagementMode()
   const role = managementMode === 'customers'
     ? 'CUSTOMER'
@@ -793,33 +839,48 @@ window.createUser = async function () {
     return
   }
 
-  const response = await fetch(`${API_BASE}/users`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      username,
-      email,
-      password: document.querySelector('#newUserPassword').value,
-      full_name: document.querySelector('#newUserFullName').value,
-      role,
-      lmi_number: document.querySelector('#newUserLmi').value,
-      clientid,
-      siteid: managementMode === 'customers'
-        ? document.querySelector('#newUserSiteId').value
-        : null,
-      sectionid: null
-    })
-  })
-
-  const result = await response.json()
-
-  if (!response.ok) {
-    alert(result.error || 'Unable to create user')
-    return
+  if (createButton) {
+    createButton.disabled = true
+    createButton.textContent = 'Creating...'
   }
 
-  alert('User created successfully')
-  showUserManagement()
+  try {
+    const response = await fetch(`${API_BASE}/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username,
+        email,
+        password: document.querySelector('#newUserPassword').value,
+        full_name: document.querySelector('#newUserFullName').value,
+        role,
+        lmi_number: managementMode === 'internal'
+          ? document.querySelector('#newUserLmi')?.value || null
+          : null,
+        clientid,
+        siteid: managementMode === 'customers'
+          ? document.querySelector('#newUserSiteId').value
+          : null,
+        sectionid: null
+      })
+    })
+    const result = await readApiResponse(response)
+
+    if (!response.ok) {
+      alert(result.error || 'Unable to create user')
+      return
+    }
+
+    alert('Customer portal user created successfully')
+    await showUserManagement()
+  } catch (err) {
+    alert('Could not connect to the server. Please try again.')
+  } finally {
+    if (createButton?.isConnected) {
+      createButton.disabled = false
+      createButton.textContent = 'Create User'
+    }
+  }
 }
 
 window.saveUser = async function (userId) {
@@ -838,7 +899,9 @@ window.saveUser = async function (userId) {
       email: document.querySelector(`#user-email-${userId}`).value,
       full_name: document.querySelector(`#user-name-${userId}`).value,
       role: document.querySelector(`#user-role-${userId}`).value,
-      lmi_number: document.querySelector(`#user-lmi-${userId}`).value,
+      lmi_number: managementMode === 'internal'
+        ? document.querySelector(`#user-lmi-${userId}`)?.value || null
+        : null,
       clientid: managementMode === 'customers'
         ? document.querySelector(`#user-client-${userId}`).value
         : null,
@@ -4505,7 +4568,8 @@ function rememberAssetListState() {
     searchType: searchTypeInput ? searchTypeInput.value : window.assetListState?.searchType || "all",
     search: searchInput ? searchInput.value : window.assetListState?.search || "",
     currentPage: window.assetCurrentPage || window.assetListState?.currentPage || 1,
-    rowsPerPage: Number(rowsInput?.value || window.assetRowsPerPage || window.assetListState?.rowsPerPage || 25)
+    rowsPerPage: Number(rowsInput?.value || window.assetRowsPerPage || window.assetListState?.rowsPerPage || 25),
+    archiveMode: window.assetListState?.archiveMode || "active"
   }
 }
 
@@ -5116,14 +5180,27 @@ window.archiveAsset = async function (assetid) {
     return
   }
 
-  const confirmArchive = confirm(
-    "Archive asset " + assetid + "? It will be hidden but its inspection history will remain."
+  const reasonInput = prompt(
+    "Why is asset " + assetid + " being archived?\n\nThis reason will be retained in the asset history."
   )
 
-  if (!confirmArchive) return
+  if (reasonInput === null) return
+
+  const reason = reasonInput.trim()
+  if (!reason) {
+    alert("An archive reason is required.")
+    return
+  }
+
+  if (reason.length > 1000) {
+    alert("The archive reason must be 1000 characters or fewer.")
+    return
+  }
 
   const response = await fetch(`${API_BASE}/assets/${assetid}/archive`, {
     method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
   })
 
   const archivedAsset = await response.json()
@@ -5277,6 +5354,78 @@ window.goToCriteriaPage = function (page) {
 
 function escapeAttribute(value) {
   return safeAttr(value)
+}
+
+window.setAssetArchiveMode = function (mode) {
+  window.assetListState = {
+    ...(window.assetListState || {}),
+    archiveMode: ['active', 'archived', 'all'].includes(mode) ? mode : 'active'
+  }
+  window.assetCurrentPage = 1
+  filterAssets()
+}
+
+window.showAllocateAssetForm = async function (assetid) {
+  if (!canArchiveOrMoveAssetRecords()) {
+    showAccessDenied()
+    return
+  }
+
+  rememberAssetListState()
+  let asset
+  try {
+    asset = await getAssetForAction(assetid)
+  } catch (err) {
+    alert(err.message || 'Asset not found')
+    return
+  }
+
+  const people = uniqueResponsiblePeopleForClient(asset.clientid, asset.responsibleid)
+    .filter(person => !(person.archived === true || person.archived === 'true'))
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+
+  document.querySelector('#page').innerHTML = `
+    <h2>Allocate Asset ${escapeHtml(asset.assetid)}</h2>
+    <div class="filter-card">
+      <div class="asset-form-grid">
+        <div class="form-group"><label>Customer</label><input value="${safeAttr(asset.clientname || '')}" disabled></div>
+        <div class="form-group"><label>Asset</label><input value="${safeAttr(asset.description || asset.serialno || asset.assetid)}" disabled></div>
+        <div class="form-group">
+          <label>Responsible Person</label>
+          <select id="allocateAssetResponsible">
+            <option value="">Select Responsible Person</option>
+            ${people.map(person => `<option value="${safeAttr(person.personid)}" ${String(person.personid) === String(asset.responsibleid) ? 'selected' : ''}>${escapeHtml(person.name)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button onclick="saveAssetAllocation(${asset.assetid})">Save Allocation</button>
+        <button onclick="showAssetSetup()">Cancel</button>
+      </div>
+    </div>
+  `
+}
+
+window.saveAssetAllocation = async function (assetid) {
+  if (!canArchiveOrMoveAssetRecords()) return
+  const responsibleid = document.querySelector('#allocateAssetResponsible')?.value || ''
+  if (!responsibleid) {
+    alert('Please select a responsible person')
+    return
+  }
+  const response = await fetch(`${API_BASE}/assets/${assetid}/allocate`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ responsibleid })
+  })
+  const result = await response.json()
+  if (!response.ok) {
+    alert(result.error || 'Unable to allocate asset')
+    return
+  }
+  alert('Asset allocated successfully')
+  await loadData()
+  showAssetSetup()
 }
 
 function renderCriteriaPopup(row = {}) {
@@ -8174,14 +8323,21 @@ window.showInspectionHistory = async function (assetid) {
 window.showAssetHistoryFromSetup = async function (assetid) {
   rememberAssetListState()
 
-  const response = await fetch(
-    `${API_BASE}/assets/${assetid}/inspection-history`
-  )
+  const [response, archiveResponse] = await Promise.all([
+    fetch(`${API_BASE}/assets/${assetid}/inspection-history`),
+    fetch(`${API_BASE}/assets/${assetid}/archive-history`)
+  ])
 
   const history = await response.json()
+  const archiveHistory = await archiveResponse.json()
 
   if (!response.ok) {
     alert("Error loading inspection history: " + history.error)
+    return
+  }
+
+  if (!archiveResponse.ok) {
+    alert("Error loading archive history: " + archiveHistory.error)
     return
   }
 
@@ -8222,6 +8378,34 @@ window.showAssetHistoryFromSetup = async function (assetid) {
           `).join('') : `
             <tr>
               <td colspan="6">No inspection history found</td>
+            </tr>
+          `}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="filter-card">
+      <h3>Archive History</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Action</th>
+            <th>Reason</th>
+            <th>Performed By</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${archiveHistory.length ? archiveHistory.map(row => `
+            <tr>
+              <td>${escapeHtml(row.created_at ? new Date(row.created_at).toLocaleString() : '')}</td>
+              <td>${escapeHtml(row.action || '')}</td>
+              <td>${escapeHtml(row.reason || '-')}</td>
+              <td>${escapeHtml(row.performed_by || 'System')}</td>
+            </tr>
+          `).join('') : `
+            <tr>
+              <td colspan="4">No archive history found</td>
             </tr>
           `}
         </tbody>
@@ -8638,6 +8822,7 @@ function renderDashboardReviewQueue(config, rows) {
         </tbody>
       </table>
     </div>
+
   `
 }
 
