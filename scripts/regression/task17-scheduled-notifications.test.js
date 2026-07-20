@@ -39,9 +39,13 @@ assertIncludes(dashboard, "dashboardNotificationScheduler", "Dashboard must incl
 assertIncludes(dashboard, "runDashboardNotificationScheduler", "Dashboard must offer a manual scheduled check")
 assertIncludes(main, "loadDashboardNotificationScheduler", "Frontend must load scheduler status")
 assertIncludes(main, "runDashboardNotificationScheduler", "Frontend must call the scheduled-run endpoint")
+assertIncludes(main, "dashboardNotificationFilterRows", "Notification Centre must support heading filters")
+assertIncludes(main, "dashboardNotifications", "Notification Centre must support sortable headings")
+assertIncludes(main, "clearDashboardNotificationFilters", "Notification Centre must allow filters to be cleared")
 assertIncludes(main, "Last Sent", "Notification table must show last sent state")
 assertIncludes(main, "Automatic Ready", "CSV export must include automatic readiness")
 assertIncludes(style, ".notification-scheduler-status", "Scheduler status styles are missing")
+assertIncludes(style, ".dashboard-notification-filter-row", "Notification Centre filter row styles are missing")
 
 assertIncludes(migration, "CREATE TABLE IF NOT EXISTS atec.tblnotificationdelivery", "Task 17 migration must create delivery history")
 assertIncludes(migration, "delivery_type IN ('MANUAL', 'AUTOMATIC')", "Delivery history must distinguish manual and automatic sends")

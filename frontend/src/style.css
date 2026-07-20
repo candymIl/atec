@@ -1457,6 +1457,23 @@ tr:hover {
   overflow-x: auto;
 }
 
+.dashboard-notification-filter-row {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(220px, 1fr) minmax(150px, auto) minmax(160px, auto) auto;
+  margin: 0 0 10px;
+}
+
+.dashboard-notification-filter-row input,
+.dashboard-notification-filter-row select {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 13px;
+  min-height: 34px;
+  padding: 7px 9px;
+}
+
 .dashboard-notification-table td {
   white-space: nowrap;
 }
@@ -5185,6 +5202,10 @@ tr:hover {
   }
 
   .portal-asset-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-notification-filter-row {
     grid-template-columns: 1fr;
   }
 

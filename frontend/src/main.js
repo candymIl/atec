@@ -14,7 +14,7 @@ import { renderCustomerPortal } from './pages/CustomerPortal.js'
 import { renderRiskAssessments, renderRiskAssessmentTable } from './pages/RiskAssessments.js'
 import { renderSystemHealthPage } from './pages/SystemHealth.js'
 import { getPaginationState, renderPaginationControls } from './pagination.js'
-import { getTableSortState, sortTableRows } from './tableSort.js'
+import { getTableSortState, sortHeader, sortTableRows } from './tableSort.js'
 import { API_BASE, assetUrl, uploadUrl } from './api.js'
 import { FRONTEND_BUILD_ID } from './buildInfo.js'
 import { escapeHtml, safeAttr } from './utils/security.js'
@@ -8986,74 +8986,7 @@ async function loadDashboardNotificationCentre(preloadedData = null) {
     }
 
     window.dashboardNotificationRows = rows
-
-    container.innerHTML = `
-      <div class="dashboard-notification-summary">
-        <span><strong>${escapeHtml(rows.length)}</strong> customer/site notification row(s)</span>
-        <span>Preview before sending to customer portal users.</span>
-      </div>
-      <div id="dashboardNotificationPreview" class="dashboard-notification-preview" hidden></div>
-      <div class="dashboard-notification-table-wrap">
-        <table class="dashboard-table dashboard-notification-table">
-          <thead>
-            <tr>
-              <th>Customer</th>
-              <th>Site</th>
-              <th>Due</th>
-              <th>Overdue</th>
-              <th>Expiring</th>
-              <th>Failed</th>
-              <th>Visit Items</th>
-              <th>Portal Recipients</th>
-              <th>Last Sent</th>
-              <th>Auto</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.map(row => {
-              const reportArgs = safeAttr(JSON.stringify({
-                clientid: row.clientid,
-                siteid: row.siteid || '',
-                autoLoad: true
-              }))
-              const recipientClass = Number(row.portal_recipients || 0) > 0 ? "ready" : "missing"
-              const recipientText = Number(row.portal_recipients || 0) > 0
-                ? `${row.portal_recipients} ready`
-                : "No portal users"
-              const autoClass = row.automatic_notification_ready ? "ready" : "missing"
-              const autoText = row.automatic_notification_ready ? "Ready" : "Waiting"
-
-              return `
-                <tr>
-                  <td>${escapeHtml(row.clientname || "")}</td>
-                  <td>${escapeHtml(row.sitename || "All Sites")}</td>
-                  <td><strong>${escapeHtml(row.due_assets || 0)}</strong></td>
-                  <td><strong>${escapeHtml(row.overdue_assets || 0)}</strong></td>
-                  <td>${escapeHtml(row.expiring_certificates || 0)}</td>
-                  <td>${escapeHtml(row.failed_assets || 0)}</td>
-                  <td>${escapeHtml(row.unresolved_visit_items || 0)}</td>
-                  <td><span class="notification-recipient ${recipientClass}">${escapeHtml(recipientText)}</span></td>
-                  <td>${escapeHtml(formatDashboardNotificationDate(row.last_notification_sent_at))}</td>
-                  <td><span class="notification-recipient ${autoClass}">${escapeHtml(autoText)}</span></td>
-                  <td class="dashboard-notification-actions">
-                    <button class="small-btn" onclick="previewDashboardNotification(${safeAttr(row.clientid)}, '${safeAttr(row.siteid || '')}')">
-                      Preview
-                    </button>
-                    <button class="small-btn" onclick="sendDashboardNotification(${safeAttr(row.clientid)}, '${safeAttr(row.siteid || '')}')">
-                      Send
-                    </button>
-                    <button class="small-btn" onclick="showCustomerDetailedReport(${reportArgs})">
-                      View Report
-                    </button>
-                  </td>
-                </tr>
-              `
-            }).join("")}
-          </tbody>
-        </table>
-      </div>
-    `
+    renderDashboardNotificationCentre()
   } catch (err) {
     console.error("Failed to load notification centre:", err)
     container.innerHTML = `
@@ -9062,6 +8995,188 @@ async function loadDashboardNotificationCentre(preloadedData = null) {
       </div>
     `
   }
+}
+
+function dashboardNotificationFilters() {
+  return {
+    search: String(document.querySelector("#dashboardNotificationSearch")?.value || "").trim().toLowerCase(),
+    recipients: String(document.querySelector("#dashboardNotificationRecipientFilter")?.value || ""),
+    auto: String(document.querySelector("#dashboardNotificationAutoFilter")?.value || "")
+  }
+}
+
+function dashboardNotificationFilterRows(rows) {
+  const filters = dashboardNotificationFilters()
+
+  return rows.filter(row => {
+    const text = [
+      row.clientname,
+      row.sitename,
+      row.due_assets,
+      row.overdue_assets,
+      row.expiring_certificates,
+      row.failed_assets,
+      row.unresolved_visit_items,
+      formatDashboardNotificationDate(row.last_notification_sent_at)
+    ].join(" ").toLowerCase()
+    const hasRecipients = Number(row.portal_recipients || 0) > 0
+    const autoReady = Boolean(row.automatic_notification_ready)
+
+    if (filters.search && !text.includes(filters.search)) return false
+    if (filters.recipients === "ready" && !hasRecipients) return false
+    if (filters.recipients === "missing" && hasRecipients) return false
+    if (filters.auto === "ready" && !autoReady) return false
+    if (filters.auto === "waiting" && autoReady) return false
+
+    return true
+  })
+}
+
+function dashboardNotificationSortColumns() {
+  return {
+    clientname: row => row.clientname || "",
+    sitename: row => row.sitename || "",
+    due_assets: row => Number(row.due_assets || 0),
+    overdue_assets: row => Number(row.overdue_assets || 0),
+    expiring_certificates: row => Number(row.expiring_certificates || 0),
+    failed_assets: row => Number(row.failed_assets || 0),
+    unresolved_visit_items: row => Number(row.unresolved_visit_items || 0),
+    portal_recipients: row => Number(row.portal_recipients || 0),
+    last_notification_sent_at: row => row.last_notification_sent_at ? new Date(row.last_notification_sent_at).getTime() : 0,
+    automatic_notification_ready: row => row.automatic_notification_ready ? 1 : 0
+  }
+}
+
+function renderDashboardNotificationCentre() {
+  const container = document.querySelector("#dashboardNotificationCentre")
+  if (!container) return
+
+  const rows = window.dashboardNotificationRows || []
+
+  if (!Array.isArray(rows) || !rows.length) {
+    container.innerHTML = `
+      <div class="alert-card success">
+        No customer notifications need attention.
+      </div>
+    `
+    return
+  }
+
+  const filteredRows = dashboardNotificationFilterRows(rows)
+  const displayRows = sortTableRows(
+    filteredRows,
+    "dashboardNotifications",
+    dashboardNotificationSortColumns(),
+    "overdue_assets",
+    "desc"
+  )
+
+  container.innerHTML = `
+    <div class="dashboard-notification-summary">
+      <span><strong>${escapeHtml(displayRows.length)}</strong> of <strong>${escapeHtml(rows.length)}</strong> customer/site notification row(s)</span>
+      <span>Preview before sending to customer portal users.</span>
+    </div>
+    <div class="dashboard-notification-filter-row">
+      <input
+        id="dashboardNotificationSearch"
+        type="text"
+        placeholder="Filter customer, site or numbers..."
+        value="${escapeHtml(document.querySelector("#dashboardNotificationSearch")?.value || "")}"
+        oninput="renderDashboardNotificationCentre()"
+      >
+      <select id="dashboardNotificationRecipientFilter" onchange="renderDashboardNotificationCentre()">
+        <option value="">All portal users</option>
+        <option value="ready" ${dashboardNotificationFilters().recipients === "ready" ? "selected" : ""}>Has portal users</option>
+        <option value="missing" ${dashboardNotificationFilters().recipients === "missing" ? "selected" : ""}>No portal users</option>
+      </select>
+      <select id="dashboardNotificationAutoFilter" onchange="renderDashboardNotificationCentre()">
+        <option value="">All automatic status</option>
+        <option value="ready" ${dashboardNotificationFilters().auto === "ready" ? "selected" : ""}>Automatic ready</option>
+        <option value="waiting" ${dashboardNotificationFilters().auto === "waiting" ? "selected" : ""}>Automatic waiting</option>
+      </select>
+      <button type="button" class="secondary-small-btn" onclick="clearDashboardNotificationFilters()">Clear</button>
+    </div>
+    <div id="dashboardNotificationPreview" class="dashboard-notification-preview" hidden></div>
+    <div class="dashboard-notification-table-wrap">
+      <table class="dashboard-table dashboard-notification-table">
+        <thead>
+          <tr>
+            <th>${sortHeader("Customer", "dashboardNotifications", "clientname", "renderDashboardNotificationCentre")}</th>
+            <th>${sortHeader("Site", "dashboardNotifications", "sitename", "renderDashboardNotificationCentre")}</th>
+            <th>${sortHeader("Due", "dashboardNotifications", "due_assets", "renderDashboardNotificationCentre")}</th>
+            <th>${sortHeader("Overdue", "dashboardNotifications", "overdue_assets", "renderDashboardNotificationCentre")}</th>
+            <th>${sortHeader("Expiring", "dashboardNotifications", "expiring_certificates", "renderDashboardNotificationCentre")}</th>
+            <th>${sortHeader("Failed", "dashboardNotifications", "failed_assets", "renderDashboardNotificationCentre")}</th>
+            <th>${sortHeader("Visit Items", "dashboardNotifications", "unresolved_visit_items", "renderDashboardNotificationCentre")}</th>
+            <th>${sortHeader("Portal Recipients", "dashboardNotifications", "portal_recipients", "renderDashboardNotificationCentre")}</th>
+            <th>${sortHeader("Last Sent", "dashboardNotifications", "last_notification_sent_at", "renderDashboardNotificationCentre")}</th>
+            <th>${sortHeader("Auto", "dashboardNotifications", "automatic_notification_ready", "renderDashboardNotificationCentre")}</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${displayRows.length ? displayRows.map(row => renderDashboardNotificationRow(row)).join("") : `
+            <tr>
+              <td colspan="11" class="empty-row">No notification rows match the selected filters.</td>
+            </tr>
+          `}
+        </tbody>
+      </table>
+    </div>
+  `
+}
+
+function renderDashboardNotificationRow(row) {
+  const reportArgs = safeAttr(JSON.stringify({
+    clientid: row.clientid,
+    siteid: row.siteid || '',
+    autoLoad: true
+  }))
+  const recipientClass = Number(row.portal_recipients || 0) > 0 ? "ready" : "missing"
+  const recipientText = Number(row.portal_recipients || 0) > 0
+    ? `${row.portal_recipients} ready`
+    : "No portal users"
+  const autoClass = row.automatic_notification_ready ? "ready" : "missing"
+  const autoText = row.automatic_notification_ready ? "Ready" : "Waiting"
+
+  return `
+    <tr>
+      <td>${escapeHtml(row.clientname || "")}</td>
+      <td>${escapeHtml(row.sitename || "All Sites")}</td>
+      <td><strong>${escapeHtml(row.due_assets || 0)}</strong></td>
+      <td><strong>${escapeHtml(row.overdue_assets || 0)}</strong></td>
+      <td>${escapeHtml(row.expiring_certificates || 0)}</td>
+      <td>${escapeHtml(row.failed_assets || 0)}</td>
+      <td>${escapeHtml(row.unresolved_visit_items || 0)}</td>
+      <td><span class="notification-recipient ${recipientClass}">${escapeHtml(recipientText)}</span></td>
+      <td>${escapeHtml(formatDashboardNotificationDate(row.last_notification_sent_at))}</td>
+      <td><span class="notification-recipient ${autoClass}">${escapeHtml(autoText)}</span></td>
+      <td class="dashboard-notification-actions">
+        <button class="small-btn" onclick="previewDashboardNotification(${safeAttr(row.clientid)}, '${safeAttr(row.siteid || '')}')">
+          Preview
+        </button>
+        <button class="small-btn" onclick="sendDashboardNotification(${safeAttr(row.clientid)}, '${safeAttr(row.siteid || '')}')">
+          Send
+        </button>
+        <button class="small-btn" onclick="showCustomerDetailedReport(${reportArgs})">
+          View Report
+        </button>
+      </td>
+    </tr>
+  `
+}
+
+window.renderDashboardNotificationCentre = renderDashboardNotificationCentre
+
+window.clearDashboardNotificationFilters = function () {
+  const search = document.querySelector("#dashboardNotificationSearch")
+  const recipients = document.querySelector("#dashboardNotificationRecipientFilter")
+  const auto = document.querySelector("#dashboardNotificationAutoFilter")
+
+  if (search) search.value = ""
+  if (recipients) recipients.value = ""
+  if (auto) auto.value = ""
+  renderDashboardNotificationCentre()
 }
 
 window.runDashboardNotificationScheduler = async function () {
