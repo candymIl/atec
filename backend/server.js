@@ -3153,6 +3153,7 @@ async function getPagedAssets(req, defaultSortKey = "assetid", defaultSortDirect
     LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
     LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
     LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
+    LEFT JOIN atec.tblpeople p ON a.responsibleid = p.personid
     LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
     ${whereSql}
     `,
@@ -3208,6 +3209,7 @@ async function getPagedAssets(req, defaultSortKey = "assetid", defaultSortDirect
     LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
     LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
     LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
+    LEFT JOIN atec.tblpeople p ON a.responsibleid = p.personid
     LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
     ${whereSql}
     ORDER BY ${orderSql}, a.assetid DESC
@@ -4234,49 +4236,6 @@ app.put("/assets/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (req.user.role === "INSPECTOR") {
-      const assettagno = String(req.body.assettagno || "").trim()
-      const normalizedAssetTagNo = normalizeAssetLookupValue(assettagno)
-
-      const duplicateCheck = await pool.query(
-        `
-        SELECT assetid
-        FROM atec.tblasset
-        WHERE clientid = (
-          SELECT clientid
-          FROM atec.tblasset
-          WHERE assetid = $1
-        )
-          AND assetid <> $1
-          AND COALESCE(archived, false) = false
-          AND $2 <> ''
-          AND LOWER(TRIM(assettagno)) = $2
-        LIMIT 1
-        `,
-        [id, normalizedAssetTagNo]
-      )
-
-      if (duplicateCheck.rows.length > 0) {
-        return duplicateAssetResponse(res, "assetTag", duplicateCheck.rows[0].assetid)
-      }
-
-      const result = await pool.query(
-        `
-        UPDATE atec.tblasset
-        SET assettagno = $1
-        WHERE assetid = $2
-        RETURNING *
-        `,
-        [assettagno || null, id]
-      )
-
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: "Asset not found" })
-      }
-
-      return res.json(result.rows[0])
-    }
-
     const {
       serialno,
       assettagno,
@@ -4402,6 +4361,10 @@ app.put("/assets/:id", async (req, res) => {
         id
       ]
     );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Asset not found" })
+    }
 
     res.json(result.rows[0]);
   } catch (err) {
