@@ -54,7 +54,7 @@ assertIncludes(productionMigrations, "2026-07-20-task17-scheduled-notification-d
 assertIncludes(productionContract, "tblnotificationdelivery", "Production schema contract must require Task 17 delivery history")
 
 assertIncludes(roadmap, "Task 16: Email And Notifications - Complete Locally", "Roadmap must keep Task 16 complete")
-assertIncludes(roadmap, "Task 17: Scheduled Automatic Notifications - In Progress Locally", "Roadmap must mark Task 17 in progress")
+assertIncludes(roadmap, "Task 17: Scheduled Automatic Notifications - Complete Locally", "Roadmap must mark Task 17 complete")
 assertIncludes(docs, "Scheduled Automatic Notifications", "Notification docs must describe scheduled sending")
 assertIncludes(docs, "NOTIFICATION_AUTO_SEND_ENABLED=false", "Docs must show automatic sending starts off")
 assert.strictEqual(packageJson.scripts["test:task17"], "node scripts/regression/task17-scheduled-notifications.test.js")

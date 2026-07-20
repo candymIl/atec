@@ -19,6 +19,7 @@
     "test:task15": "node scripts/regression/task15-customer-portal.test.js",
     "test:task16": "node scripts/regression/task16-email-notifications.test.js",
     "test:task17": "node scripts/regression/task17-scheduled-notifications.test.js",
+    "test:task18": "node scripts/regression/task18-notification-history-templates.test.js",
     "test:task12a": "node scripts/regression/task12a-crane-wizard.test.js",
     "test:task12-framework": "node scripts/regression/task12-wizard-framework.test.js",
     "test:task12b": "node scripts/regression/task12b-harness-wizard.test.js",

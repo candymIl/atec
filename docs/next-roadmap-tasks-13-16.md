@@ -1,4 +1,4 @@
-# ATEC Next Roadmap: Tasks 13 To 17
+# ATEC Next Roadmap: Tasks 13 To 18
 
 ## Task 13: NFC Asset Support - Complete Locally
 
@@ -16,6 +16,10 @@ Expose customer-facing certificate, asset, and report workflows through explicit
 
 Add automated email and notification workflows for due assets, coverage exceptions, certificates, and portal events. This should depend on Task 14 visit events and Task 15 customer preferences, with audit logging and opt-in configuration.
 
-## Task 17: Scheduled Automatic Notifications - In Progress Locally
+## Task 17: Scheduled Automatic Notifications - Complete Locally
 
 Turn the manual Notification Centre into a controlled automatic send workflow. This adds delivery history, last-sent visibility, daily scheduler controls, duplicate-send protection, and a manual "run scheduled check" action for admins and managers.
+
+## Task 18: Notification History And Templates - In Progress Locally
+
+Expose recent manual and automatic notification delivery history on the dashboard and improve customer-facing notification email wording so customers can quickly see what needs attention.

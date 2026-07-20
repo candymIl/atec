@@ -171,6 +171,7 @@ export function showDashboard(
 
       <div id="dashboardNotificationScheduler" class="notification-scheduler-status">Loading scheduler status...</div>
       <div id="dashboardNotificationCentre">Loading...</div>
+      <div id="dashboardNotificationHistory" class="dashboard-notification-history">Loading notification history...</div>
     </div>
 
     <div class="dashboard-two-column">

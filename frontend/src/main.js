@@ -8623,6 +8623,7 @@ async function loadDashboardSummary() {
     loadDashboardAlerts(data.alerts || {})
     loadDashboardNotificationScheduler()
     loadDashboardNotificationCentre(data.notificationCentre || [])
+    loadDashboardNotificationHistory()
     loadDashboardFailedEquipment(data.failedEquipmentByCustomer || [])
     loadDashboardUpcomingExpiries(data.upcomingExpiriesByCustomer || [])
     loadDashboardTopCustomers(data.topCustomers || [])
@@ -8632,6 +8633,7 @@ async function loadDashboardSummary() {
     loadDashboardAlerts()
     loadDashboardNotificationScheduler()
     loadDashboardNotificationCentre()
+    loadDashboardNotificationHistory()
     loadDashboardFailedEquipment()
     loadDashboardUpcomingExpiries()
     loadDashboardTopCustomers()
@@ -8958,6 +8960,87 @@ async function loadDashboardNotificationScheduler() {
   }
 }
 
+async function loadDashboardNotificationHistory() {
+  const container = document.querySelector("#dashboardNotificationHistory")
+  if (!container) return
+
+  try {
+    const response = await fetch(`${API_BASE}/dashboard/notification-centre/history?limit=15`)
+    const rows = await readApiResponse(response)
+
+    if (!response.ok) throw new Error(rows.error || "Unable to load notification history")
+
+    if (!Array.isArray(rows) || !rows.length) {
+      container.innerHTML = `
+        <div class="section-header">
+          <h3>Recent Notification History</h3>
+          <button type="button" class="secondary-small-btn" onclick="loadDashboardNotificationHistory()">Refresh</button>
+        </div>
+        <div class="alert-card success">No notification emails have been recorded yet.</div>
+      `
+      return
+    }
+
+    container.innerHTML = `
+      <div class="section-header">
+        <h3>Recent Notification History</h3>
+        <button type="button" class="secondary-small-btn" onclick="loadDashboardNotificationHistory()">Refresh</button>
+      </div>
+      <div class="dashboard-notification-table-wrap">
+        <table class="dashboard-table dashboard-notification-history-table">
+          <thead>
+            <tr>
+              <th>Sent</th>
+              <th>Customer</th>
+              <th>Site</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Recipients</th>
+              <th>Counts</th>
+              <th>Error</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(row => `
+              <tr>
+                <td>${escapeHtml(formatDashboardNotificationDate(row.sent_at || row.created_at))}</td>
+                <td>${escapeHtml(row.clientname || "")}</td>
+                <td>${escapeHtml(row.sitename || "All Sites")}</td>
+                <td>${escapeHtml(row.delivery_type || "")}</td>
+                <td><span class="notification-recipient ${row.status === "SENT" ? "ready" : "missing"}">${escapeHtml(row.status || "")}</span></td>
+                <td>${escapeHtml(row.recipient_count || 0)}</td>
+                <td>${escapeHtml(notificationHistoryCounts(row))}</td>
+                <td>${escapeHtml(row.error_message || "")}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    `
+  } catch (err) {
+    container.innerHTML = `
+      <div class="alert-card warning">
+        ${escapeHtml(err.message || "Unable to load notification history")}
+      </div>
+    `
+  }
+}
+
+function notificationHistoryCounts(row) {
+  return [
+    ["Due", row.due_assets],
+    ["Overdue", row.overdue_assets],
+    ["Expiring", row.expiring_certificates],
+    ["Failed", row.failed_assets],
+    ["Visits", row.unresolved_visit_items]
+  ]
+    .filter(([, value]) => Number(value || 0) > 0)
+    .map(([label, value]) => `${label}: ${value}`)
+    .join(" | ") || "-"
+}
+
+window.loadDashboardNotificationHistory = loadDashboardNotificationHistory
+
 async function loadDashboardNotificationCentre(preloadedData = null) {
   const container = document.querySelector("#dashboardNotificationCentre")
   if (!container) return
@@ -9197,6 +9280,7 @@ window.runDashboardNotificationScheduler = async function () {
     alert(`Scheduled check complete. Sent: ${summary.sent || 0}. Failed: ${summary.failed || 0}. Skipped: ${summary.skipped || 0}.`)
     loadDashboardNotificationScheduler()
     loadDashboardNotificationCentre()
+    loadDashboardNotificationHistory()
   } catch (err) {
     alert(err.message || 'Unable to run scheduled notifications')
   }
@@ -9273,6 +9357,7 @@ window.sendDashboardNotification = async function (clientid, siteid = '') {
 
     alert(`Notification sent to ${result.sent_to || 0} recipient(s).`)
     loadDashboardNotificationCentre()
+    loadDashboardNotificationHistory()
   } catch (err) {
     alert(err.message || 'Unable to send notification')
   }

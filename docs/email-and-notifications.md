@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Task 16 added notification workflows on top of the customer portal, due-asset coverage, certificate expiry, and visit exception data. Task 17 turns that manual Notification Centre into a controlled scheduled workflow with delivery history and duplicate-send protection.
+Task 16 added notification workflows on top of the customer portal, due-asset coverage, certificate expiry, and visit exception data. Task 17 turns that manual Notification Centre into a controlled scheduled workflow with delivery history and duplicate-send protection. Task 18 makes the history visible on the dashboard and improves the customer-facing email wording.
 
 ## Current Local Scope
 
@@ -19,6 +19,8 @@ Task 16 added notification workflows on top of the customer portal, due-asset co
 - Audit logging for manually sent notifications.
 - Delivery history for manual and automatic sends.
 - Last sent date and automatic readiness on each Notification Centre row.
+- Recent Notification History panel on the dashboard.
+- Clearer customer notification email body with only active attention items listed.
 - Scheduler status on the dashboard.
 - Manual "run scheduled check" action for admins and managers.
 - Dashboard summary cache includes notification data.
@@ -58,7 +60,7 @@ Keep automatic sending off while SMTP is being fixed. Once test emails work, swi
 ## Not Yet In This Slice
 
 - Per-event notification audit records.
-- Email templates for due assets, visit exceptions, or portal events.
+- Separate branded HTML email templates for due assets, visit exceptions, or portal events.
 
 ## Verification
 
@@ -67,6 +69,7 @@ Run:
 ```sh
 npm.cmd run test:task16
 npm.cmd run test:task17
+npm.cmd run test:task18
 npm.cmd run test:task15
 npm.cmd --prefix frontend run build
 node --check backend\server.js

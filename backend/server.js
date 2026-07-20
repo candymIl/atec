@@ -12638,25 +12638,37 @@ function notificationEmailSubject(row) {
   return `ATEC notification: ${row.clientname || "Customer"}${siteLabel}`
 }
 
+function notificationAttentionLines(row) {
+  return [
+    ["Due assets", row.due_assets],
+    ["Overdue assets", row.overdue_assets],
+    ["Certificates expiring soon", row.expiring_certificates],
+    ["Failed assets", row.failed_assets],
+    ["Unresolved visit items", row.unresolved_visit_items],
+    ["Deferred follow-ups due", row.deferred_followups_due]
+  ]
+    .filter(([, value]) => Number(value || 0) > 0)
+    .map(([label, value]) => `- ${label}: ${value}`)
+}
+
 function notificationEmailText(row) {
+  const attentionLines = notificationAttentionLines(row)
   const lines = [
     "Good day,",
     "",
-    "The ATEC system has the following items needing attention:",
+    "The ATEC Inspection Platform has items needing attention for your account.",
     "",
     `Customer: ${valueOrDash(row.clientname)}`,
     `Site: ${valueOrDash(row.sitename)}`,
-    `Due assets: ${row.due_assets || 0}`,
-    `Overdue assets: ${row.overdue_assets || 0}`,
-    `Certificates expiring soon: ${row.expiring_certificates || 0}`,
-    `Failed assets: ${row.failed_assets || 0}`,
-    `Unresolved visit items: ${row.unresolved_visit_items || 0}`,
-    `Deferred follow-ups due: ${row.deferred_followups_due || 0}`,
     "",
-    "Please log in to the ATEC Customer Portal or contact ATEC if you need assistance.",
+    "Items needing attention:",
+    ...(attentionLines.length ? attentionLines : ["- No active notification items are currently listed."]),
+    "",
+    "Please log in to the ATEC Customer Portal to review certificates, asset status and reports.",
+    "If you need assistance, please contact ATEC Systems.",
     "",
     "Regards,",
-    "ATEC Inspection Platform"
+    "ATEC Systems"
   ]
 
   return lines.join("\n")
@@ -12735,6 +12747,52 @@ async function recordNotificationDelivery(preview, recipients, options = {}) {
   )
 
   return result.rows[0]
+}
+
+async function getNotificationDeliveryHistory(req) {
+  if (!await notificationDeliveryTableAvailable()) return []
+
+  const scopedToClient = dashboardClientScope(req, "d", "WHERE")
+  const values = [...scopedToClient.values]
+  const limit = parsePositiveInteger(req.query?.limit, 25, 100)
+  values.push(limit)
+
+  const result = await pool.query(
+    `
+    SELECT
+      d.notificationdeliveryid,
+      d.clientid,
+      COALESCE(c.clientname, 'Unknown Customer') AS clientname,
+      d.siteid,
+      COALESCE(s.sitename, 'All Sites') AS sitename,
+      d.delivery_type,
+      d.status,
+      d.subject,
+      d.recipients,
+      cardinality(d.recipients)::int AS recipient_count,
+      d.due_assets,
+      d.overdue_assets,
+      d.expiring_certificates,
+      d.failed_assets,
+      d.unresolved_visit_items,
+      d.deferred_followups_due,
+      d.error_message,
+      d.sent_by_user_id,
+      COALESCE(NULLIF(u.fullname, ''), u.username, 'System') AS sent_by,
+      d.created_at,
+      d.sent_at
+    FROM atec.tblnotificationdelivery d
+    LEFT JOIN atec.tblclients c ON c.clientid = d.clientid
+    LEFT JOIN atec.tblsites s ON s.siteid = d.siteid
+    LEFT JOIN atec.tblusers u ON u.userid = d.sent_by_user_id
+    ${scopedToClient.clause}
+    ORDER BY COALESCE(d.sent_at, d.created_at) DESC, d.notificationdeliveryid DESC
+    LIMIT $${values.length}
+    `,
+    values
+  )
+
+  return result.rows
 }
 
 async function sendNotificationPreview(preview, options = {}) {
@@ -13142,6 +13200,10 @@ app.get("/dashboard/notification-centre/preview", asyncRoute(async (req, res) =>
 
 app.get("/dashboard/notification-centre/scheduler", asyncRoute(async (req, res) => {
   res.json(notificationSchedulerStatus())
+}))
+
+app.get("/dashboard/notification-centre/history", asyncRoute(async (req, res) => {
+  res.json(await getNotificationDeliveryHistory(req))
 }))
 
 app.post("/dashboard/notification-centre/scheduler/run", emailLimiter, asyncRoute(async (req, res) => {
