@@ -73,7 +73,25 @@ function withLock(name, fn) {
     fd = fs.openSync(lockPath, "wx")
     fs.writeFileSync(fd, `${process.pid}\n${new Date().toISOString()}\n`)
   } catch (err) {
-    throw new Error(`Another ${name} job appears to be running`)
+    if (err.code !== "EEXIST") throw err
+    const existingPid = Number(String(fs.readFileSync(lockPath, "utf8")).split(/\r?\n/, 1)[0])
+    let existingProcessIsRunning = false
+    if (Number.isInteger(existingPid) && existingPid > 0) {
+      try {
+        process.kill(existingPid, 0)
+        existingProcessIsRunning = true
+      } catch (processError) {
+        existingProcessIsRunning = processError.code === "EPERM"
+      }
+    }
+
+    if (existingProcessIsRunning) {
+      throw new Error(`Another ${name} job appears to be running (PID ${existingPid})`)
+    }
+
+    fs.rmSync(lockPath, { force: true })
+    fd = fs.openSync(lockPath, "wx")
+    fs.writeFileSync(fd, `${process.pid}\n${new Date().toISOString()}\n`)
   }
 
   return Promise.resolve()
