@@ -10540,7 +10540,8 @@ function customerReportFilters(query = {}) {
     responsibleid: query.responsibleid || "",
     equiptypeid: query.equiptypeid || "",
     datefrom: query.datefrom || "",
-    dateto: query.dateto || ""
+    dateto: query.dateto || "",
+    status: query.status || ""
   }
 }
 
@@ -10584,7 +10585,8 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
     responsibleid = "",
     equiptypeid = "",
     datefrom = "",
-    dateto = ""
+    dateto = "",
+    status = ""
   } = filters
 
   const customerValues = []
@@ -10675,6 +10677,21 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
     ? ` AND ${inspectionWhere.join(" AND ")}`
     : ""
 
+  const normalizedStatus = String(status || "").trim().toUpperCase()
+  const allowedStatuses = new Set([
+    "OK",
+    "NOT SAFE",
+    "INCOMPLETE INSPECTION",
+    "MISSING CERTIFICATE METADATA",
+    "VISUAL OVERDUE",
+    "LOAD TEST OVERDUE",
+    "NO VISUAL",
+    "NO LOAD TEST"
+  ])
+  const reportStatusFilterSql = allowedStatuses.has(normalizedStatus)
+    ? `WHERE reportstatus = '${normalizedStatus}'`
+    : ""
+
   if (datefrom || dateto) {
     assetWhere += `
       AND (
@@ -10711,7 +10728,7 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
     customerValues
   )
 
-  const assetBaseSql = `
+  const unfilteredAssetBaseSql = `
     WITH latest_visual AS (
       SELECT DISTINCT ON (assetid)
         assetid,
@@ -10848,6 +10865,12 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
     LEFT JOIN latest_load ll
       ON a.assetid = ll.assetid
     ${assetWhere}
+  `
+
+  const assetBaseSql = `
+    SELECT *
+    FROM (${unfilteredAssetBaseSql}) customer_report_assets
+    ${reportStatusFilterSql}
   `
 
   let summary = null

@@ -3901,6 +3901,20 @@ tr:hover {
   line-height: 1.12;
 }
 
+.report-summary-tile-button {
+  appearance: none;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  width: 100%;
+}
+
+.report-summary-tile-button:hover,
+.report-summary-tile-button:focus-visible {
+  background: #eef4ff;
+  border-color: #2563eb;
+}
+
 .fb-cert-page.fb-cert-layout-balanced {
   font-size: 11.2px;
   line-height: 1.18;

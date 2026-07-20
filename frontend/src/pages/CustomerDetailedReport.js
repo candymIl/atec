@@ -124,6 +124,21 @@ export function renderCustomerDetailedReport(customers = [], equipmentTypes = []
           <input id="customerReportDateTo" type="date">
         </div>
 
+        <div class="report-filter-control">
+          <label for="customerReportStatus">Report Status</label>
+          <select id="customerReportStatus">
+            <option value="">All Statuses</option>
+            <option value="OK">OK</option>
+            <option value="NOT SAFE">Not Safe</option>
+            <option value="INCOMPLETE INSPECTION">Incomplete</option>
+            <option value="MISSING CERTIFICATE METADATA">Missing Metadata</option>
+            <option value="VISUAL OVERDUE">Visual Overdue</option>
+            <option value="LOAD TEST OVERDUE">Load Overdue</option>
+            <option value="NO VISUAL">No Visual</option>
+            <option value="NO LOAD TEST">No Load Test</option>
+          </select>
+        </div>
+
         <div class="report-toolbar-actions">
             <button id="customerReportPreviewBtn" type="button">
               Preview Report
@@ -192,7 +207,7 @@ function bindCustomerReportEvents() {
   })
 
   document
-    .querySelectorAll("#customerReportResponsible, #customerReportEquipment, #customerReportDateFrom, #customerReportDateTo")
+    .querySelectorAll("#customerReportResponsible, #customerReportEquipment, #customerReportDateFrom, #customerReportDateTo, #customerReportStatus")
     .forEach(input => {
       input.addEventListener("change", customerReportFilterChanged)
     })
@@ -222,7 +237,8 @@ function applyCustomerReportOptions(options = {}) {
     customerReportResponsible: options.responsibleid,
     customerReportEquipment: options.equiptypeid,
     customerReportDateFrom: options.datefrom,
-    customerReportDateTo: options.dateto
+    customerReportDateTo: options.dateto,
+    customerReportStatus: options.status
   }
 
   Object.entries(optionValues).forEach(([id, value]) => {
@@ -355,6 +371,7 @@ function getCustomerReportQuery(options = {}) {
   const equiptypeid = document.querySelector("#customerReportEquipment")?.value || ""
   const datefrom = document.querySelector("#customerReportDateFrom")?.value || ""
   const dateto = document.querySelector("#customerReportDateTo")?.value || ""
+  const status = document.querySelector("#customerReportStatus")?.value || ""
 
   if (clientid) params.append("clientid", clientid)
   if (siteid) params.append("siteid", siteid)
@@ -363,6 +380,7 @@ function getCustomerReportQuery(options = {}) {
   if (equiptypeid) params.append("equiptypeid", equiptypeid)
   if (datefrom) params.append("datefrom", datefrom)
   if (dateto) params.append("dateto", dateto)
+  if (status) params.append("status", status)
 
   if (options.includePagination) {
     const sort = getTableSortState('customerReport', 'latestinspectiondate', 'desc')
@@ -395,6 +413,7 @@ function renderCustomerReportPreview(report) {
   const startIndex = (currentPage - 1) * Number(pagination.limit || pageSize)
   const rows = report.assets || []
   const endIndex = totalRows === 0 ? 0 : startIndex + rows.length
+  const activeStatus = document.querySelector("#customerReportStatus")?.value || ""
 
   return `
     <div class="report-summary-card">
@@ -419,8 +438,8 @@ function renderCustomerReportPreview(report) {
         ${summaryTile("Missing Metadata", report.summary.missingCertificateMetadataAssets)}
         ${summaryTile("Visual Overdue", report.summary.visualOverdueAssets)}
         ${summaryTile("Load Overdue", report.summary.loadOverdueAssets)}
-        ${summaryTile("No Visual", report.summary.noVisualAssets)}
-        ${summaryTile("No Load Test", report.summary.noLoadAssets)}
+        ${summaryTile("No Visual", report.summary.noVisualAssets, "NO VISUAL")}
+        ${summaryTile("No Load Test", report.summary.noLoadAssets, "NO LOAD TEST")}
       </div>
     </div>
 
@@ -430,6 +449,11 @@ function renderCustomerReportPreview(report) {
           <h2>Asset Detail Preview</h2>
           <p>Showing ${totalRows === 0 ? 0 : startIndex + 1} to ${endIndex} of ${totalRows} assets. Use PDF or Excel for the full detailed report.</p>
         </div>
+        ${activeStatus ? `
+          <button type="button" class="secondary-btn" onclick="clearCustomerReportStatus()">
+            Back to Full Report
+          </button>
+        ` : ""}
       </div>
 
       <div class="report-pagination-bar">
@@ -644,13 +668,40 @@ function bindReportSlider() {
   window.addEventListener("resize", updateSliderRange, { once: true })
 }
 
-function summaryTile(label, value) {
+function summaryTile(label, value, filterStatus = "") {
+  if (filterStatus) {
+    return `
+      <button type="button" class="report-summary-tile report-summary-tile-button" onclick="filterCustomerReportStatus('${safeAttr(filterStatus)}')">
+        <span>${label}</span>
+        <strong>${value ?? 0}</strong>
+      </button>
+    `
+  }
+
   return `
     <div class="report-summary-tile">
       <span>${label}</span>
       <strong>${value ?? 0}</strong>
     </div>
   `
+}
+
+window.filterCustomerReportStatus = function (status) {
+  const statusSelect = document.querySelector("#customerReportStatus")
+  if (!statusSelect) return
+  statusSelect.value = status
+  currentReportPage = 1
+  updateCustomerReportLinks()
+  loadCustomerDetailedReport()
+}
+
+window.clearCustomerReportStatus = function () {
+  const statusSelect = document.querySelector("#customerReportStatus")
+  if (!statusSelect) return
+  statusSelect.value = ""
+  currentReportPage = 1
+  updateCustomerReportLinks()
+  loadCustomerDetailedReport()
 }
 
 function statusClass(status) {
