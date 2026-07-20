@@ -9159,7 +9159,7 @@ function renderDashboardNotificationRow(row) {
           Send
         </button>
         <button class="small-btn" onclick="showCustomerDetailedReport(${reportArgs})">
-          View Report
+          Report
         </button>
       </td>
     </tr>
