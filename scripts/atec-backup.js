@@ -9,6 +9,13 @@ require("../backend/node_modules/dotenv").config({
   quiet: true
 })
 
+// PostgreSQL command-line tools do not understand the application's
+// DB_PASSWORD name. Supply the documented libpq variable so scheduled and
+// deployment backups never fall back to an interactive password prompt.
+if (!process.env.PGPASSWORD && process.env.DB_PASSWORD) {
+  process.env.PGPASSWORD = process.env.DB_PASSWORD
+}
+
 const {
   assertSafeRestoreDatabaseName,
   backupSetId,
@@ -152,8 +159,8 @@ async function backupDatabase(args = {}) {
     const dbPort = process.env.DB_PORT || "5432"
     const dbUser = process.env.DB_USER
 
-    if (!dbName || !dbUser) {
-      throw new Error("DB_NAME and DB_USER are required for database backup")
+    if (!dbName || !dbUser || !process.env.PGPASSWORD) {
+      throw new Error("DB_NAME, DB_USER and DB_PASSWORD are required for database backup")
     }
 
     const filename = `${dbName}-${setId}.dump`
