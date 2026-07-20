@@ -1625,7 +1625,10 @@ function authorizeRequest(req, res, next) {
       return next()
     }
 
-    if (method === "POST" && routePath === "/dashboard/notification-centre/send") {
+    if (method === "POST" && (
+      routePath === "/dashboard/notification-centre/send" ||
+      routePath === "/dashboard/notification-centre/scheduler/run"
+    )) {
       return next()
     }
 
@@ -12259,6 +12262,14 @@ app.get("/dashboard/upcoming-expiries-by-customer", async (req, res) => {
 
 const dashboardSummaryCache = new Map()
 const dashboardSummaryCacheTtlMs = Number(process.env.DASHBOARD_SUMMARY_CACHE_TTL_MS || 15000)
+const notificationSchedulerState = {
+  running: false,
+  lastCheckedAt: null,
+  lastRunAt: null,
+  lastRunDate: null,
+  lastResult: null,
+  lastError: null
+}
 
 function dashboardSummaryCacheKey(req) {
   return `${req.user?.role || ""}:${req.user?.clientid || ""}`
@@ -12276,9 +12287,77 @@ async function task14VisitTablesAvailable() {
   return Boolean(result.rows[0]?.has_visits && result.rows[0]?.has_visit_assets)
 }
 
+async function notificationDeliveryTableAvailable() {
+  const result = await pool.query(
+    "SELECT to_regclass('atec.tblnotificationdelivery') IS NOT NULL AS available"
+  )
+
+  return Boolean(result.rows[0]?.available)
+}
+
+function notificationSchedulerConfig() {
+  return {
+    enabled: String(process.env.NOTIFICATION_AUTO_SEND_ENABLED || "").trim().toLowerCase() === "true",
+    time: String(process.env.NOTIFICATION_AUTO_SEND_TIME || "07:00").trim(),
+    cooldownHours: parsePositiveInteger(process.env.NOTIFICATION_AUTO_SEND_COOLDOWN_HOURS, 24, 168),
+    intervalMinutes: parsePositiveInteger(process.env.NOTIFICATION_AUTO_SEND_CHECK_MINUTES, 5, 1440),
+    maxRows: parsePositiveInteger(process.env.NOTIFICATION_AUTO_SEND_MAX_ROWS, 25, 100)
+  }
+}
+
+function notificationSchedulerStatus() {
+  const config = notificationSchedulerConfig()
+
+  return {
+    enabled: config.enabled,
+    time: config.time,
+    cooldown_hours: config.cooldownHours,
+    check_interval_minutes: config.intervalMinutes,
+    max_rows: config.maxRows,
+    running: notificationSchedulerState.running,
+    last_checked_at: notificationSchedulerState.lastCheckedAt,
+    last_run_at: notificationSchedulerState.lastRunAt,
+    last_result: notificationSchedulerState.lastResult,
+    last_error: notificationSchedulerState.lastError
+  }
+}
+
+function scheduledNotificationDue(now = new Date()) {
+  const config = notificationSchedulerConfig()
+  const today = now.toISOString().slice(0, 10)
+  const match = /^(\d{1,2}):(\d{2})$/.exec(config.time)
+  const targetHour = match ? Math.min(Number(match[1]), 23) : 7
+  const targetMinute = match ? Math.min(Number(match[2]), 59) : 0
+
+  return notificationSchedulerState.lastRunDate !== today &&
+    (now.getHours() > targetHour || (now.getHours() === targetHour && now.getMinutes() >= targetMinute))
+}
+
+function notificationCounts(row) {
+  return {
+    due_assets: Number(row.due_assets || 0),
+    overdue_assets: Number(row.overdue_assets || 0),
+    expiring_certificates: Number(row.expiring_certificates || 0),
+    failed_assets: Number(row.failed_assets || 0),
+    unresolved_visit_items: Number(row.unresolved_visit_items || 0),
+    deferred_followups_due: Number(row.deferred_followups_due || 0)
+  }
+}
+
+function notificationAutoSendEligible(row, config = notificationSchedulerConfig()) {
+  if (Number(row.portal_recipients || 0) <= 0) return false
+  if (!row.last_notification_sent_at) return true
+
+  const lastSent = new Date(row.last_notification_sent_at).getTime()
+  if (!Number.isFinite(lastSent)) return true
+
+  return Date.now() - lastSent >= config.cooldownHours * 60 * 60 * 1000
+}
+
 async function getNotificationCentreRows(req) {
   const scopedToClient = dashboardClientScope(req)
   const visitTablesAvailable = await task14VisitTablesAvailable()
+  const deliveryTableAvailable = await notificationDeliveryTableAvailable()
 
   const visitExceptionColumns = visitTablesAvailable
     ? `
@@ -12317,6 +12396,38 @@ async function getNotificationCentreRows(req) {
           visit_exceptions.siteid = grouped.siteid
           OR (visit_exceptions.siteid IS NULL AND grouped.siteid IS NULL)
        )
+    `
+    : ""
+
+  const deliveryColumns = deliveryTableAvailable
+    ? `
+      latest_delivery.sent_at AS last_notification_sent_at,
+      latest_delivery.delivery_type AS last_notification_delivery_type,
+      latest_delivery.status AS last_notification_status,
+    `
+    : `
+      NULL::timestamptz AS last_notification_sent_at,
+      NULL::text AS last_notification_delivery_type,
+      NULL::text AS last_notification_status,
+    `
+
+  const deliveryJoin = deliveryTableAvailable
+    ? `
+      LEFT JOIN LATERAL (
+        SELECT
+          d.sent_at,
+          d.delivery_type,
+          d.status
+        FROM atec.tblnotificationdelivery d
+        WHERE d.clientid = grouped.clientid
+          AND (
+            d.siteid = grouped.siteid
+            OR (d.siteid IS NULL AND grouped.siteid IS NULL)
+          )
+          AND d.status = 'SENT'
+        ORDER BY d.sent_at DESC NULLS LAST, d.notificationdeliveryid DESC
+        LIMIT 1
+      ) latest_delivery ON true
     `
     : ""
 
@@ -12439,6 +12550,7 @@ async function getNotificationCentreRows(req) {
       COALESCE(c.notify_failed_assets, true) AS notify_failed_assets,
       COALESCE(c.notify_visit_exceptions, true) AS notify_visit_exceptions,
       COALESCE(c.notification_lead_days, 30)::int AS notification_lead_days,
+      ${deliveryColumns}
       grouped.next_due_date,
       expiring.next_expiry_date,
       CASE
@@ -12463,6 +12575,7 @@ async function getNotificationCentreRows(req) {
      )
     LEFT JOIN recipients ON recipients.clientid = grouped.clientid
     ${visitExceptionJoin}
+    ${deliveryJoin}
     WHERE (
         COALESCE(c.notify_overdue_assets, true) = true
         AND (grouped.due_assets > 0 OR grouped.overdue_assets > 0)
@@ -12481,7 +12594,10 @@ async function getNotificationCentreRows(req) {
     scopedToClient.values
   )
 
-  return result.rows
+  return result.rows.map(row => ({
+    ...row,
+    automatic_notification_ready: notificationAutoSendEligible(row)
+  }))
 }
 
 async function findNotificationCentreRow(req, { clientid, siteid }) {
@@ -12566,6 +12682,217 @@ async function buildNotificationEmailPreview(req, body = {}) {
     subject: notificationEmailSubject(row),
     message: notificationEmailText(row)
   }
+}
+
+async function recordNotificationDelivery(preview, recipients, options = {}) {
+  if (!await notificationDeliveryTableAvailable()) return null
+
+  const counts = notificationCounts(preview.row)
+  const result = await pool.query(
+    `
+    INSERT INTO atec.tblnotificationdelivery (
+      clientid,
+      siteid,
+      delivery_type,
+      status,
+      subject,
+      message,
+      recipients,
+      due_assets,
+      overdue_assets,
+      expiring_certificates,
+      failed_assets,
+      unresolved_visit_items,
+      deferred_followups_due,
+      error_message,
+      sent_by_user_id,
+      sent_at
+    )
+    VALUES (
+      $1, $2, $3, $4, $5, $6, $7::text[],
+      $8, $9, $10, $11, $12, $13, $14, $15,
+      CASE WHEN $4 = 'SENT' THEN now() ELSE NULL END
+    )
+    RETURNING notificationdeliveryid, sent_at
+    `,
+    [
+      preview.row.clientid,
+      preview.row.siteid || null,
+      options.deliveryType || "MANUAL",
+      options.status || "SENT",
+      preview.subject,
+      preview.message,
+      recipients,
+      counts.due_assets,
+      counts.overdue_assets,
+      counts.expiring_certificates,
+      counts.failed_assets,
+      counts.unresolved_visit_items,
+      counts.deferred_followups_due,
+      options.errorMessage || null,
+      options.sentByUserId || null
+    ]
+  )
+
+  return result.rows[0]
+}
+
+async function sendNotificationPreview(preview, options = {}) {
+  const recipients = preview.recipients.map(recipient => recipient.email)
+
+  try {
+    await sendApplicationEmail({
+      from: process.env.MAIL_FROM,
+      to: recipients,
+      subject: preview.subject,
+      text: preview.message
+    })
+
+    await recordNotificationDelivery(preview, recipients, {
+      deliveryType: options.deliveryType || "MANUAL",
+      status: "SENT",
+      sentByUserId: options.sentByUserId || null
+    })
+
+    return {
+      success: true,
+      sent_to: recipients.length,
+      recipients
+    }
+  } catch (err) {
+    await recordNotificationDelivery(preview, recipients, {
+      deliveryType: options.deliveryType || "MANUAL",
+      status: "FAILED",
+      sentByUserId: options.sentByUserId || null,
+      errorMessage: getMailErrorMessage(err)
+    })
+    throw err
+  }
+}
+
+async function runScheduledNotificationDelivery(options = {}) {
+  const config = notificationSchedulerConfig()
+  notificationSchedulerState.lastCheckedAt = new Date().toISOString()
+
+  if (!options.force && !config.enabled) {
+    return { skipped: true, reason: "Automatic notifications are switched off." }
+  }
+
+  if (notificationSchedulerState.running) {
+    return { skipped: true, reason: "Automatic notification run already in progress." }
+  }
+
+  const mailConfigIssues = getMailConfigIssues()
+
+  if (mailConfigIssues.length) {
+    return {
+      skipped: true,
+      reason: `Email settings missing: ${mailConfigIssues.join(", ")}`
+    }
+  }
+
+  notificationSchedulerState.running = true
+  notificationSchedulerState.lastError = null
+
+  try {
+    const systemReq = {
+      user: { role: "ADMIN", username: "system-notification-scheduler" },
+      query: {},
+      ip: null
+    }
+    const rows = await getNotificationCentreRows(systemReq)
+    const candidates = rows
+      .filter(row => notificationAutoSendEligible(row, config))
+      .slice(0, config.maxRows)
+    const result = {
+      checked_rows: rows.length,
+      sent: 0,
+      failed: 0,
+      skipped: rows.length - candidates.length,
+      details: []
+    }
+
+    for (const row of candidates) {
+      const preview = {
+        row,
+        recipients: await getNotificationRecipients({
+          clientid: row.clientid,
+          siteid: row.siteid
+        }),
+        subject: notificationEmailSubject(row),
+        message: notificationEmailText(row)
+      }
+
+      if (!preview.recipients.length) {
+        result.skipped += 1
+        result.details.push({
+          clientid: row.clientid,
+          siteid: row.siteid,
+          status: "SKIPPED",
+          reason: "No active customer portal recipients"
+        })
+        continue
+      }
+
+      try {
+        const delivery = await sendNotificationPreview(preview, {
+          deliveryType: "AUTOMATIC"
+        })
+        result.sent += 1
+        result.details.push({
+          clientid: row.clientid,
+          siteid: row.siteid,
+          status: "SENT",
+          sent_to: delivery.sent_to
+        })
+        await logAudit(systemReq, "SEND_NOTIFICATION_AUTOMATIC", "notifications", row.clientid, {
+          clientid: row.clientid,
+          siteid: row.siteid,
+          recipients: delivery.recipients,
+          counts: notificationCounts(row)
+        })
+      } catch (err) {
+        result.failed += 1
+        result.details.push({
+          clientid: row.clientid,
+          siteid: row.siteid,
+          status: "FAILED",
+          error: getMailErrorMessage(err)
+        })
+      }
+    }
+
+    notificationSchedulerState.lastRunAt = new Date().toISOString()
+    notificationSchedulerState.lastRunDate = notificationSchedulerState.lastRunAt.slice(0, 10)
+    notificationSchedulerState.lastResult = result
+    return result
+  } catch (err) {
+    notificationSchedulerState.lastError = err.message || String(err)
+    throw err
+  } finally {
+    notificationSchedulerState.running = false
+  }
+}
+
+function startNotificationScheduler() {
+  const config = notificationSchedulerConfig()
+  if (!config.enabled) {
+    console.log("Automatic customer notifications are switched off.")
+    return
+  }
+
+  const intervalMs = config.intervalMinutes * 60 * 1000
+  console.log(`Automatic customer notifications enabled for ${config.time}.`)
+
+  setInterval(() => {
+    if (!scheduledNotificationDue()) return
+
+    runScheduledNotificationDelivery()
+      .catch(err => {
+        notificationSchedulerState.lastError = err.message || String(err)
+        console.error("Automatic notification run failed:", err)
+      })
+  }, intervalMs).unref()
 }
 
 async function getCachedDashboardSummary(req) {
@@ -12813,6 +13140,23 @@ app.get("/dashboard/notification-centre/preview", asyncRoute(async (req, res) =>
   })
 }))
 
+app.get("/dashboard/notification-centre/scheduler", asyncRoute(async (req, res) => {
+  res.json(notificationSchedulerStatus())
+}))
+
+app.post("/dashboard/notification-centre/scheduler/run", emailLimiter, asyncRoute(async (req, res) => {
+  if (!["ADMIN", "MANAGER"].includes(req.user?.role)) {
+    return res.status(403).json({ error: "Only admins and managers can run automatic notifications" })
+  }
+
+  const result = await runScheduledNotificationDelivery({ force: true })
+  res.json({
+    success: true,
+    result,
+    scheduler: notificationSchedulerStatus()
+  })
+}))
+
 app.post("/dashboard/notification-centre/send", emailLimiter, asyncRoute(async (req, res) => {
   if (!["ADMIN", "MANAGER"].includes(req.user?.role)) {
     return res.status(403).json({ error: "Only admins and managers can send customer notifications" })
@@ -12838,31 +13182,22 @@ app.post("/dashboard/notification-centre/send", emailLimiter, asyncRoute(async (
 
   const recipients = preview.recipients.map(recipient => recipient.email)
 
-  await sendApplicationEmail({
-    from: process.env.MAIL_FROM,
-    to: recipients,
-    subject: preview.subject,
-    text: preview.message
+  const delivery = await sendNotificationPreview(preview, {
+    deliveryType: "MANUAL",
+    sentByUserId: req.user?.user_id || null
   })
 
   await req.logAudit("SEND_NOTIFICATION", "notifications", preview.row.clientid, {
     clientid: preview.row.clientid,
     siteid: preview.row.siteid,
     recipients,
-    counts: {
-      due_assets: preview.row.due_assets,
-      overdue_assets: preview.row.overdue_assets,
-      expiring_certificates: preview.row.expiring_certificates,
-      failed_assets: preview.row.failed_assets,
-      unresolved_visit_items: preview.row.unresolved_visit_items,
-      deferred_followups_due: preview.row.deferred_followups_due
-    }
+    counts: notificationCounts(preview.row)
   })
 
   res.json({
     success: true,
-    sent_to: recipients.length,
-    recipients
+    sent_to: delivery.sent_to,
+    recipients: delivery.recipients
   })
 }))
 
@@ -12988,6 +13323,8 @@ app.get("/dashboard/visit-alerts", asyncRoute(async (req, res) => {
 }))
 
 app.use(errorHandler)
+
+startNotificationScheduler()
 
 const server = app.listen(PORT, () => {
   console.log(`ATEC server running on port ${PORT}`);

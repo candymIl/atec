@@ -8621,6 +8621,7 @@ async function loadDashboardSummary() {
 
     const data = await response.json()
     loadDashboardAlerts(data.alerts || {})
+    loadDashboardNotificationScheduler()
     loadDashboardNotificationCentre(data.notificationCentre || [])
     loadDashboardFailedEquipment(data.failedEquipmentByCustomer || [])
     loadDashboardUpcomingExpiries(data.upcomingExpiriesByCustomer || [])
@@ -8629,6 +8630,7 @@ async function loadDashboardSummary() {
   } catch (err) {
     console.error("Failed to load dashboard summary:", err)
     loadDashboardAlerts()
+    loadDashboardNotificationScheduler()
     loadDashboardNotificationCentre()
     loadDashboardFailedEquipment()
     loadDashboardUpcomingExpiries()
@@ -8906,6 +8908,56 @@ async function loadDashboardAlerts(preloadedData = null) {
   }
 }
 
+function formatDashboardNotificationDate(value) {
+  if (!value) return "Not sent yet"
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return "Not sent yet"
+  return date.toLocaleString()
+}
+
+async function loadDashboardNotificationScheduler() {
+  const container = document.querySelector("#dashboardNotificationScheduler")
+  if (!container) return
+
+  try {
+    const response = await fetch(`${API_BASE}/dashboard/notification-centre/scheduler`)
+    const result = await readApiResponse(response)
+
+    if (!response.ok) throw new Error(result.error || "Unable to load scheduler status")
+
+    const lastResult = result.last_result
+      ? `${result.last_result.sent || 0} sent, ${result.last_result.failed || 0} failed, ${result.last_result.skipped || 0} skipped`
+      : "No scheduled run yet"
+
+    container.innerHTML = `
+      <div>
+        <span>Automatic sending</span>
+        <strong>${result.enabled ? `On at ${escapeHtml(result.time || "07:00")}` : "Off"}</strong>
+      </div>
+      <div>
+        <span>Last run</span>
+        <strong>${escapeHtml(formatDashboardNotificationDate(result.last_run_at))}</strong>
+      </div>
+      <div>
+        <span>Result</span>
+        <strong>${escapeHtml(lastResult)}</strong>
+      </div>
+      ${result.last_error ? `
+        <div>
+          <span>Last error</span>
+          <strong>${escapeHtml(result.last_error)}</strong>
+        </div>
+      ` : ""}
+    `
+  } catch (err) {
+    container.innerHTML = `
+      <div class="alert-card warning">
+        ${escapeHtml(err.message || "Unable to load scheduler status")}
+      </div>
+    `
+  }
+}
+
 async function loadDashboardNotificationCentre(preloadedData = null) {
   const container = document.querySelector("#dashboardNotificationCentre")
   if (!container) return
@@ -8953,6 +9005,8 @@ async function loadDashboardNotificationCentre(preloadedData = null) {
               <th>Failed</th>
               <th>Visit Items</th>
               <th>Portal Recipients</th>
+              <th>Last Sent</th>
+              <th>Auto</th>
               <th>Action</th>
             </tr>
           </thead>
@@ -8967,6 +9021,8 @@ async function loadDashboardNotificationCentre(preloadedData = null) {
               const recipientText = Number(row.portal_recipients || 0) > 0
                 ? `${row.portal_recipients} ready`
                 : "No portal users"
+              const autoClass = row.automatic_notification_ready ? "ready" : "missing"
+              const autoText = row.automatic_notification_ready ? "Ready" : "Waiting"
 
               return `
                 <tr>
@@ -8978,6 +9034,8 @@ async function loadDashboardNotificationCentre(preloadedData = null) {
                   <td>${escapeHtml(row.failed_assets || 0)}</td>
                   <td>${escapeHtml(row.unresolved_visit_items || 0)}</td>
                   <td><span class="notification-recipient ${recipientClass}">${escapeHtml(recipientText)}</span></td>
+                  <td>${escapeHtml(formatDashboardNotificationDate(row.last_notification_sent_at))}</td>
+                  <td><span class="notification-recipient ${autoClass}">${escapeHtml(autoText)}</span></td>
                   <td class="dashboard-notification-actions">
                     <button class="small-btn" onclick="previewDashboardNotification(${safeAttr(row.clientid)}, '${safeAttr(row.siteid || '')}')">
                       Preview
@@ -9003,6 +9061,29 @@ async function loadDashboardNotificationCentre(preloadedData = null) {
         Unable to load notification centre
       </div>
     `
+  }
+}
+
+window.runDashboardNotificationScheduler = async function () {
+  const proceed = window.confirm('Run the scheduled customer notification check now?')
+  if (!proceed) return
+
+  try {
+    const response = await fetch(`${API_BASE}/dashboard/notification-centre/scheduler/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    })
+    const result = await readApiResponse(response)
+
+    if (!response.ok) throw new Error(result.error || 'Unable to run scheduled notifications')
+
+    const summary = result.result || {}
+    alert(`Scheduled check complete. Sent: ${summary.sent || 0}. Failed: ${summary.failed || 0}. Skipped: ${summary.skipped || 0}.`)
+    loadDashboardNotificationScheduler()
+    loadDashboardNotificationCentre()
+  } catch (err) {
+    alert(err.message || 'Unable to run scheduled notifications')
   }
 }
 
@@ -9102,6 +9183,8 @@ window.exportDashboardNotifications = function () {
     "Unresolved Visit Items",
     "Deferred Follow-ups Due",
     "Portal Recipients",
+    "Last Notification Sent",
+    "Automatic Ready",
     "Next Due Date",
     "Next Expiry Date"
   ]
@@ -9118,6 +9201,8 @@ window.exportDashboardNotifications = function () {
     row.unresolved_visit_items,
     row.deferred_followups_due,
     row.portal_recipients,
+    formatDashboardNotificationDate(row.last_notification_sent_at),
+    row.automatic_notification_ready ? "Ready" : "Waiting",
     formatDashboardReviewDate(row.next_due_date),
     formatDashboardReviewDate(row.next_expiry_date)
   ])

@@ -163,9 +163,13 @@ export function showDashboard(
     <div class="dashboard-section dashboard-notification-centre">
       <div class="section-header">
         <h2>Notification Centre</h2>
-        <button type="button" class="secondary-btn" onclick="exportDashboardNotifications()">Export CSV</button>
+        <div class="dashboard-notification-toolbar">
+          <button type="button" class="secondary-btn" onclick="runDashboardNotificationScheduler()">Run Scheduled Check</button>
+          <button type="button" class="secondary-btn" onclick="exportDashboardNotifications()">Export CSV</button>
+        </div>
       </div>
 
+      <div id="dashboardNotificationScheduler" class="notification-scheduler-status">Loading scheduler status...</div>
       <div id="dashboardNotificationCentre">Loading...</div>
     </div>
 

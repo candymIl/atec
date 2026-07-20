@@ -59,7 +59,7 @@ assertIncludes(migration, "ADD COLUMN IF NOT EXISTS notify_expiring_certificates
 assertIncludes(migration, "tblclients_notification_lead_days_nonnegative", "Task 16 migration must protect lead days")
 
 assertIncludes(roadmap, "Task 15: Customer Portal - Complete Locally", "Roadmap must mark Task 15 complete")
-assertIncludes(roadmap, "Task 16: Email And Notifications - In Progress Locally", "Roadmap must mark Task 16 in progress")
+assertIncludes(roadmap, "Task 16: Email And Notifications - Complete Locally", "Roadmap must mark Task 16 complete")
 assertIncludes(docs, "Manual notification sending", "Task 16 docs must include manual notification sending")
 assert.strictEqual(packageJson.scripts["test:task16"], "node scripts/regression/task16-email-notifications.test.js")
 

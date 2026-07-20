@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Task 16 adds notification workflows on top of the customer portal, due-asset coverage, certificate expiry, and visit exception data. The first local slice creates a dashboard Notification Centre so ATEC can review who needs attention before automatic email sending is enabled.
+Task 16 added notification workflows on top of the customer portal, due-asset coverage, certificate expiry, and visit exception data. Task 17 turns that manual Notification Centre into a controlled scheduled workflow with delivery history and duplicate-send protection.
 
 ## Current Local Scope
 
@@ -17,6 +17,10 @@ Task 16 adds notification workflows on top of the customer portal, due-asset cov
 - Manual email preview from each notification row.
 - Manual notification sending to active Customer Portal Users for the selected customer/site.
 - Audit logging for manually sent notifications.
+- Delivery history for manual and automatic sends.
+- Last sent date and automatic readiness on each Notification Centre row.
+- Scheduler status on the dashboard.
+- Manual "run scheduled check" action for admins and managers.
 - Dashboard summary cache includes notification data.
 - Standalone `/dashboard/notification-centre` endpoint for fallback loading.
 
@@ -26,10 +30,33 @@ Task 16 adds notification workflows on top of the customer portal, due-asset cov
 - Customer/viewer scoping follows the existing dashboard customer scope.
 - Customer portal users are counted as recipients only when active and carrying an email address.
 - Notification Centre rows respect the customer preference toggles before showing counts.
+- Automatic sending is off unless `NOTIFICATION_AUTO_SEND_ENABLED=true`.
+- Automatic sending uses `NOTIFICATION_AUTO_SEND_TIME`, defaulting to `07:00`.
+- The same customer/site is protected by `NOTIFICATION_AUTO_SEND_COOLDOWN_HOURS`, defaulting to 24 hours.
+
+## Scheduled Automatic Notifications
+
+The scheduler checks the Notification Centre rows and sends only rows that:
+
+- Have active Customer Portal Users with email addresses.
+- Still have notification items needing attention.
+- Have not been sent inside the configured cooldown window.
+- Are allowed by that customer's notification preferences.
+
+Useful live environment settings:
+
+```sh
+NOTIFICATION_AUTO_SEND_ENABLED=false
+NOTIFICATION_AUTO_SEND_TIME=07:00
+NOTIFICATION_AUTO_SEND_COOLDOWN_HOURS=24
+NOTIFICATION_AUTO_SEND_CHECK_MINUTES=5
+NOTIFICATION_AUTO_SEND_MAX_ROWS=25
+```
+
+Keep automatic sending off while SMTP is being fixed. Once test emails work, switch `NOTIFICATION_AUTO_SEND_ENABLED=true` and restart the backend.
 
 ## Not Yet In This Slice
 
-- Scheduled daily or weekly jobs.
 - Per-event notification audit records.
 - Email templates for due assets, visit exceptions, or portal events.
 
@@ -39,6 +66,7 @@ Run:
 
 ```sh
 npm.cmd run test:task16
+npm.cmd run test:task17
 npm.cmd run test:task15
 npm.cmd --prefix frontend run build
 node --check backend\server.js

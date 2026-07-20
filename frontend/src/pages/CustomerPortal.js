@@ -17,13 +17,36 @@ function statusClass(status) {
   return status === "SAFE" ? "status-safe" : status === "NOT SAFE" ? "status-unsafe" : ""
 }
 
-function portalMetric(label, value, tone = "") {
+function portalMetric(label, value, tone = "", action = "") {
+  const tag = action ? "button" : "div"
+  const actionAttributes = action
+    ? ` type="button" class="portal-metric portal-metric-action ${tone}" onclick="${action}"`
+    : ` class="portal-metric ${tone}"`
+
   return `
-    <div class="portal-metric ${tone}">
+    <${tag}${actionAttributes}>
       <span>${escapeHtml(label)}</span>
       <strong>${escapeHtml(numberValue(value))}</strong>
-    </div>
+    </${tag}>
   `
+}
+
+function openPortalAssets(status = "") {
+  const statusSelect = document.querySelector("#portalAssetStatus")
+  if (statusSelect) statusSelect.value = status
+  portalAssetPage = 1
+  loadPortalAssets()
+  document.querySelector("#portalAssetResults")?.closest("section")?.scrollIntoView({
+    behavior: "smooth",
+    block: "start"
+  })
+}
+
+function openPortalCertificates(status = "") {
+  window.showCertificateSearch()
+  const statusSelect = document.querySelector("#certStatus")
+  if (statusSelect && status) statusSelect.value = status
+  window.searchCertificates?.()
 }
 
 function renderRecentCertificates(rows = []) {
@@ -274,32 +297,32 @@ export async function renderCustomerPortal(currentUser = null) {
       </div>
 
       <div class="portal-metric-grid">
-        ${portalMetric("Active Assets", assets.active_assets)}
-        ${portalMetric("Sites", assets.active_sites)}
-        ${portalMetric("Certificates", certificates.total_certificates)}
-        ${portalMetric("Not Safe Assets", assets.not_safe_assets, numberValue(assets.not_safe_assets) ? "danger" : "")}
-        ${portalMetric("Visual Overdue", assets.visual_overdue_assets, numberValue(assets.visual_overdue_assets) ? "warning" : "")}
-        ${portalMetric("Load Test Overdue", assets.loadtest_overdue_assets, numberValue(assets.loadtest_overdue_assets) ? "warning" : "")}
-        ${portalMetric("Expiring Soon", certificates.expiring_soon_certificates, numberValue(certificates.expiring_soon_certificates) ? "warning" : "")}
-        ${portalMetric("Visit Outstanding", visits.outstanding_visit_assets, numberValue(visits.outstanding_visit_assets) ? "warning" : "")}
+        ${portalMetric("Active Assets", assets.active_assets, "", "openPortalAssets()")}
+        ${portalMetric("Sites", assets.active_sites, "", "openPortalAssets()")}
+        ${portalMetric("Certificates", certificates.total_certificates, "", "openPortalCertificates()")}
+        ${portalMetric("Not Safe Assets", assets.not_safe_assets, numberValue(assets.not_safe_assets) ? "danger" : "", "openPortalAssets('NOT SAFE')")}
+        ${portalMetric("Visual Overdue", assets.visual_overdue_assets, numberValue(assets.visual_overdue_assets) ? "warning" : "", "openPortalAssets('VISUAL OVERDUE')")}
+        ${portalMetric("Load Test Overdue", assets.loadtest_overdue_assets, numberValue(assets.loadtest_overdue_assets) ? "warning" : "", "openPortalAssets('LOAD TEST OVERDUE')")}
+        ${portalMetric("Expiring Soon", certificates.expiring_soon_certificates, numberValue(certificates.expiring_soon_certificates) ? "warning" : "", "openPortalCertificates()")}
+        ${portalMetric("Visit Outstanding", visits.outstanding_visit_assets, numberValue(visits.outstanding_visit_assets) ? "warning" : "", "document.querySelector('.customer-portal-panels')?.scrollIntoView({ behavior: 'smooth' })")}
       </div>
 
       <div class="customer-portal-panels">
         <section class="filter-card">
           <h3>Certificate Status</h3>
           <div class="portal-mini-grid">
-            ${portalMetric("Safe", certificates.safe_certificates)}
-            ${portalMetric("Not Safe", certificates.not_safe_certificates, numberValue(certificates.not_safe_certificates) ? "danger" : "")}
-            ${portalMetric("Expired", certificates.expired_certificates, numberValue(certificates.expired_certificates) ? "warning" : "")}
+            ${portalMetric("Safe", certificates.safe_certificates, "", "openPortalCertificates('SAFE')")}
+            ${portalMetric("Not Safe", certificates.not_safe_certificates, numberValue(certificates.not_safe_certificates) ? "danger" : "", "openPortalCertificates('NOT SAFE')")}
+            ${portalMetric("Expired", certificates.expired_certificates, numberValue(certificates.expired_certificates) ? "warning" : "", "openPortalCertificates()")}
           </div>
         </section>
 
         <section class="filter-card">
           <h3>On-Site Visits</h3>
           <div class="portal-mini-grid">
-            ${portalMetric("Active Visits", visits.active_visits)}
-            ${portalMetric("Outstanding Items", visits.outstanding_visit_assets, numberValue(visits.outstanding_visit_assets) ? "warning" : "")}
-            ${portalMetric("Completed 30 Days", visits.recently_completed_visits)}
+            ${portalMetric("Active Visits", visits.active_visits, "", "showCustomerDetailedReport({ autoLoad: true })")}
+            ${portalMetric("Outstanding Items", visits.outstanding_visit_assets, numberValue(visits.outstanding_visit_assets) ? "warning" : "", "showCustomerDetailedReport({ autoLoad: true })")}
+            ${portalMetric("Completed 30 Days", visits.recently_completed_visits, "", "showCustomerDetailedReport({ autoLoad: true })")}
           </div>
         </section>
       </div>
@@ -364,6 +387,8 @@ function bindPortalAssetControls() {
 
 window.loadPortalAssets = loadPortalAssets
 window.customerPortalDownloadCertificate = downloadPortalCertificate
+window.openPortalAssets = openPortalAssets
+window.openPortalCertificates = openPortalCertificates
 
 window.searchPortalAssets = function () {
   portalAssetPage = 1

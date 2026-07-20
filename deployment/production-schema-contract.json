@@ -40,6 +40,11 @@
       "table": "tblclients",
       "columns": ["notify_expiring_certificates", "notify_overdue_assets", "notify_failed_assets", "notify_visit_exceptions", "notification_lead_days"],
       "migration": "2026-07-18-task16-customer-notification-preferences.sql"
+    },
+    {
+      "table": "tblnotificationdelivery",
+      "columns": ["notificationdeliveryid", "clientid", "siteid", "delivery_type", "status", "recipients", "sent_at"],
+      "migration": "2026-07-20-task17-scheduled-notification-deliveries.sql"
     }
   ]
 }
