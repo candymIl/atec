@@ -5553,8 +5553,9 @@ function renderCriteriaPopup(row = {}) {
 
             <div class="form-group">
               <label>Field Type</label>
-              <select id="criteriaFieldType">
+              <select id="criteriaFieldType" onchange="syncCriteriaResultType()">
                 <option value="PASS_FAIL" ${selectedFieldType === "PASS_FAIL" || selectedFieldType === "PASSFAIL" ? "selected" : ""}>Pass / Fail / N/A</option>
+                <option value="YESNO" ${selectedFieldType === "YESNO" || selectedFieldType === "YES_NO" ? "selected" : ""}>YES / NO / N/A</option>
                 <option value="TEXT" ${selectedFieldType === "TEXT" ? "selected" : ""}>Text Input</option>
                 <option value="NUMBER" ${selectedFieldType === "NUMBER" ? "selected" : ""}>Number Input</option>
               </select>
@@ -5825,6 +5826,16 @@ window.syncCriteriaInspectionGroup = function () {
 
   if (periodicOption) periodicOption.disabled = isFrequentOnlyEquipment
   if (isFrequentOnlyEquipment) inspectionGroup.value = "FREQUENT_INSPECTION"
+}
+
+window.syncCriteriaResultType = function () {
+  const fieldType = document.querySelector('#criteriaFieldType')?.value
+  const resultType = document.querySelector('#criteriaResultType')
+  if (!resultType) return
+
+  if (fieldType === "NUMBER") resultType.value = "MEASURED"
+  if (fieldType === "YESNO" || fieldType === "YES_NO") resultType.value = "YES_NO"
+  if (fieldType === "PASS_FAIL" || fieldType === "PASSFAIL") resultType.value = "PASS_FAIL"
 }
 
 window.showSystemHealth = function () {
@@ -6679,7 +6690,7 @@ function defaultInspectionFrequencyForAsset(asset, inspectiontype = "VISUAL") {
   return canSelectInspectionFrequency(asset, inspectiontype) ? "ANNUAL" : "FREQUENT"
 }
 
-function renderInspectionFrequencyControl(asset, inspectiontype = "VISUAL") {
+function renderInspectionFrequencyControl(asset, inspectiontype = "VISUAL", selectedFrequency = "") {
   if (inspectiontype === "LOADTEST") {
     return `<input id="inspectionFrequency" type="hidden" value="">`
   }
@@ -6688,15 +6699,38 @@ function renderInspectionFrequencyControl(asset, inspectiontype = "VISUAL") {
     return `<input id="inspectionFrequency" type="hidden" value="FREQUENT">`
   }
 
+  const effectiveFrequency = selectedFrequency || window.currentInspectionFrequency || defaultInspectionFrequencyForAsset(asset, inspectiontype)
+
   return `
     <div class="form-group">
       <label>Inspection Frequency</label>
-      <select id="inspectionFrequency" onchange="updateInspectionValidDateFromTestDate('${inspectiontype}')">
-        <option value="ANNUAL" selected>Annual</option>
-        <option value="FREQUENT">Frequent</option>
+      <select id="inspectionFrequency" onchange="changeInspectionFrequency(this.value)">
+        <option value="ANNUAL" ${effectiveFrequency !== "FREQUENT" ? "selected" : ""}>Annual</option>
+        <option value="FREQUENT" ${effectiveFrequency === "FREQUENT" ? "selected" : ""}>Frequent</option>
       </select>
     </div>
   `
+}
+
+function criteriaMatchesSelectedFrequency(row, asset, inspectiontype = "VISUAL", inspectionFrequency = "") {
+  if (!canSelectInspectionFrequency(asset, inspectiontype)) return true
+  if (String(inspectionFrequency || "").toUpperCase() !== "FREQUENT") return true
+
+  return String(row?.inspection_category || "PERIODIC_THOROUGH_INSPECTION").toUpperCase() === "FREQUENT_INSPECTION"
+}
+
+window.changeInspectionFrequency = function (inspectionFrequency) {
+  const context = window.currentInspectionContext
+  if (!context) return
+
+  window.startInspection(
+    context.assetid,
+    context.inspectiontype,
+    context.returnPage,
+    context.formMode,
+    context.visitid,
+    inspectionFrequency
+  )
 }
 
 window.updateInspectionValidDateFromTestDate = function (inspectiontype = "VISUAL") {
@@ -8062,13 +8096,14 @@ function renderInspectionPhotoPreview() {
   `).join("")
 }
 
-window.startInspection = async function (assetid, inspectiontype = "VISUAL", returnPage = "quick", formMode = "auto", visitid = null) {
+window.startInspection = async function (assetid, inspectiontype = "VISUAL", returnPage = "quick", formMode = "auto", visitid = null, selectedFrequency = "") {
   if (!canPerformInspections()) {
     alert("You do not have permission to create inspections or load tests.")
     return
   }
 
   window.currentInspectionVisitId = visitid || null
+  window.currentInspectionContext = { assetid, inspectiontype, returnPage, formMode, visitid }
 
   if (returnPage === "assets") {
     rememberAssetListState()
@@ -8101,6 +8136,15 @@ let assetCriteria = getInspectionCriteriaRows(criteria.filter(
     c.active !== false
 ), inspectiontype)
 
+const defaultInspectionFrequency = ["ANNUAL", "FREQUENT"].includes(String(selectedFrequency).toUpperCase())
+  ? String(selectedFrequency).toUpperCase()
+  : defaultInspectionFrequencyForAsset(asset, inspectiontype)
+window.currentInspectionFrequency = defaultInspectionFrequency
+
+assetCriteria = assetCriteria.filter(row =>
+  criteriaMatchesSelectedFrequency(row, asset, inspectiontype, defaultInspectionFrequency)
+)
+
 assetCriteria = assetCriteria.filter(row =>
   !isCrawlBeamHoistSerialLoadTestCriteria(asset, row, inspectiontype)
 )
@@ -8111,7 +8155,6 @@ const visualCriteria = assetCriteria.filter(row => row.fieldtype !== "NUMBER")
 window.currentInspectionCriteria = assetCriteria
 window.currentInspectionType = inspectiontype
 const showInspectionPhotoUpload = String(asset.equipgroupid || "") === "400"
-const defaultInspectionFrequency = defaultInspectionFrequencyForAsset(asset, inspectiontype)
 const defaultValidDate = calculateValidDateFromTestDate(defaultTestDate, inspectiontype, defaultInspectionFrequency)
 
 const inspectionWizardKey = getInspectionWizardKey(asset, assetCriteria, inspectiontype)
@@ -9767,6 +9810,14 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
       String(c.inspectioncategory) === String(inspectiontype) &&
       c.active !== false
   ), inspectiontype)
+
+  const selectedInspectionFrequency = document.querySelector("#inspectionFrequency")?.value ||
+    window.currentInspectionFrequency ||
+    defaultInspectionFrequencyForAsset(asset, inspectiontype)
+
+  assetCriteria = assetCriteria.filter(row =>
+    criteriaMatchesSelectedFrequency(row, asset, inspectiontype, selectedInspectionFrequency)
+  )
 
   assetCriteria = assetCriteria.filter(row =>
     !isCrawlBeamHoistSerialLoadTestCriteria(asset, row, inspectiontype)

@@ -25,6 +25,7 @@ function sourceBetween(source, startNeedle, endNeedle) {
 const server = read("backend/server.js")
 const integrity = read("backend/services/inspectionIntegrity.js")
 const dashboard = read("frontend/src/pages/Dashboard.js")
+const frontendMain = read("frontend/src/main.js")
 const customerReport = read("frontend/src/pages/CustomerDetailedReport.js")
 const packageJson = JSON.parse(read("package.json"))
 const {
@@ -160,6 +161,11 @@ assert(
   !deleteCriteriaRoute.includes("DELETE FROM atec.tblequiptypecriteria"),
   "Deleting criteria must never physically remove referenced criteria"
 )
+assert(
+  frontendMain.includes('<option value="YESNO"') &&
+    frontendMain.includes('resultType.value = "YES_NO"'),
+  "Criteria setup must offer a YES/NO field type and map it to YES_NO results"
+)
 assertIncludes(
   bulkPdfRoute,
   "getBulkCertificateMatches(req, true, true)",
@@ -279,9 +285,49 @@ assert.strictEqual(
   true,
   "Completeness policy must accept the certificate loader's certificate.criteria array"
 )
+
+const frequencyCriteria = [
+  {
+    criteriaid: 101,
+    criterianame: "Operational controls function correctly",
+    severity: "CRITICAL",
+    inspectioncategory: "VISUAL",
+    inspection_category: "FREQUENT_INSPECTION"
+  },
+  {
+    criteriaid: 102,
+    criterianame: "Structural members are free from defects",
+    severity: "CRITICAL",
+    inspectioncategory: "VISUAL",
+    inspection_category: "PERIODIC_THOROUGH_INSPECTION"
+  }
+]
+assert.strictEqual(
+  evaluateInspectionCompleteness({
+    inspection: { ...completeInspection, inspectionfrequency: "FREQUENT" },
+    results: [{ criteriaid: 101, result: "PASS" }],
+    criteria: frequencyCriteria
+  }).complete,
+  true,
+  "Frequent crane inspections must require only frequent criteria"
+)
+assert.strictEqual(
+  evaluateInspectionCompleteness({
+    inspection: { ...completeInspection, inspectionfrequency: "ANNUAL" },
+    results: [{ criteriaid: 101, result: "PASS" }],
+    criteria: frequencyCriteria
+  }).complete,
+  false,
+  "Annual crane inspections must require frequent and periodic criteria"
+)
+assert(
+  frontendMain.includes("criteriaMatchesSelectedFrequency") &&
+    frontendMain.includes("changeInspectionFrequency"),
+  "Inspection forms must switch criteria when the crane frequency changes"
+)
 assert.strictEqual(
   evaluateCertificateEligibility({
-    inspection: completeInspection,
+    inspection: { ...completeInspection, testid: 82929 },
     results: passingResults,
     criteria: criteria.map(row => ({
       ...row,
@@ -308,12 +354,33 @@ assert.strictEqual(
 )
 assert.strictEqual(
   evaluateCertificateEligibility({
-    inspection: completeInspection,
+    inspection: { ...completeInspection, testid: 82929 },
     results: [],
     criteria
   }).eligible,
   false,
   "Certificate eligibility must reject inspections without result rows"
+)
+assert.strictEqual(
+  evaluateCertificateEligibility({
+    inspection: { ...completeInspection, testid: 82929 },
+    results: passingResults,
+    criteria: [
+      ...criteria,
+      { criteriaid: 3, criterianame: "Criterion added later", inspectioncategory: "VISUAL" }
+    ]
+  }).eligible,
+  true,
+  "Later criteria additions must not invalidate a completed inspection"
+)
+assert.deepStrictEqual(
+  evaluateCertificateEligibility({
+    inspection: { ...completeInspection, testid: 82929 },
+    results: passingResults,
+    criteria: [...criteria, { criteriaid: 3, inspectioncategory: "VISUAL" }]
+  }).missingCriteriaIds,
+  [3],
+  "Missing current criteria IDs must remain available for audit visibility"
 )
 assert.strictEqual(
   deriveInspectionStatus(

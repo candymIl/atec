@@ -43,6 +43,13 @@ function inspectionTypeMatchesCriteria(inspection = {}, criteriaRow = {}) {
 
   if (effectiveCriteriaType === "LOADTEST") return false
 
+  if (
+    normalizeUpper(inspection.inspectionfrequency) === "FREQUENT" &&
+    legacyCategory === "PERIODIC_THOROUGH_INSPECTION"
+  ) {
+    return false
+  }
+
   return true
 }
 
@@ -142,7 +149,14 @@ function evaluateInspectionCompleteness(input = {}) {
   if (!results.length) {
     reasons.push("Inspection has no result rows.")
   }
-  if (missingCriteriaIds.length) {
+  // inspectionfrequency was introduced with criteria-set versioning. Rows
+  // saved before that rollout have no criteria snapshot, so today's active
+  // criteria must not be applied to them retroactively. Keep the missing IDs
+  // for audit visibility. New visual inspections carry a frequency and remain
+  // subject to the strict completeness check.
+  const isLegacyCriteriaSet = Boolean(inspection.testid) &&
+    !normalizeText(inspection.inspectionfrequency)
+  if (missingCriteriaIds.length && !isLegacyCriteriaSet) {
     reasons.push("One or more required criteria results are missing.")
   }
   if (!derivedStatus) {
