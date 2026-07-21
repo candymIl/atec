@@ -7669,6 +7669,13 @@ app.get("/certificates/bulk-print", searchLimiter, async (req, res) => {
   try {
     const { filters, certificates, blockedCertificates, totalMatched } = await getBulkCertificateMatches(req, false, true)
 
+    const blockedReasonCounts = blockedCertificates.reduce((counts, certificate) => {
+      for (const reason of certificateEligibility(certificate).reasons || []) {
+        counts[reason] = (counts[reason] || 0) + 1
+      }
+      return counts
+    }, {})
+
     await req.logAudit("BULK_PRINT_SEARCH", "certificates", null, {
       ...filters,
       count: certificates.length,
@@ -7678,6 +7685,7 @@ app.get("/certificates/bulk-print", searchLimiter, async (req, res) => {
     res.json({
       certificates,
       blockedCount: blockedCertificates.length,
+      blockedReasonCounts,
       totalMatched
     })
   } catch (err) {

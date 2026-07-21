@@ -750,9 +750,11 @@ window.searchBulkCertificates = async function () {
 
   window.bulkCertificateResults = data.certificates || []
   window.bulkCertificateBlockedCount = Number(data.blockedCount || 0)
+  window.bulkCertificateBlockedReasonCounts = data.blockedReasonCounts || {}
   window.bulkCertificateTotalMatched = Number(data.totalMatched || window.bulkCertificateResults.length)
   renderBulkCertificateResults(window.bulkCertificateResults, {
     blockedCount: window.bulkCertificateBlockedCount,
+    blockedReasonCounts: window.bulkCertificateBlockedReasonCounts,
     totalMatched: window.bulkCertificateTotalMatched
   })
 }
@@ -763,11 +765,19 @@ function renderBulkCertificateResults(certificates, summary = {}) {
   const downloadSelectedButton = document.querySelector('#bulkCertDownloadSelectedBtn')
   const downloadAllButton = document.querySelector('#bulkCertDownloadAllBtn')
   const blockedCount = Number(summary.blockedCount || 0)
+  const blockedReasonCounts = summary.blockedReasonCounts || {}
   const totalMatched = Number(summary.totalMatched || certificates.length)
+  const blockedReasons = Object.entries(blockedReasonCounts)
+    .filter(([, count]) => Number(count) > 0)
+    .map(([reason, count]) => `<li>${escapeHtml(count)}: ${escapeHtml(reason)}</li>`)
+    .join("")
 
   if (!certificates.length) {
     resultsContainer.innerHTML = blockedCount
-      ? `<p>${escapeHtml(totalMatched)} matching inspection${totalMatched === 1 ? "" : "s"} found, but none can produce certificates yet.</p>`
+      ? `
+        <p>${escapeHtml(totalMatched)} matching inspection${totalMatched === 1 ? "" : "s"} found, but none can produce certificates yet.</p>
+        ${blockedReasons ? `<p><strong>What needs attention:</strong></p><ul>${blockedReasons}</ul>` : ""}
+      `
       : `<p>No certificates found for the selected customer and date range.</p>`
     printButton.disabled = true
     downloadSelectedButton.disabled = true
@@ -776,7 +786,10 @@ function renderBulkCertificateResults(certificates, summary = {}) {
   }
 
   const skippedMessage = blockedCount
-    ? `<span>${escapeHtml(blockedCount)} matching inspection${blockedCount === 1 ? "" : "s"} skipped because ${blockedCount === 1 ? "it cannot" : "they cannot"} produce certificates yet.</span>`
+    ? `
+      <span>${escapeHtml(blockedCount)} matching inspection${blockedCount === 1 ? "" : "s"} skipped because ${blockedCount === 1 ? "it cannot" : "they cannot"} produce certificates yet.</span>
+      ${blockedReasons ? `<ul>${blockedReasons}</ul>` : ""}
+    `
     : ""
 
   resultsContainer.innerHTML = `
