@@ -4822,6 +4822,10 @@ async function criteriaInspectionCategoryForEquipment(equiptypeid, inspectionTyp
     "hoists - manual chain hoist",
     "manual lever hoist",
     "hoists - manual lever hoist",
+    "electric chain hoist",
+    "hoists - electric chain hoist",
+    "air / pneumatic hoist",
+    "hoists - air / pneumatic hoist",
     "electric rope hoist",
     "hoists - electric rope hoist"
   ].includes(equipmentTypeName)) {
@@ -8532,13 +8536,14 @@ function getCertificatePhotosForHtml(inspection, savedPhotos = []) {
 }
 
 function certificateAssetDetails(inspection) {
+  const isElectricRopeHoist = String(inspection.equiptypeid) === "105"
   return [
     ["WLL", inspection.wll ? `${inspection.wll} kg` : ""],
     ["Height of Lift", inspection.heightoflift ? `${inspection.heightoflift} mm` : ""],
-    ["Number of Chain Falls", inspection.numberofchainfalls],
-    ["OEM Top Hook Size", inspection.oemtophooksize ? `${inspection.oemtophooksize} mm` : ""],
+    [isElectricRopeHoist ? "Number of Rope Falls" : "Number of Chain Falls", inspection.numberofchainfalls],
+    ["OEM Top Hook Size", isElectricRopeHoist ? "" : (inspection.oemtophooksize ? `${inspection.oemtophooksize} mm` : "")],
     ["OEM Bottom Hook Size", inspection.oembottomhooksize ? `${inspection.oembottomhooksize} mm` : ""],
-    ["Load Chain Diameter", inspection.loadchaindiameter ? `${inspection.loadchaindiameter} mm` : ""],
+    [isElectricRopeHoist ? "Rope Size" : "Load Chain Diameter", inspection.loadchaindiameter ? `${inspection.loadchaindiameter} mm` : ""],
     ["Effective Length", inspection.effectivelength ? `${inspection.effectivelength} mm` : ""],
     ["Span", inspection.span ? `${inspection.span} mm` : ""],
     ["Permissible Deflection", inspection.permissibledeflection ? `${inspection.permissibledeflection} mm` : ""],

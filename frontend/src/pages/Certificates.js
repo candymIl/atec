@@ -1584,13 +1584,14 @@ function getCertificatePhotos(inspection, savedPhotos = []) {
 }
 
 function getCertificateAssetDetails(inspection) {
+  const isElectricRopeHoist = String(inspection.equiptypeid) === "105"
   return [
     ["WLL", inspection.wll ? `${inspection.wll} kg` : ""],
     ["Height of Lift", inspection.heightoflift ? `${inspection.heightoflift} mm` : ""],
-    ["Number of Chain Falls", inspection.numberofchainfalls],
-    ["OEM Top Hook Size", inspection.oemtophooksize ? `${inspection.oemtophooksize} mm` : ""],
+    [isElectricRopeHoist ? "Number of Rope Falls" : "Number of Chain Falls", inspection.numberofchainfalls],
+    ["OEM Top Hook Size", isElectricRopeHoist ? "" : (inspection.oemtophooksize ? `${inspection.oemtophooksize} mm` : "")],
     ["OEM Bottom Hook Size", inspection.oembottomhooksize ? `${inspection.oembottomhooksize} mm` : ""],
-    ["Load Chain Diameter", inspection.loadchaindiameter ? `${inspection.loadchaindiameter} mm` : ""],
+    [isElectricRopeHoist ? "Rope Size" : "Load Chain Diameter", inspection.loadchaindiameter ? `${inspection.loadchaindiameter} mm` : ""],
     ["Effective Length", inspection.effectivelength ? `${inspection.effectivelength} mm` : ""],
     ["Span/Jib", inspection.span ? `${inspection.span} mm` : ""],
     ["Permissible Deflection", inspection.permissibledeflection ? `${inspection.permissibledeflection} mm` : ""],

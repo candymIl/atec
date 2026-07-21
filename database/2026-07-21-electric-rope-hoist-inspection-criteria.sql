@@ -33,7 +33,6 @@ INSERT INTO electric_rope_hoist_criteria VALUES
   ('VISUAL', 'FREQUENT_INSPECTION', 17, 'SAFE FOR CONTINUED OPERATION', 'YESNO', 'YES_NO', 'CRITICAL');
 
 INSERT INTO electric_rope_hoist_criteria VALUES
-  ('LOADTEST', 'PERIODIC_THOROUGH_INSPECTION', 1, 'Enter the measured top hook throat opening in millimetres', 'NUMBER', 'MEASURED', 'MAJOR'),
   ('LOADTEST', 'PERIODIC_THOROUGH_INSPECTION', 2, 'Enter the measured bottom hook throat opening in millimetres', 'NUMBER', 'MEASURED', 'MAJOR'),
   ('LOADTEST', 'PERIODIC_THOROUGH_INSPECTION', 3, 'Enter the measured wire-rope diameter in millimetres', 'NUMBER', 'MEASURED', 'CRITICAL'),
   ('LOADTEST', 'PERIODIC_THOROUGH_INSPECTION', 4, 'Inspect hooks, swivels, bearings and safety latches for wear, cracks, deformation or damage', 'PASS_FAIL', 'PASS_FAIL', 'CRITICAL'),
@@ -124,8 +123,8 @@ BEGIN
   FROM atec.tblequiptypecriteria
   WHERE equiptypeid = 105 AND COALESCE(active, true) AND inspectioncategory = 'LOADTEST';
 
-  IF visual_count <> 17 OR loadtest_count <> 29 THEN
-    RAISE EXCEPTION 'Expected 17 VISUAL and 29 LOADTEST criteria for equipment type 105; found % and %', visual_count, loadtest_count;
+  IF visual_count <> 17 OR loadtest_count <> 28 THEN
+    RAISE EXCEPTION 'Expected 17 VISUAL and 28 LOADTEST criteria for equipment type 105; found % and %', visual_count, loadtest_count;
   END IF;
 
   IF EXISTS (

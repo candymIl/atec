@@ -4165,13 +4165,14 @@ window.loadDynamicAssetFields = function () {
   let html = ''
 
   if (groupid === '100') {
+    const isElectricRopeHoist = String(selectedType.equiptypeid) === '105'
     html = `
       <div class="form-group"><label>WLL(kg)</label><input id="assetWLL" type="number"></div>
       <div class="form-group"><label>Height of Lift(mm)</label><input id="assetHeightOfLift" type="number"></div>
-      <div class="form-group"><label>Number of Chain Falls</label><input id="assetNumberOfChainFalls" type="number"></div>
-      <div class="form-group"><label>OEM Top Hook Size(mm)</label><input id="assetOEMTopHookSize" type="number"></div>
+      <div class="form-group"><label>${isElectricRopeHoist ? 'Number of Rope Falls' : 'Number of Chain Falls'}</label><input id="assetNumberOfChainFalls" type="number"></div>
+      ${isElectricRopeHoist ? '' : '<div class="form-group"><label>OEM Top Hook Size(mm)</label><input id="assetOEMTopHookSize" type="number"></div>'}
       <div class="form-group"><label>OEM Bottom Hook Size(mm)</label><input id="assetOEMBottomHookSize" type="number"></div>
-      <div class="form-group"><label>Load Chain Diameter(mm)</label><input id="assetLoadChainDiameter" type="number"></div>
+      <div class="form-group"><label>${isElectricRopeHoist ? 'Rope Size(mm)' : 'Load Chain Diameter(mm)'}</label><input id="assetLoadChainDiameter" type="number"></div>
     `
   }
 
@@ -4849,17 +4850,18 @@ window.saveAssetMove = async function (assetid) {
   showAssetSetup()
 }
 
-function buildEditAssetDynamicFields(groupid, values = {}) {
+function buildEditAssetDynamicFields(groupid, values = {}, equiptypeid = '') {
   let dynamicEditFields = ''
 
   if (groupid === '100') {
+    const isElectricRopeHoist = String(equiptypeid) === '105'
     dynamicEditFields = `
       <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${safeAttr(values.wll || '')}"></div>
       <div class="form-group"><label>Height of Lift(mm)</label><input id="editAssetHeightOfLift" type="number" value="${safeAttr(values.heightoflift || '')}"></div>
-      <div class="form-group"><label>Number of Chain Falls</label><input id="editAssetNumberOfChainFalls" type="number" value="${safeAttr(values.numberofchainfalls || '')}"></div>
-      <div class="form-group"><label>OEM Top Hook Size(mm)</label><input id="editAssetOEMTopHookSize" type="number" value="${safeAttr(values.oemtophooksize || '')}"></div>
+      <div class="form-group"><label>${isElectricRopeHoist ? 'Number of Rope Falls' : 'Number of Chain Falls'}</label><input id="editAssetNumberOfChainFalls" type="number" value="${safeAttr(values.numberofchainfalls || '')}"></div>
+      ${isElectricRopeHoist ? '' : `<div class="form-group"><label>OEM Top Hook Size(mm)</label><input id="editAssetOEMTopHookSize" type="number" value="${safeAttr(values.oemtophooksize || '')}"></div>`}
       <div class="form-group"><label>OEM Bottom Hook Size(mm)</label><input id="editAssetOEMBottomHookSize" type="number" value="${safeAttr(values.oembottomhooksize || '')}"></div>
-      <div class="form-group"><label>Load Chain Diameter(mm)</label><input id="editAssetLoadChainDiameter" type="number" value="${safeAttr(values.loadchaindiameter || '')}"></div>
+      <div class="form-group"><label>${isElectricRopeHoist ? 'Rope Size(mm)' : 'Load Chain Diameter(mm)'}</label><input id="editAssetLoadChainDiameter" type="number" value="${safeAttr(values.loadchaindiameter || '')}"></div>
     `
   }
 
@@ -4950,7 +4952,7 @@ window.refreshEditAssetDynamicFields = function () {
 
   if (!container) return
 
-  container.innerHTML = buildEditAssetDynamicFields(groupid, collectCurrentEditAssetValues())
+  container.innerHTML = buildEditAssetDynamicFields(groupid, collectCurrentEditAssetValues(), equiptypeid)
 
   if (manufactureDateRow) {
     manufactureDateRow.style.display = groupid === '400' ? 'flex' : 'none'
@@ -4983,7 +4985,7 @@ window.editAsset = async function (assetid) {
   )
 
   const groupid = String(selectedType?.equipgroupid || '')
-  const dynamicEditFields = buildEditAssetDynamicFields(groupid, asset)
+  const dynamicEditFields = buildEditAssetDynamicFields(groupid, asset, asset.equiptypeid)
   const nfcStatus = await loadAssetNfcStatus(asset.assetid)
   const showManufactureDate = groupid === '400'
   const equipmentTypeOptions = [...equipmentTypes]
