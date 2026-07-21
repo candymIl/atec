@@ -8,6 +8,7 @@
     "2026-07-18-task16-customer-notification-preferences.sql",
     "2026-07-20-task17-scheduled-notification-deliveries.sql",
     "2026-07-18-void-inspections-entered-in-error.sql",
-    "2026-07-21-beam-clamp-frequent-inspection.sql"
+    "2026-07-21-beam-clamp-frequent-inspection.sql",
+    "2026-07-21-general-lifting-devices-frequent-inspection.sql"
   ]
 }

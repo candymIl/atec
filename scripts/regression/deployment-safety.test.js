@@ -11,6 +11,10 @@ const beamClampFrequencyMigration = fs.readFileSync(
   path.join(root, "database", "2026-07-21-beam-clamp-frequent-inspection.sql"),
   "utf8"
 )
+const generalLiftingDevicesFrequencyMigration = fs.readFileSync(
+  path.join(root, "database", "2026-07-21-general-lifting-devices-frequent-inspection.sql"),
+  "utf8"
+)
 
 const backupAt = deploy.indexOf("npm run backup:create")
 const migrationAt = deploy.indexOf("scripts/apply-production-migrations.js")
@@ -23,9 +27,13 @@ assert(schemaCheckAt > migrationAt, "Schema verification must run after migratio
 assert(restartAt > schemaCheckAt, "Backend restart must happen only after schema verification")
 assert(manifest.migrations.includes("2026-07-18-void-inspections-entered-in-error.sql"))
 assert(manifest.migrations.includes("2026-07-21-beam-clamp-frequent-inspection.sql"))
+assert(manifest.migrations.includes("2026-07-21-general-lifting-devices-frequent-inspection.sql"))
 assert(beamClampFrequencyMigration.includes("'FREQUENT_INSPECTION'"))
 assert(beamClampFrequencyMigration.includes("'beam clamp', 'beam clamps'"))
 assert(beamClampFrequencyMigration.includes("COALESCE(criteria.inspectioncategory, 'VISUAL') = 'VISUAL'"))
+assert(generalLiftingDevicesFrequencyMigration.includes("'FREQUENT_INSPECTION'"))
+assert(generalLiftingDevicesFrequencyMigration.includes("'general lifting devices/equipment'"))
+assert(generalLiftingDevicesFrequencyMigration.includes("COALESCE(criteria.inspectioncategory, 'VISUAL') = 'VISUAL'"))
 assert(contract.requirements.some(item => item.table === "tblinspection" && item.columns.includes("record_status")))
 assert(migrator.includes("schema_migrations"), "Migrator must record applied migrations")
 assert(migrator.includes("Checksum mismatch"), "Migrator must reject changed applied migrations")

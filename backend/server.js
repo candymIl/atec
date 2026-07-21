@@ -4744,7 +4744,12 @@ async function criteriaInspectionCategoryForEquipment(equiptypeid, requestedCate
   )
   const equipmentTypeName = String(equipmentTypeResult.rows[0]?.description || "").trim().toLowerCase()
 
-  if (["beam clamp", "beam clamps"].includes(equipmentTypeName)) {
+  if ([
+    "beam clamp",
+    "beam clamps",
+    "general lifting devices/equipment",
+    "general lifting devices and equipment"
+  ].includes(equipmentTypeName)) {
     return "FREQUENT_INSPECTION"
   }
 

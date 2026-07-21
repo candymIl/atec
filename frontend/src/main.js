@@ -5455,10 +5455,15 @@ function renderCriteriaPopup(row = {}) {
   const selectedEquipmentTypeRow = sortedEquipmentTypes.find(type =>
     String(type.equiptypeid) === String(selectedEquipmentType)
   )
-  const beamClampSelected = ["beam clamp", "beam clamps"].includes(
+  const frequentOnlyEquipmentSelected = [
+    "beam clamp",
+    "beam clamps",
+    "general lifting devices/equipment",
+    "general lifting devices and equipment"
+  ].includes(
     String(selectedEquipmentTypeRow?.description || "").trim().toLowerCase()
   )
-  const selectedInspectionGroup = beamClampSelected
+  const selectedInspectionGroup = frequentOnlyEquipmentSelected
     ? "FREQUENT_INSPECTION"
     : row.inspection_category || "PERIODIC_THOROUGH_INSPECTION"
 
@@ -5547,7 +5552,7 @@ function renderCriteriaPopup(row = {}) {
                 <option value="FREQUENT_INSPECTION" ${selectedInspectionGroup === "FREQUENT_INSPECTION" ? "selected" : ""}>
                   Frequent Inspection
                 </option>
-                <option value="PERIODIC_THOROUGH_INSPECTION" ${selectedInspectionGroup === "PERIODIC_THOROUGH_INSPECTION" ? "selected" : ""} ${beamClampSelected ? "disabled" : ""}>
+                <option value="PERIODIC_THOROUGH_INSPECTION" ${selectedInspectionGroup === "PERIODIC_THOROUGH_INSPECTION" ? "selected" : ""} ${frequentOnlyEquipmentSelected ? "disabled" : ""}>
                   Periodic Thorough Inspection
                 </option>
               </select>
@@ -5758,13 +5763,18 @@ window.syncCriteriaInspectionGroup = function () {
   const equipmentType = equipmentTypes.find(type =>
     String(type.equiptypeid) === String(equipmentTypeId)
   )
-  const isBeamClamp = ["beam clamp", "beam clamps"].includes(
+  const isFrequentOnlyEquipment = [
+    "beam clamp",
+    "beam clamps",
+    "general lifting devices/equipment",
+    "general lifting devices and equipment"
+  ].includes(
     String(equipmentType?.description || "").trim().toLowerCase()
   )
   const periodicOption = inspectionGroup.querySelector('option[value="PERIODIC_THOROUGH_INSPECTION"]')
 
-  if (periodicOption) periodicOption.disabled = isBeamClamp
-  if (isBeamClamp) inspectionGroup.value = "FREQUENT_INSPECTION"
+  if (periodicOption) periodicOption.disabled = isFrequentOnlyEquipment
+  if (isFrequentOnlyEquipment) inspectionGroup.value = "FREQUENT_INSPECTION"
 }
 
 window.showSystemHealth = function () {
