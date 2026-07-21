@@ -29,9 +29,25 @@ async function readCertificateHtml(response) {
   const text = await response.text()
 
   if (!response.ok) {
+    let payload = null
+
+    try {
+      payload = JSON.parse(text)
+    } catch (_) {
+      // Older servers return a plain-text error from this endpoint.
+    }
+
+    const message = payload?.error || text ||
+      "The server returned an unexpected error while loading the certificate."
+    const reasons = Array.isArray(payload?.reasons)
+      ? payload.reasons.filter(Boolean)
+      : []
+
     return {
       html: "",
-      error: text || "The server returned an unexpected error while loading the certificate."
+      error: reasons.length
+        ? `${message}\n\nReason${reasons.length === 1 ? "" : "s"}:\n- ${reasons.join("\n- ")}`
+        : message
     }
   }
 
@@ -1376,7 +1392,11 @@ window.downloadCertificatePdf = async function (testid) {
       error: "Unable to download certificate PDF"
     }))
 
-    alert("Error downloading certificate PDF: " + error.error)
+    const reasons = Array.isArray(error.reasons) && error.reasons.length
+      ? `\n\nReason${error.reasons.length === 1 ? "" : "s"}:\n- ${error.reasons.join("\n- ")}`
+      : ""
+
+    alert("Error downloading certificate PDF: " + (error.error || "Unable to download certificate PDF") + reasons)
     return
   }
 

@@ -9619,8 +9619,9 @@ app.get("/inspections/:testid/certificate.html", async (req, res) => {
     }
 
     if (!certificateIsEligible(certificate)) {
-      await req.logAudit("CERTIFICATE_HTML_BLOCKED", "certificates", testid, certificateBlockedPayload(certificate))
-      return res.status(409).send(certificateBlockedPayload(certificate).error)
+      const blockedPayload = certificateBlockedPayload(certificate)
+      await req.logAudit("CERTIFICATE_HTML_BLOCKED", "certificates", testid, blockedPayload)
+      return res.status(409).json(blockedPayload)
     }
 
     await req.logAudit("VIEW_HTML", "certificates", testid)
