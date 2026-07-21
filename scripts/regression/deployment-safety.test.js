@@ -28,6 +28,10 @@ const additionalLiftingTackleFrequencyMigration = fs.readFileSync(
   path.join(root, "database", "2026-07-21-additional-lifting-tackle-frequent-inspection.sql"),
   "utf8"
 )
+const moreFrequentInspectionEquipmentMigration = fs.readFileSync(
+  path.join(root, "database", "2026-07-21-more-frequent-inspection-equipment.sql"),
+  "utf8"
+)
 
 const backupAt = deploy.indexOf("npm run backup:create")
 const migrationAt = deploy.indexOf("scripts/apply-production-migrations.js")
@@ -44,6 +48,7 @@ assert(manifest.migrations.includes("2026-07-21-general-lifting-devices-frequent
 assert(manifest.migrations.includes("2026-07-21-bottle-jack-frequent-inspection.sql"))
 assert(manifest.migrations.includes("2026-07-21-bow-shackle-chain-sling-frequent-inspection.sql"))
 assert(manifest.migrations.includes("2026-07-21-additional-lifting-tackle-frequent-inspection.sql"))
+assert(manifest.migrations.includes("2026-07-21-more-frequent-inspection-equipment.sql"))
 assert(beamClampFrequencyMigration.includes("'FREQUENT_INSPECTION'"))
 assert(beamClampFrequencyMigration.includes("'beam clamp', 'beam clamps'"))
 assert(beamClampFrequencyMigration.includes("COALESCE(criteria.inspectioncategory, 'VISUAL') = 'VISUAL'"))
@@ -62,6 +67,15 @@ for (const equipmentType of ["'d shackle'", "'drum lifter'", "'endless round sli
   assert(additionalLiftingTackleFrequencyMigration.includes(equipmentType))
 }
 assert(additionalLiftingTackleFrequencyMigration.includes("COALESCE(criteria.inspectioncategory, 'VISUAL') = 'VISUAL'"))
+for (const equipmentType of [
+  "'winch / wire rope winch'", "'trolley jack / pallet jack'", "'trestles / engine lifter'",
+  "'steel wire rope sling'", "'safety harness lanyard'", "'safety harness'",
+  "'polyester sling / webbing sling'", "'plate grab'", "'man cage / boatswain chair'"
+]) {
+  assert(moreFrequentInspectionEquipmentMigration.includes(equipmentType))
+}
+assert(moreFrequentInspectionEquipmentMigration.includes("'FREQUENT_INSPECTION'"))
+assert(moreFrequentInspectionEquipmentMigration.includes("COALESCE(criteria.inspectioncategory, 'VISUAL') = 'VISUAL'"))
 assert(contract.requirements.some(item => item.table === "tblinspection" && item.columns.includes("record_status")))
 assert(migrator.includes("schema_migrations"), "Migrator must record applied migrations")
 assert(migrator.includes("Checksum mismatch"), "Migrator must reject changed applied migrations")
