@@ -751,12 +751,56 @@ window.searchBulkCertificates = async function () {
   window.bulkCertificateResults = data.certificates || []
   window.bulkCertificateBlockedCount = Number(data.blockedCount || 0)
   window.bulkCertificateBlockedReasonCounts = data.blockedReasonCounts || {}
+  window.bulkCertificateBlockedResults = data.blockedCertificates || []
   window.bulkCertificateTotalMatched = Number(data.totalMatched || window.bulkCertificateResults.length)
   renderBulkCertificateResults(window.bulkCertificateResults, {
     blockedCount: window.bulkCertificateBlockedCount,
     blockedReasonCounts: window.bulkCertificateBlockedReasonCounts,
+    blockedCertificates: window.bulkCertificateBlockedResults,
     totalMatched: window.bulkCertificateTotalMatched
   })
+}
+
+function renderBlockedCertificateDetails(blockedCertificates = []) {
+  if (!blockedCertificates.length) return ""
+
+  return `
+    <details class="bulk-certificate-skipped">
+      <summary>Show skipped inspections (${escapeHtml(blockedCertificates.length)})</summary>
+      <div class="table-scroll bulk-certificate-skipped-table-wrap">
+        <table class="bulk-certificate-table bulk-certificate-skipped-table">
+          <thead>
+            <tr>
+              <th>Inspection No</th>
+              <th>Date</th>
+              <th>Equipment Type</th>
+              <th>Inspection Type</th>
+              <th>Asset</th>
+              <th>Asset Tag</th>
+              <th>Serial No</th>
+              <th>Site</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${blockedCertificates.map(inspection => `
+              <tr>
+                <td>${escapeHtml(inspection.testid || "-")}</td>
+                <td>${escapeHtml(formatDate(inspection.testdate))}</td>
+                <td><strong>${escapeHtml(inspection.equipmenttype || "Unknown")}</strong></td>
+                <td>${escapeHtml(inspection.inspectiontype || "-")}</td>
+                <td>${escapeHtml(inspection.description || "-")}</td>
+                <td>${escapeHtml(inspection.assettagno || "-")}</td>
+                <td>${escapeHtml(inspection.serialno || "-")}</td>
+                <td>${escapeHtml(inspection.sitename || "-")}</td>
+                <td class="bulk-certificate-skip-reason">${escapeHtml((inspection.reasons || []).join(" ") || "Certificate requirements are incomplete.")}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  `
 }
 
 function renderBulkCertificateResults(certificates, summary = {}) {
@@ -766,6 +810,7 @@ function renderBulkCertificateResults(certificates, summary = {}) {
   const downloadAllButton = document.querySelector('#bulkCertDownloadAllBtn')
   const blockedCount = Number(summary.blockedCount || 0)
   const blockedReasonCounts = summary.blockedReasonCounts || {}
+  const blockedCertificates = summary.blockedCertificates || []
   const totalMatched = Number(summary.totalMatched || certificates.length)
   const blockedReasons = Object.entries(blockedReasonCounts)
     .filter(([, count]) => Number(count) > 0)
@@ -777,6 +822,7 @@ function renderBulkCertificateResults(certificates, summary = {}) {
       ? `
         <p>${escapeHtml(totalMatched)} matching inspection${totalMatched === 1 ? "" : "s"} found, but none can produce certificates yet.</p>
         ${blockedReasons ? `<p><strong>What needs attention:</strong></p><ul>${blockedReasons}</ul>` : ""}
+        ${renderBlockedCertificateDetails(blockedCertificates)}
       `
       : `<p>No certificates found for the selected customer and date range.</p>`
     printButton.disabled = true
@@ -797,6 +843,8 @@ function renderBulkCertificateResults(certificates, summary = {}) {
       <strong>${certificates.length}</strong> downloadable certificate${certificates.length === 1 ? "" : "s"} found.
       ${skippedMessage}
     </div>
+
+    ${renderBlockedCertificateDetails(blockedCertificates)}
 
     <div class="table-scroll bulk-certificate-table-wrap">
       <table class="bulk-certificate-table">

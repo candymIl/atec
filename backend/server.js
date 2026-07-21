@@ -7783,6 +7783,20 @@ app.get("/certificates/bulk-print", searchLimiter, async (req, res) => {
       certificates,
       blockedCount: blockedCertificates.length,
       blockedReasonCounts,
+      blockedCertificates: blockedCertificates.map(certificate => {
+        const inspection = certificate.inspection || {}
+        return {
+          testid: inspection.testid,
+          testdate: inspection.testdate,
+          inspectiontype: inspection.inspectiontype,
+          equipmenttype: inspection.equipmenttype,
+          description: inspection.description,
+          assettagno: inspection.assettagno || inspection.tagnumber,
+          serialno: inspection.serialno,
+          sitename: inspection.sitename,
+          reasons: certificateEligibility(certificate).reasons || []
+        }
+      }),
       totalMatched
     })
   } catch (err) {

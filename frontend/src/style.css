@@ -3292,6 +3292,35 @@ tr:hover {
   color: #1f2937;
 }
 
+.bulk-certificate-skipped {
+  margin: 10px 0 14px;
+  border: 1px solid #e4b654;
+  border-radius: 8px;
+  background: #fffaf0;
+}
+
+.bulk-certificate-skipped summary {
+  padding: 10px 12px;
+  font-weight: 700;
+  color: #7a4b00;
+  cursor: pointer;
+}
+
+.bulk-certificate-skipped-table-wrap {
+  max-height: 300px;
+  overflow: auto;
+  border-top: 1px solid #e4b654;
+}
+
+.bulk-certificate-skipped-table {
+  min-width: 1300px;
+}
+
+.bulk-certificate-skip-reason {
+  white-space: normal !important;
+  min-width: 320px;
+}
+
 .bulk-certificate-table-wrap {
   max-height: 360px;
   overflow: auto;
