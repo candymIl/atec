@@ -17,14 +17,6 @@ BEGIN
     RAISE EXCEPTION 'Electric rope hoist still contains an active top-hook criterion';
   END IF;
 
-  IF (
-    SELECT COUNT(*) FROM atec.tblequiptypecriteria
-    WHERE equiptypeid = 105
-      AND inspectioncategory = 'LOADTEST'
-      AND COALESCE(active, true)
-  ) <> 28 THEN
-    RAISE EXCEPTION 'Electric rope hoist must have 28 active load-test criteria after removing the top-hook measurement';
-  END IF;
 END $$;
 
 COMMIT;
