@@ -56,7 +56,7 @@ else
 fi
 
 echo "Pulling latest code..."
-git pull --no-rebase
+git pull --no-rebase --no-edit
 
 if [ ! -f "$ENV_FILE" ] && [ -f "$ENV_BACKUP" ]; then
   cp "$ENV_BACKUP" "$ENV_FILE"

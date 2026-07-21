@@ -7,6 +7,7 @@ const deploy = fs.readFileSync(path.join(root, "deployment", "deploy-live.sh"), 
 const contract = JSON.parse(fs.readFileSync(path.join(root, "deployment", "production-schema-contract.json"), "utf8"))
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "deployment", "production-migrations.json"), "utf8"))
 const migrator = fs.readFileSync(path.join(root, "scripts", "apply-production-migrations.js"), "utf8")
+const backupScript = fs.readFileSync(path.join(root, "scripts", "atec-backup.js"), "utf8")
 const beamClampFrequencyMigration = fs.readFileSync(
   path.join(root, "database", "2026-07-21-beam-clamp-frequent-inspection.sql"),
   "utf8"
@@ -64,6 +65,9 @@ assert(additionalLiftingTackleFrequencyMigration.includes("COALESCE(criteria.ins
 assert(contract.requirements.some(item => item.table === "tblinspection" && item.columns.includes("record_status")))
 assert(migrator.includes("schema_migrations"), "Migrator must record applied migrations")
 assert(migrator.includes("Checksum mismatch"), "Migrator must reject changed applied migrations")
+assert(deploy.includes("git pull --no-rebase --no-edit"), "Live deployment pulls must not open an interactive merge editor")
+assert(backupScript.includes("createMediaArchive(tempPath, mediaRoot)"), "Media backup must use the retry-safe archive helper")
+assert(backupScript.includes("file changed as we read it"), "Media backup must retry transient live-file changes")
 
 for (const migration of manifest.migrations) {
   assert(fs.existsSync(path.join(root, "database", migration)), `Missing production migration: ${migration}`)

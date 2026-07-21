@@ -128,6 +128,38 @@ function runCommand(command, args, options = {}) {
   })
 }
 
+async function createMediaArchive(tempPath, mediaRoot, maxAttempts = 3) {
+  const archiveArgs = [
+    "--exclude=*.tmp",
+    "--exclude=*.log",
+    "--exclude=*.zip",
+    "--exclude=*.tar",
+    "--exclude=*.tar.gz",
+    "--exclude=node_modules",
+    "--exclude=dist",
+    "--exclude=.git",
+    "--exclude=archive",
+    "-czf",
+    tempPath,
+    "-C",
+    mediaRoot,
+    "."
+  ]
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    fs.rmSync(tempPath, { force: true })
+    try {
+      return await runCommand("tar", archiveArgs)
+    } catch (error) {
+      const fileChangedDuringRead = String(error?.message || error).includes("file changed as we read it")
+      if (!fileChangedDuringRead || attempt === maxAttempts) throw error
+      await new Promise(resolve => setTimeout(resolve, attempt * 1000))
+    }
+  }
+
+  throw new Error("Media archive retry limit reached")
+}
+
 function backupRoot() {
   const root = configuredBackupRoot()
   ensureDir(root)
@@ -247,22 +279,7 @@ async function backupMedia(args = {}) {
     fs.rmSync(tempPath, { force: true })
 
     try {
-      const result = await runCommand("tar", [
-        "--exclude=*.tmp",
-        "--exclude=*.log",
-        "--exclude=*.zip",
-        "--exclude=*.tar",
-        "--exclude=*.tar.gz",
-        "--exclude=node_modules",
-        "--exclude=dist",
-        "--exclude=.git",
-        "--exclude=archive",
-        "-czf",
-        tempPath,
-        "-C",
-        mediaRoot,
-        "."
-      ])
+      const result = await createMediaArchive(tempPath, mediaRoot)
       fs.renameSync(tempPath, finalPath)
       const record = fileRecord(folder, filename)
       manifest.media = {
