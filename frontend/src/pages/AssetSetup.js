@@ -87,6 +87,10 @@ export function renderAssetRow(asset) {
           </button>
 
           ${canArchiveOrMoveAssets ? `
+            <button class="move-btn" onclick="showMoveAssetForm(${asset.assetid})">
+              Set Site / Section
+            </button>
+
             <button class="move-btn" onclick="showAllocateAssetForm(${asset.assetid})">
               Allocate
             </button>
