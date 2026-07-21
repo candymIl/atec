@@ -4733,7 +4733,11 @@ app.get("/equipment-types", async (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 
-async function criteriaInspectionCategoryForEquipment(equiptypeid, requestedCategory) {
+async function criteriaInspectionCategoryForEquipment(equiptypeid, inspectionType, requestedCategory) {
+  if (String(inspectionType || "").trim().toUpperCase() === "LOADTEST") {
+    return "PERIODIC_THOROUGH_INSPECTION"
+  }
+
   const equipmentTypeResult = await pool.query(
     `
     SELECT description
@@ -4900,6 +4904,7 @@ app.post("/equipment-type-criteria", async (req, res) => {
     const normalizedDescription = criteriadescription || criterianame
     const normalizedInspectionCategory = await criteriaInspectionCategoryForEquipment(
       equiptypeid,
+      inspectioncategory,
       inspection_category
     )
 
@@ -4974,6 +4979,7 @@ app.put("/equipment-type-criteria/:id", async (req, res) => {
     const normalizedDescription = criteriadescription || criterianame
     const normalizedInspectionCategory = await criteriaInspectionCategoryForEquipment(
       equiptypeid,
+      inspectioncategory,
       inspection_category
     )
 

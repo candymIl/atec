@@ -5455,7 +5455,7 @@ function renderCriteriaPopup(row = {}) {
   const selectedEquipmentTypeRow = sortedEquipmentTypes.find(type =>
     String(type.equiptypeid) === String(selectedEquipmentType)
   )
-  const frequentOnlyEquipmentSelected = [
+  const frequentOnlyEquipmentSelected = selectedCategory !== "LOADTEST" && [
     "beam clamp",
     "beam clamps",
     "bottle jack",
@@ -5525,9 +5525,11 @@ function renderCriteriaPopup(row = {}) {
   ].includes(
     String(selectedEquipmentTypeRow?.description || "").trim().toLowerCase().replace(/\s+/g, " ")
   )
-  const selectedInspectionGroup = frequentOnlyEquipmentSelected
-    ? "FREQUENT_INSPECTION"
-    : row.inspection_category || "PERIODIC_THOROUGH_INSPECTION"
+  const selectedInspectionGroup = selectedCategory === "LOADTEST"
+    ? "PERIODIC_THOROUGH_INSPECTION"
+    : frequentOnlyEquipmentSelected
+      ? "FREQUENT_INSPECTION"
+      : row.inspection_category || "PERIODIC_THOROUGH_INSPECTION"
 
   const selectedSeverity =
     row.severity || "MINOR"
@@ -5571,7 +5573,7 @@ function renderCriteriaPopup(row = {}) {
 
             <div class="form-group">
               <label>Inspection Type</label>
-              <select id="criteriaCategory">
+              <select id="criteriaCategory" onchange="syncCriteriaInspectionGroup()">
                 <option value="VISUAL" ${selectedCategory === "VISUAL" ? "selected" : ""}>
                   Visual Inspection
                 </option>
@@ -5820,6 +5822,7 @@ window.showCustomerDetailedReport = function (options = {}) {
 
 window.syncCriteriaInspectionGroup = function () {
   const equipmentTypeId = document.querySelector('#criteriaEquipType')?.value
+  const inspectionType = document.querySelector('#criteriaCategory')?.value
   const inspectionGroup = document.querySelector('#criteriaInspectionGroup')
   if (!inspectionGroup) return
 
@@ -5897,7 +5900,16 @@ window.syncCriteriaInspectionGroup = function () {
     String(equipmentType?.description || "").trim().toLowerCase().replace(/\s+/g, " ")
   )
   const periodicOption = inspectionGroup.querySelector('option[value="PERIODIC_THOROUGH_INSPECTION"]')
+  const frequentOption = inspectionGroup.querySelector('option[value="FREQUENT_INSPECTION"]')
 
+  if (inspectionType === "LOADTEST") {
+    if (periodicOption) periodicOption.disabled = false
+    if (frequentOption) frequentOption.disabled = true
+    inspectionGroup.value = "PERIODIC_THOROUGH_INSPECTION"
+    return
+  }
+
+  if (frequentOption) frequentOption.disabled = false
   if (periodicOption) periodicOption.disabled = isFrequentOnlyEquipment
   if (isFrequentOnlyEquipment) inspectionGroup.value = "FREQUENT_INSPECTION"
 }
@@ -7526,7 +7538,7 @@ function renderSlingWizard(asset, assetCriteria, inspectiontype, quickDetails, r
             <div class="crane-load-test-grid">
               <label>Rated WLL<input id="craneRatedCapacity" type="text" value="${escapeAttribute(asset.wll || "")}" readonly></label>
               <label>Intended Test Load<input id="craneIntendedTestLoad" type="number" step="0.01" min="0" placeholder="Manual capture required"></label>
-              <label>Actual Applied Load<input id="craneActualTestLoad" type="number" step="0.01" min="0"></label>
+              <label>SWL / Test Load Actually Lifted<input id="craneActualTestLoad" type="number" step="0.01" min="0" placeholder="Enter load actually lifted" required></label>
               <label>Test Duration<input id="craneTestDuration" type="text"></label>
               <label class="crane-wide-field">Reason if full test could not be completed<input id="craneLoadExceptionReason" type="text"></label>
             </div>
@@ -7632,7 +7644,7 @@ function renderCraneWizard(asset, assetCriteria, inspectiontype, quickDetails, r
             <div class="crane-load-test-grid">
               <label>Rated Capacity<input id="craneRatedCapacity" type="text" value="${escapeAttribute(asset.wll || "")}" readonly></label>
               <label>Intended Test Load<input id="craneIntendedTestLoad" type="number" step="0.01" min="0" placeholder="Manual capture required"></label>
-              <label>Actual Applied Load<input id="craneActualTestLoad" type="number" step="0.01" min="0"></label>
+              <label>SWL / Test Load Actually Lifted<input id="craneActualTestLoad" type="number" step="0.01" min="0" placeholder="Enter load actually lifted" required></label>
               <label>Test Duration<input id="craneTestDuration" type="text" placeholder="e.g. 10 min"></label>
               <label class="crane-wide-field">Reason if full prescribed load could not be applied<input id="craneLoadExceptionReason" type="text"></label>
             </div>
@@ -8406,7 +8418,7 @@ if (formMode !== "generic" && inspectionWizardKey === "SLING") {
     <div class="crane-load-test-grid">
       <label>Rated Capacity / WLL<input id="craneRatedCapacity" type="text" value="${escapeAttribute(asset.wll || "")}" readonly></label>
       <label>Required Test Load<input id="craneIntendedTestLoad" type="number" step="0.01" min="0" placeholder="Enter prescribed test load"></label>
-      <label>Actual Applied Load<input id="craneActualTestLoad" type="number" step="0.01" min="0" placeholder="Enter actual applied load"></label>
+      <label>SWL / Test Load Actually Lifted<input id="craneActualTestLoad" type="number" step="0.01" min="0" placeholder="Enter load actually lifted" required></label>
       <label>Test Duration<input id="craneTestDuration" type="text" placeholder="e.g. 10 minutes"></label>
       <label class="crane-wide-field">Reason if prescribed test could not be completed<input id="craneLoadExceptionReason" type="text"></label>
     </div>
@@ -10023,7 +10035,7 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
     ? [
         `Rated capacity: ${document.querySelector("#craneRatedCapacity")?.value || "-"}`,
         `Intended test load: ${document.querySelector("#craneIntendedTestLoad")?.value || "-"}`,
-        `Actual applied load: ${document.querySelector("#craneActualTestLoad")?.value || "-"}`,
+        `SWL / test load actually lifted: ${document.querySelector("#craneActualTestLoad")?.value || "-"}`,
         `Test duration: ${document.querySelector("#craneTestDuration")?.value || "-"}`,
         `Load exception reason: ${document.querySelector("#craneLoadExceptionReason")?.value || "-"}`
       ].join("\n")
