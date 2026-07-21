@@ -17,6 +17,7 @@ ENV_FILE="$PROJECT_DIR/backend/.env"
 ENV_BACKUP="$PROJECT_DIR/backend/.env.live.backup"
 NPM_LOCK_DRIFT_FILES=(
   "node_modules"
+  "package-lock.json"
   "backend/node_modules/.package-lock.json"
   "backend/package-lock.json"
   "frontend/package-lock.json"
