@@ -9417,6 +9417,11 @@ function renderDashboardNotificationCentre() {
       <button type="button" class="secondary-small-btn" onclick="clearDashboardNotificationFilters()">Clear</button>
     </div>
     <div id="dashboardNotificationPreview" class="dashboard-notification-preview" hidden></div>
+    <div class="report-scroll-control dashboard-notification-scroll-control">
+      <span>Left</span>
+      <input id="dashboardNotificationTableSlider" type="range" min="0" max="0" value="0" step="1">
+      <span>Right</span>
+    </div>
     <div class="dashboard-notification-table-wrap">
       <table class="dashboard-table dashboard-notification-table">
         <thead>
@@ -9444,6 +9449,34 @@ function renderDashboardNotificationCentre() {
       </table>
     </div>
   `
+
+  bindDashboardNotificationSlider()
+}
+
+function bindDashboardNotificationSlider() {
+  const slider = document.querySelector("#dashboardNotificationTableSlider")
+  const tableWrap = document.querySelector(".dashboard-notification-table-wrap")
+
+  if (!slider || !tableWrap) return
+
+  const updateSliderRange = () => {
+    const maxScroll = Math.max(0, tableWrap.scrollWidth - tableWrap.clientWidth)
+    slider.max = String(maxScroll)
+    slider.value = String(Math.min(tableWrap.scrollLeft, maxScroll))
+    slider.disabled = maxScroll === 0
+  }
+
+  updateSliderRange()
+
+  slider.addEventListener("input", () => {
+    tableWrap.scrollLeft = Number(slider.value)
+  })
+
+  tableWrap.addEventListener("scroll", () => {
+    slider.value = String(tableWrap.scrollLeft)
+  })
+
+  window.addEventListener("resize", updateSliderRange, { once: true })
 }
 
 function renderDashboardNotificationRow(row) {

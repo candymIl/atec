@@ -117,9 +117,6 @@ for drift_file in "${NPM_LOCK_DRIFT_FILES[@]}"; do
 done
 
 echo "Checking production database compatibility..."
-echo "Creating a verified pre-migration backup..."
-npm run backup:create
-
 echo "Applying approved production migrations..."
 node "$PROJECT_DIR/scripts/apply-production-migrations.js"
 

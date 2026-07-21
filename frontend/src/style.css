@@ -1457,6 +1457,10 @@ tr:hover {
   overflow-x: auto;
 }
 
+.dashboard-notification-scroll-control {
+  margin-bottom: 8px;
+}
+
 .dashboard-notification-filter-row {
   align-items: center;
   display: grid;
@@ -1475,7 +1479,7 @@ tr:hover {
 }
 
 .dashboard-notification-table {
-  min-width: 1080px;
+  min-width: 1250px;
   table-layout: fixed;
 }
 
