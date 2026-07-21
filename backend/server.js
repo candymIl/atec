@@ -6161,7 +6161,7 @@ app.get("/sections", async (req, res) => {
         sec.sectionid,
         sec.clientid,
         sec.siteid,
-        sec.responsibleid,
+        COALESCE(sec.responsibleid, asset_person.responsibleid) AS responsibleid,
         sec.sectionname,
         COALESCE(sec.archived, false) AS archived,
         c.clientname,
@@ -6172,8 +6172,17 @@ app.get("/sections", async (req, res) => {
         ON sec.clientid = c.clientid
       LEFT JOIN atec.tblsites s
         ON sec.siteid = s.siteid
+      LEFT JOIN LATERAL (
+        SELECT MIN(a.responsibleid) AS responsibleid
+        FROM atec.tblasset a
+        WHERE a.sectionid = sec.sectionid
+          AND COALESCE(a.archived, false) = false
+          AND a.responsibleid IS NOT NULL
+        HAVING COUNT(DISTINCT a.responsibleid) = 1
+      ) asset_person
+        ON sec.responsibleid IS NULL
       LEFT JOIN atec.tblpeople p
-        ON sec.responsibleid = p.personid
+        ON COALESCE(sec.responsibleid, asset_person.responsibleid) = p.personid
         ORDER BY c.clientname, s.sitename, sec.sectionname
     `);
 
@@ -6400,9 +6409,16 @@ app.post("/inspections",
         SELECT
           a.assetid,
           a.equiptypeid,
+          a.clientid,
+          s.sitename,
+          sec.sectionname,
           et.description AS equipmenttype,
           COUNT(c.criteriaid)::int AS active_criteria_count
         FROM atec.tblasset a
+        LEFT JOIN atec.tblsites s
+          ON a.siteid = s.siteid
+        LEFT JOIN atec.tblsection sec
+          ON a.sectionid = sec.sectionid
         LEFT JOIN atec.tblequiptype et
           ON a.equiptypeid = et.equiptypeid
         LEFT JOIN atec.tblequiptypecriteria c
@@ -6419,7 +6435,7 @@ app.post("/inspections",
          )
         WHERE a.assetid = $1
           AND COALESCE(a.archived, false) = false
-        GROUP BY a.assetid, a.equiptypeid, et.description
+        GROUP BY a.assetid, a.equiptypeid, a.clientid, s.sitename, sec.sectionname, et.description
         `,
         [assetid, inspectionTypeForCriteria]
       )
@@ -6428,6 +6444,17 @@ app.post("/inspections",
       if (!criteriaAvailability) {
         await client.query("ROLLBACK")
         return res.status(400).json({ error: "Inspection cannot be saved because the selected asset is not active." })
+      }
+
+      if (
+        !criteriaAvailability.clientid ||
+        !String(criteriaAvailability.sitename || "").trim() ||
+        !String(criteriaAvailability.sectionname || "").trim()
+      ) {
+        await client.query("ROLLBACK")
+        return res.status(400).json({
+          error: "Inspection cannot be saved because the asset customer, site or section hierarchy is incomplete. Update the asset hierarchy and try again."
+        })
       }
 
       const duplicateInspectionResult = await client.query(

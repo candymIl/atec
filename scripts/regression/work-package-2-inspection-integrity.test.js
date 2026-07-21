@@ -86,6 +86,11 @@ assertIncludes(
 )
 assertIncludes(
   inspectionCreateRoute,
+  "Inspection cannot be saved because the asset customer, site or section hierarchy is incomplete.",
+  "Completed inspection creation must block incomplete asset hierarchy"
+)
+assertIncludes(
+  inspectionCreateRoute,
   "applyCriticalSafetyRule(parsedResults, criteriaResult.rows)",
   "Inspection creation must keep the critical failure UNSAFE rule"
 )

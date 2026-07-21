@@ -5063,6 +5063,10 @@ window.editAsset = async function (assetid) {
           </button>
 
           ${canArchiveOrMoveAssetRecords() ? `
+            <button type="button" class="secondary-btn" onclick="showMoveAssetForm(${asset.assetid})">
+              Set Site / Section
+            </button>
+
             <button class="danger-btn" onclick="archiveAsset(${asset.assetid})">
               Archive
             </button>
