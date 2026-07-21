@@ -36,6 +36,10 @@ const trolleyPalletJackLoadTestMigration = fs.readFileSync(
   path.join(root, "database", "2026-07-21-trolley-pallet-jack-load-test-criteria.sql"),
   "utf8"
 )
+const trestleManCageLoadTestMigration = fs.readFileSync(
+  path.join(root, "database", "2026-07-21-trestle-man-cage-load-test-criteria.sql"),
+  "utf8"
+)
 
 const backupAt = deploy.indexOf("npm run backup:create")
 const migrationAt = deploy.indexOf("scripts/apply-production-migrations.js")
@@ -54,6 +58,7 @@ assert(manifest.migrations.includes("2026-07-21-bow-shackle-chain-sling-frequent
 assert(manifest.migrations.includes("2026-07-21-additional-lifting-tackle-frequent-inspection.sql"))
 assert(manifest.migrations.includes("2026-07-21-more-frequent-inspection-equipment.sql"))
 assert(manifest.migrations.includes("2026-07-21-trolley-pallet-jack-load-test-criteria.sql"))
+assert(manifest.migrations.includes("2026-07-21-trestle-man-cage-load-test-criteria.sql"))
 assert(beamClampFrequencyMigration.includes("'FREQUENT_INSPECTION'"))
 assert(beamClampFrequencyMigration.includes("'beam clamp', 'beam clamps'"))
 assert(beamClampFrequencyMigration.includes("COALESCE(criteria.inspectioncategory, 'VISUAL') = 'VISUAL'"))
@@ -84,6 +89,10 @@ assert(moreFrequentInspectionEquipmentMigration.includes("COALESCE(criteria.insp
 assert(trolleyPalletJackLoadTestMigration.includes("'LOADTEST'"))
 assert(trolleyPalletJackLoadTestMigration.includes("'trolley jack / pallet jack'"))
 assert(trolleyPalletJackLoadTestMigration.includes("'SAFE FOR CONTINUED OPERATION'"))
+assert(trestleManCageLoadTestMigration.includes("'TRESTLE'"))
+assert(trestleManCageLoadTestMigration.includes("'MAN_CAGE'"))
+assert(trestleManCageLoadTestMigration.includes("'PERIODIC_THOROUGH_INSPECTION'"))
+assert(trestleManCageLoadTestMigration.includes("SWL/test load actually lifted"))
 assert(contract.requirements.some(item => item.table === "tblinspection" && item.columns.includes("record_status")))
 assert(migrator.includes("schema_migrations"), "Migrator must record applied migrations")
 assert(migrator.includes("Checksum mismatch"), "Migrator must reject changed applied migrations")

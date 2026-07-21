@@ -16,6 +16,7 @@
     "2026-07-21-more-frequent-inspection-equipment.sql",
     "2026-07-21-trolley-pallet-jack-load-test-criteria.sql",
     "2026-07-21-sync-manual-hoist-visual-loadtest-criteria.sql",
-    "2026-07-21-load-tests-periodic.sql"
+    "2026-07-21-load-tests-periodic.sql",
+    "2026-07-21-trestle-man-cage-load-test-criteria.sql"
   ]
 }
