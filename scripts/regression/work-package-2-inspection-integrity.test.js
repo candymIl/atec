@@ -166,6 +166,11 @@ assert(
     frontendMain.includes('resultType.value = "YES_NO"'),
   "Criteria setup must offer a YES/NO field type and map it to YES_NO results"
 )
+assert(
+  frontendMain.includes('placeholder="Enter prescribed test load"') &&
+    frontendMain.includes('const loadTestNotes = inspectiontype === "LOADTEST"'),
+  "Generic load-test forms must capture and save prescribed load-test details"
+)
 assertIncludes(
   bulkPdfRoute,
   "getBulkCertificateMatches(req, true, true)",

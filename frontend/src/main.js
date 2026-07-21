@@ -8402,6 +8402,16 @@ if (formMode !== "generic" && inspectionWizardKey === "SLING") {
 
   </div>
 
+  ${inspectiontype === "LOADTEST" ? `
+    <div class="crane-load-test-grid">
+      <label>Rated Capacity / WLL<input id="craneRatedCapacity" type="text" value="${escapeAttribute(asset.wll || "")}" readonly></label>
+      <label>Required Test Load<input id="craneIntendedTestLoad" type="number" step="0.01" min="0" placeholder="Enter prescribed test load"></label>
+      <label>Actual Applied Load<input id="craneActualTestLoad" type="number" step="0.01" min="0" placeholder="Enter actual applied load"></label>
+      <label>Test Duration<input id="craneTestDuration" type="text" placeholder="e.g. 10 minutes"></label>
+      <label class="crane-wide-field">Reason if prescribed test could not be completed<input id="craneLoadExceptionReason" type="text"></label>
+    </div>
+  ` : ""}
+
 </div>
       <div class="inspection-history-card">
 
@@ -9878,6 +9888,34 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
     return
   }
 
+  if (inspectiontype === "LOADTEST") {
+    const requiredTestLoad = Number(document.querySelector("#craneIntendedTestLoad")?.value)
+    const actualTestLoad = Number(document.querySelector("#craneActualTestLoad")?.value)
+    const testDuration = String(document.querySelector("#craneTestDuration")?.value || "").trim()
+    const exceptionReason = String(document.querySelector("#craneLoadExceptionReason")?.value || "").trim()
+
+    if (!Number.isFinite(requiredTestLoad) || requiredTestLoad <= 0) {
+      alert("Enter the required test load.")
+      document.querySelector("#craneIntendedTestLoad")?.focus()
+      return
+    }
+    if (!Number.isFinite(actualTestLoad) || actualTestLoad <= 0) {
+      alert("Enter the actual applied test load.")
+      document.querySelector("#craneActualTestLoad")?.focus()
+      return
+    }
+    if (!testDuration) {
+      alert("Enter the test duration.")
+      document.querySelector("#craneTestDuration")?.focus()
+      return
+    }
+    if (actualTestLoad < requiredTestLoad && !exceptionReason) {
+      alert("Enter a reason why the required test load was not fully applied.")
+      document.querySelector("#craneLoadExceptionReason")?.focus()
+      return
+    }
+  }
+
   let assetCriteria = getInspectionCriteriaRows(criteria.filter(
     c =>
       String(c.equiptypeid) === String(asset.equiptypeid) &&
@@ -9945,8 +9983,15 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
     const assetValue =
       getCriteriaStandardValue(asset, row) || null
 
-    const measuredValue =
-      measuredInput ? measuredInput.value : null
+    let measuredValue = measuredInput ? measuredInput.value : null
+
+    if (
+      inspectiontype === "LOADTEST" &&
+      !String(measuredValue || "").trim() &&
+      normalizeCriteriaName(inspectionCriteriaText(row)).includes("actual applied test load")
+    ) {
+      measuredValue = document.querySelector("#craneActualTestLoad")?.value || null
+    }
 
     if (measuredValue && !Number.isFinite(Number(measuredValue))) {
       alert(`Please enter a valid numeric value for: ${inspectionCriteriaText(row)}`)
@@ -9974,7 +10019,7 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
   }
 
   const formData = new FormData()
-  const loadTestNotes = inspectiontype === "LOADTEST" && document.querySelector(".crane-wizard")
+  const loadTestNotes = inspectiontype === "LOADTEST"
     ? [
         `Rated capacity: ${document.querySelector("#craneRatedCapacity")?.value || "-"}`,
         `Intended test load: ${document.querySelector("#craneIntendedTestLoad")?.value || "-"}`,
