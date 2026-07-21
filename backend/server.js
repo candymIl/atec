@@ -4957,33 +4957,10 @@ app.put("/equipment-type-criteria/:id", async (req, res) => {
 })
 
 app.delete("/equipment-type-criteria/:id", async (req, res) => {
-  const client = await pool.connect()
-
   try {
     const { id } = req.params
 
-    await client.query("BEGIN")
-
-    const deleted = await client.query(
-      `
-      DELETE FROM atec.tblequiptypecriteria
-      WHERE criteriaid = $1
-        AND NOT EXISTS (
-          SELECT 1
-          FROM atec.tblinspectionresult result
-          WHERE result.criteriaid = tblequiptypecriteria.criteriaid
-        )
-      RETURNING *
-      `,
-      [id]
-    )
-
-    if (deleted.rows.length) {
-      await client.query("COMMIT")
-      return res.json({ success: true, archived: false })
-    }
-
-    const archived = await client.query(
+    const result = await pool.query(
       `
       UPDATE atec.tblequiptypecriteria
       SET active = false
@@ -4993,21 +4970,16 @@ app.delete("/equipment-type-criteria/:id", async (req, res) => {
       [id]
     )
 
-    if (archived.rows.length === 0) {
-      await client.query("ROLLBACK")
+    if (result.rows.length === 0) {
       return res.status(404).json({ error: "Criteria not found" })
     }
 
-    await client.query("COMMIT")
     res.json({ success: true, archived: true })
   } catch (err) {
-    await client.query("ROLLBACK")
     console.error(err)
     res.status(500).json({
       error: "An unexpected server error occurred"
     })
-  } finally {
-    client.release()
   }
 })
 

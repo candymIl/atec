@@ -145,6 +145,21 @@ const bulkPdfRoute = sourceBetween(
   'app.get("/certificates/bulk-pdf"',
   'app.get("/certificates/count"'
 )
+
+const deleteCriteriaRoute = sourceBetween(
+  server,
+  'app.delete("/equipment-type-criteria/:id"',
+  'async function buildVisitWorklistRows'
+)
+assertIncludes(
+  deleteCriteriaRoute,
+  "SET active = false",
+  "Deleting criteria must deactivate it to preserve historical inspection references"
+)
+assert(
+  !deleteCriteriaRoute.includes("DELETE FROM atec.tblequiptypecriteria"),
+  "Deleting criteria must never physically remove referenced criteria"
+)
 assertIncludes(
   bulkPdfRoute,
   "getBulkCertificateMatches(req, true, true)",
