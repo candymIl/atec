@@ -33,7 +33,8 @@
     "test:work-package-2-integrity": "node scripts/regression/work-package-2-inspection-integrity.test.js",
     "test:deployment-safety": "node scripts/regression/deployment-safety.test.js",
     "test:certificate-error-access": "node scripts/regression/certificate-entered-in-error-access.test.js",
-    "test:asset-archive-reason": "node scripts/regression/asset-archive-reason.test.js"
+    "test:asset-archive-reason": "node scripts/regression/asset-archive-reason.test.js",
+    "test:job-cards": "node scripts/regression/technician-job-cards.test.js"
   },
   "dependencies": {
     "multer": "^2.1.1"

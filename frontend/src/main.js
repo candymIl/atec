@@ -120,6 +120,7 @@ const pageAccess = {
   assets: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER'],
   inspections: ['ADMIN', 'MANAGER', 'INSPECTOR'],
   visits: ['ADMIN', 'MANAGER', 'INSPECTOR'],
+  'job-cards': ['ADMIN', 'MANAGER', 'INSPECTOR'],
   'quick-inspection': ['ADMIN', 'MANAGER', 'INSPECTOR'],
   certificates: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER'],
   'customer-report': ['ADMIN', 'MANAGER', 'VIEWER', 'CUSTOMER'],
@@ -1288,6 +1289,7 @@ async function loadData() {
     ${menuButton('sections', 'Sections', 'showSections()')}
     ${menuButton('assets', 'Assets', 'showAssetSetup()')}
     ${menuButton('visits', 'On-Site Visits', 'showInspectionVisits()')}
+    ${menuButton('job-cards', 'Technician Job Cards', 'showJobCards()')}
     ${menuButton('quick-inspection', 'Quick Inspection/Testing', 'showQuickInspection()')}
     ${menuButton('certificates', 'Certificates', 'showCertificateSearch()')}
     ${menuButton('customer-report', 'Reports', 'showCustomerDetailedReport()')}
@@ -8906,7 +8908,13 @@ const dashboardReviewQueues = {
       ["Visual Date", row => formatDashboardReviewDate(row.visualtestdate)],
       ["Load Date", row => formatDashboardReviewDate(row.loadtestdate)]
     ],
-    action: row => `<button class="small-btn" onclick="showDashboardCustomerReport(${safeAttr(row.clientid)})">View Report</button>`
+    action: row => `
+      ${currentUser?.role === 'ADMIN' ? [row.visualtestid, row.loadtestid]
+        .filter(testid => testid && String(row.issue || '').toLowerCase().includes(testid === row.visualtestid ? 'visual missing signature' : 'load test missing signature'))
+        .map(testid => `<label class="metadata-repair-select"><input type="checkbox" class="metadata-repair-checkbox" value="${safeAttr(testid)}"> Repair ${testid === row.visualtestid ? 'visual' : 'load'} signature</label>`)
+        .join('') : ''}
+      <button class="small-btn" onclick="showDashboardCustomerReport(${safeAttr(row.clientid)})">View Report</button>
+    `
   },
   "missing-section": {
     title: "Assets Missing Section",
@@ -8920,8 +8928,10 @@ const dashboardReviewQueues = {
       ["Equipment", row => row.equipmenttype],
       ["Issue", row => row.issue]
     ],
-    action: row => canManageAssetRecords()
-      ? `<button class="small-btn" onclick="editAsset(${safeAttr(row.assetid)})">Edit Asset</button>`
+    action: row => canArchiveOrMoveAssetRecords()
+      ? row.siteid
+        ? `<button class="small-btn" onclick="openDashboardSectionAllocation(${safeAttr(row.assetid)}, ${safeAttr(row.siteid)})">Allocate Section</button>`
+        : `<button class="small-btn" onclick="editAsset(${safeAttr(row.assetid)})">Set Site & Section</button>`
       : `<button class="small-btn" onclick="quickOpenAsset(${safeAttr(row.assetid)})">View Asset</button>`
   },
   "types-without-criteria": {
@@ -9002,6 +9012,75 @@ window.showDashboardCustomerReport = function (clientid) {
   showCustomerDetailedReport({ clientid, autoLoad: true })
 }
 
+window.openDashboardSectionAllocation = function (assetid, siteid) {
+  if (!canArchiveOrMoveAssetRecords()) {
+    alert('You do not have permission to allocate asset sections.')
+    return
+  }
+
+  const queueRow = window.dashboardReviewQueueState?.rows?.find(row => String(row.assetid) === String(assetid))
+  const sitename = queueRow?.sitename || 'Selected site'
+  const availableSections = sections
+    .filter(section => String(section.siteid) === String(siteid) && !(section.archived === true || section.archived === 'true'))
+    .sort((a, b) => String(a.sectionname || '').localeCompare(String(b.sectionname || '')))
+
+  if (!availableSections.length) {
+    alert(`No active sections are available for ${sitename}. Add a section to the site first.`)
+    return
+  }
+
+  document.querySelector('#dashboardSectionAllocationDialog')?.remove()
+  document.body.insertAdjacentHTML('beforeend', `
+    <dialog id="dashboardSectionAllocationDialog" class="dashboard-section-dialog">
+      <form method="dialog">
+        <div class="section-header">
+          <div><h2>Allocate Asset ${escapeHtml(assetid)}</h2><p>${escapeHtml(sitename)}</p></div>
+          <button type="button" class="secondary-btn" onclick="closeDashboardSectionAllocation()">Close</button>
+        </div>
+        <label for="dashboardSectionAllocationSelect">Section</label>
+        <select id="dashboardSectionAllocationSelect">
+          <option value="">Select section</option>
+          ${availableSections.map(section => `<option value="${safeAttr(section.sectionid)}">${escapeHtml(section.sectionname || '')}</option>`).join('')}
+        </select>
+        <div class="form-actions">
+          <button type="button" onclick="saveDashboardSectionAllocation(${safeAttr(assetid)}, ${safeAttr(siteid)})">Allocate Section</button>
+          <button type="button" class="secondary-btn" onclick="closeDashboardSectionAllocation()">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+  `)
+  document.querySelector('#dashboardSectionAllocationDialog')?.showModal()
+}
+
+window.closeDashboardSectionAllocation = function () {
+  const dialog = document.querySelector('#dashboardSectionAllocationDialog')
+  dialog?.close()
+  dialog?.remove()
+}
+
+window.saveDashboardSectionAllocation = async function (assetid, siteid) {
+  const sectionid = document.querySelector('#dashboardSectionAllocationSelect')?.value || ''
+  if (!sectionid) return alert('Select a section first.')
+
+  try {
+    const response = await fetch(`${API_BASE}/assets/${assetid}/move`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ siteid, sectionid })
+    })
+    const result = await response.json()
+    if (!response.ok) throw new Error(result.error || 'Unable to allocate the section')
+
+    closeDashboardSectionAllocation()
+    await loadData()
+    await showDashboardReviewQueue('missing-section')
+    loadDashboardStats()
+  } catch (err) {
+    console.error('Section allocation failed:', err)
+    alert(err.message || 'Unable to allocate the section.')
+  }
+}
+
 window.openCriteriaForEquipmentType = function (equiptypeid) {
   window.criteriaEquipmentFilter = String(equiptypeid || "")
   window.criteriaCurrentPage = 1
@@ -9041,20 +9120,28 @@ function renderDashboardReviewQueue(config, rows) {
     `
   }
 
+  const sortedRows = sortDashboardReviewRows(config, rows)
+
   return `
     <p class="dashboard-review-summary">
       Showing ${escapeHtml(rows.length)} items. Use the action column to open the relevant cleanup screen.
     </p>
+    ${window.dashboardReviewQueueState?.key === 'certificate-metadata' && currentUser?.role === 'ADMIN' ? `
+      <div class="dashboard-review-repair-bar">
+        <button type="button" class="primary-btn" onclick="repairSelectedCertificateMetadata()">Preview and repair selected signatures</button>
+        <span>Only signatures linked to the inspection's saved inspector account can be copied.</span>
+      </div>
+    ` : ''}
     <div class="dashboard-review-table-wrap">
       <table class="dashboard-table">
         <thead>
           <tr>
-            ${config.columns.map(([label]) => `<th>${escapeHtml(label)}</th>`).join("")}
+            ${config.columns.map(([label], index) => `<th>${dashboardReviewSortHeader(label, index)}</th>`).join("")}
             <th>Action</th>
           </tr>
         </thead>
         <tbody>
-          ${rows.map(row => `
+          ${sortedRows.map(row => `
             <tr>
               ${config.columns.map(([, value]) => `<td>${escapeHtml(value(row) || "-")}</td>`).join("")}
               <td>${config.action(row)}</td>
@@ -9065,6 +9152,118 @@ function renderDashboardReviewQueue(config, rows) {
     </div>
 
   `
+}
+
+function dashboardReviewSortHeader(label, columnIndex) {
+  const sort = window.dashboardReviewQueueState?.sort
+  const isActive = sort?.columnIndex === columnIndex
+  const arrow = isActive ? (sort.direction === 'asc' ? '▲' : '▼') : '↕'
+
+  return `
+    <button
+      type="button"
+      class="dashboard-review-sort-btn ${isActive ? 'active' : ''}"
+      onclick="sortDashboardReviewQueue(${columnIndex})"
+      aria-label="Sort ${safeAttr(label)} ${isActive && sort.direction === 'asc' ? 'descending' : 'ascending'}"
+      title="Sort ${safeAttr(label)}"
+    ><span>${escapeHtml(label)}</span><span class="dashboard-review-sort-arrow">${arrow}</span></button>
+  `
+}
+
+function sortDashboardReviewRows(config, rows) {
+  const sort = window.dashboardReviewQueueState?.sort
+  if (!sort || !config.columns[sort.columnIndex]) return rows
+
+  const value = config.columns[sort.columnIndex][1]
+  const direction = sort.direction === 'desc' ? -1 : 1
+  return rows.map((row, index) => ({ row, index })).sort((left, right) => {
+    const a = value(left.row)
+    const b = value(right.row)
+    const aDate = /^\d{4}-\d{2}-\d{2}/.test(String(a || '')) ? Date.parse(a) : NaN
+    const bDate = /^\d{4}-\d{2}-\d{2}/.test(String(b || '')) ? Date.parse(b) : NaN
+    let compared
+
+    if (Number.isFinite(aDate) && Number.isFinite(bDate)) {
+      compared = aDate - bDate
+    } else if (a !== '' && a !== null && a !== undefined && b !== '' && b !== null && b !== undefined && !Number.isNaN(Number(a)) && !Number.isNaN(Number(b))) {
+      compared = Number(a) - Number(b)
+    } else {
+      compared = String(a || '').localeCompare(String(b || ''), undefined, { numeric: true, sensitivity: 'base' })
+    }
+
+    return compared === 0 ? left.index - right.index : compared * direction
+  }).map(item => item.row)
+}
+
+window.sortDashboardReviewQueue = function (columnIndex) {
+  const state = window.dashboardReviewQueueState
+  const config = dashboardReviewQueues[state?.key]
+  if (!state || !config?.columns[columnIndex]) return
+
+  state.sort = {
+    columnIndex,
+    direction: state.sort?.columnIndex === columnIndex && state.sort.direction === 'asc' ? 'desc' : 'asc'
+  }
+
+  const body = document.querySelector('#dashboardReviewQueueBody')
+  if (body) body.innerHTML = renderDashboardReviewQueue(config, state.rows || [])
+}
+
+window.repairSelectedCertificateMetadata = async function () {
+  const testids = [...document.querySelectorAll('.metadata-repair-checkbox:checked')]
+    .map(input => Number(input.value))
+    .filter(Number.isSafeInteger)
+
+  if (!testids.length) {
+    alert('Select at least one visual or load-test inspection to repair.')
+    return
+  }
+
+  try {
+    const previewResponse = await fetch(`${API_BASE}/dashboard/certificate-metadata-repair/preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ testids })
+    })
+    const preview = await previewResponse.json()
+    if (!previewResponse.ok) throw new Error(preview.error || 'Unable to preview the repair')
+
+    if (!preview.repairable) {
+      const reasonCounts = (preview.rows || []).reduce((counts, row) => {
+        const reason = row.blocked_reason || 'Not repairable'
+        counts[reason] = (counts[reason] || 0) + 1
+        return counts
+      }, {})
+      const reasons = Object.entries(reasonCounts)
+        .map(([reason, count]) => `${count} × ${reason}`)
+        .join('\n')
+      alert(`None of the selected signatures can be repaired yet.\n\n${reasons || 'No eligible inspection records were found.'}\n\nUpload the correct signature to the inspector's user profile, then try again.`)
+      return
+    }
+
+    const message = [
+      `${preview.repairable} inspection signature(s) can be safely copied from the saved inspector account.`,
+      `${preview.blocked} inspection(s) will remain unchanged.`,
+      '',
+      'Continue with this audited repair?'
+    ].join('\n')
+    if (!confirm(message)) return
+
+    const applyResponse = await fetch(`${API_BASE}/dashboard/certificate-metadata-repair`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ testids })
+    })
+    const result = await applyResponse.json()
+    if (!applyResponse.ok) throw new Error(result.error || 'Unable to apply the repair')
+
+    alert(`${result.updated.length} inspection signature(s) repaired. ${result.blocked.length} left unchanged.`)
+    await showDashboardReviewQueue('certificate-metadata')
+    loadDashboardStats()
+  } catch (err) {
+    console.error('Certificate metadata repair failed:', err)
+    alert(err.message || 'Certificate metadata repair failed.')
+  }
 }
 
 function formatDashboardReviewDate(value) {
@@ -10207,6 +10406,105 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
 
 
 
+let jobCardEditing = null
+let jobCardAssets = []
+let jobCardTechnicians = []
+
+function jobCardOption(value, label, selected) {
+  return `<option value="${safeAttr(value)}" ${String(value) === String(selected || '') ? 'selected' : ''}>${escapeHtml(label)}</option>`
+}
+
+window.showJobCards = async function () {
+  if (!ensurePageAccess('job-cards')) return
+  setCurrentPage('job-cards')
+  const page = document.querySelector('#page')
+  page.innerHTML = `<div class="page-heading"><div><h2>Technician Job Cards</h2><p>Repair, maintenance and call-out worksheets with equipment, deviations, photographs and customer sign-off.</p></div><button class="load-test-btn" onclick="openJobCard()">New Job Card</button></div><div class="filter-card"><div id="jobCardList">Loading job cards...</div></div>`
+  const response = await fetch(`${API_BASE}/job-cards`)
+  const rows = await readApiResponse(response)
+  const box = document.querySelector('#jobCardList')
+  if (!response.ok) { box.innerHTML = `<p class="login-error">${escapeHtml(rows.error || 'Could not load job cards')}</p>`; return }
+  box.innerHTML = `<div class="job-card-list">${rows.map(card => `<button type="button" class="job-card-list-item" onclick="openJobCard(${card.jobcardid})"><span><strong>${escapeHtml(card.jobcard_reference)}</strong><small>${escapeHtml(card.clientname)} / ${escapeHtml(card.sitename)}</small></span><span><b class="job-card-status status-${safeAttr(card.status.toLowerCase())}">${escapeHtml(card.status.replaceAll('_',' '))}</b><small>${escapeHtml(card.assigned_to_name || 'Unassigned')} · ${escapeHtml(card.open_deviations)} open deviation(s)</small></span></button>`).join('') || '<p>No job cards yet.</p>'}</div>`
+}
+
+async function loadJobCardFormData() {
+  const [assetResponse, techResponse] = await Promise.all([fetch(`${API_BASE}/assets?limit=250&sortKey=clientname&sortDir=asc`), fetch(`${API_BASE}/job-cards-technicians`)])
+  const assetPayload = await readApiResponse(assetResponse)
+  jobCardAssets = Array.isArray(assetPayload) ? assetPayload : (assetPayload.rows || [])
+  jobCardTechnicians = techResponse.ok ? await techResponse.json() : [{ user_id: currentUser.user_id, full_name: currentUser.full_name }]
+}
+
+window.openJobCard = async function (jobcardid = null) {
+  if (!ensurePageAccess('job-cards')) return
+  setCurrentPage('job-cards')
+  await loadJobCardFormData()
+  if (jobcardid) {
+    const response = await fetch(`${API_BASE}/job-cards/${jobcardid}`)
+    jobCardEditing = await readApiResponse(response)
+    if (!response.ok) { alert(jobCardEditing.error || 'Could not open job card'); return }
+  } else {
+    jobCardEditing = { status: 'DRAFT', job_type: 'REPAIR', priority: 'NORMAL', equipment_status: 'NOT_TESTED', assets: [], materials: [], deviations: [], photos: [], assigned_to_user_id: currentUser.role === 'INSPECTOR' ? currentUser.user_id : '' }
+  }
+  renderJobCardForm()
+}
+
+function renderJobCardForm() {
+  const card = jobCardEditing
+  const selectedAssets = new Set((card.assets || []).map(row => String(row.assetid)))
+  const relevantSites = sites.filter(site => !card.clientid || String(site.clientid) === String(card.clientid))
+  const relevantSections = sections.filter(section => !card.siteid || String(section.siteid) === String(card.siteid))
+  const availableAssets = jobCardAssets.filter(asset => (!card.clientid || String(asset.clientid) === String(card.clientid)) && (!card.siteid || String(asset.siteid) === String(card.siteid)))
+  document.querySelector('#page').innerHTML = `
+    <div class="page-heading"><div><h2>${escapeHtml(card.jobcard_reference || 'New Technician Job Card')}</h2><p>Complete this worksheet on site. Fields are saved when you use a save button below.</p></div><div class="form-actions"><button onclick="showJobCards()">Back</button>${card.jobcardid ? `<button onclick="window.open('${API_BASE}/job-cards/${card.jobcardid}/pdf','_blank')">PDF</button>` : ''}</div></div>
+    <form id="jobCardForm" class="job-card-form" onsubmit="return false">
+      <section class="filter-card"><h3>Job and Customer</h3><div class="job-card-grid">
+        <label>Customer *<select id="jcClient" onchange="jobCardCustomerChanged()"><option value="">Select customer</option>${customers.map(row => jobCardOption(row.clientid,row.clientname,card.clientid)).join('')}</select></label>
+        <label>Site *<select id="jcSite" onchange="jobCardSiteChanged()"><option value="">Select site</option>${relevantSites.map(row => jobCardOption(row.siteid,row.sitename,card.siteid)).join('')}</select></label>
+        <label>Section<select id="jcSection"><option value="">All / not specified</option>${relevantSections.map(row => jobCardOption(row.sectionid,row.sectionname,card.sectionid)).join('')}</select></label>
+        <label>Assigned technician<select id="jcAssigned"><option value="">Unassigned</option>${jobCardTechnicians.map(row => jobCardOption(row.user_id,row.full_name,card.assigned_to_user_id)).join('')}</select></label>
+        <label>Job type<select id="jcType">${['BREAKDOWN','REPAIR','MAINTENANCE','INSTALLATION','INVESTIGATION','OTHER'].map(value => jobCardOption(value,value.replaceAll('_',' '),card.job_type)).join('')}</select></label>
+        <label>Priority<select id="jcPriority">${['LOW','NORMAL','HIGH','URGENT'].map(value => jobCardOption(value,value,card.priority)).join('')}</select></label>
+        <label>Customer PO / requisition<input id="jcReference" value="${safeAttr(card.customer_reference || '')}"></label>
+        <label>Contact person<input id="jcContact" value="${safeAttr(card.customer_contact_name || '')}"></label>
+        <label>Contact number<input id="jcPhone" value="${safeAttr(card.customer_contact_phone || '')}"></label>
+        <label>Planned date/time<input id="jcPlanned" type="datetime-local" value="${safeAttr(dateTimeLocalValue(card.planned_at))}"></label>
+      </div></section>
+      <section class="filter-card"><h3>Equipment</h3><p class="muted-text">Select one or more assets. Equipment details will be preserved on the completed job card.</p><div id="jcAssetChoices" class="job-card-asset-choices">${availableAssets.map(asset => `<label><input type="checkbox" name="jcAsset" value="${asset.assetid}" ${selectedAssets.has(String(asset.assetid)) ? 'checked' : ''}><span><strong>${escapeHtml(asset.assettagno || asset.serialno || `Asset ${asset.assetid}`)}</strong><small>${escapeHtml(asset.equipmenttype || asset.description || '')} · ${escapeHtml(asset.serialno || '')}</small></span></label>`).join('') || '<p>No active assets match this customer and site.</p>'}</div></section>
+      <section class="filter-card"><h3>Fault, Findings and Work</h3><div class="job-card-text-grid">
+        ${jobCardTextarea('jcFault','Fault reported',card.reported_fault)}${jobCardTextarea('jcFindings','Findings and diagnosis',card.findings)}${jobCardTextarea('jcRootCause','Root cause',card.root_cause)}${jobCardTextarea('jcWork','Repairs / work performed *',card.work_performed)}${jobCardTextarea('jcTest','Operational test performed',card.test_performed)}${jobCardTextarea('jcTestResult','Test result',card.test_result)}${jobCardTextarea('jcRecommendations','Recommendations / outstanding work',card.recommendations)}
+      </div></section>
+      <section class="filter-card"><div class="section-heading"><div><h3>Materials and Parts</h3><p class="muted-text">“Required” items can be used for follow-up quotations.</p></div><button type="button" onclick="addJobCardMaterialRow()">Add Material</button></div><div id="jcMaterials">${(card.materials || []).map(renderJobCardMaterialRow).join('')}</div></section>
+      <section class="filter-card"><div class="section-heading"><div><h3>Deviations</h3><p class="muted-text">Record each defect separately. Critical deviations enforce a safe equipment decision.</p></div><button type="button" onclick="addJobCardDeviationRow()">Add Deviation</button></div><div id="jcDeviations">${(card.deviations || []).map(renderJobCardDeviationRow).join('')}</div></section>
+      <section class="filter-card"><h3>Time and Travel</h3><div class="job-card-grid">${jobCardDateField('jcDeparted','Departed workshop',card.departed_at)}${jobCardDateField('jcArrived','Arrived on site',card.arrived_at)}${jobCardDateField('jcStarted','Work started',card.work_started_at)}${jobCardDateField('jcCompleted','Work completed',card.work_completed_at)}${jobCardDateField('jcTravelDone','Travel completed',card.travel_completed_at)}<label>Kilometres<input id="jcKm" type="number" min="0" step="0.1" value="${safeAttr(card.kilometres || '')}"></label><label>Normal hours<input id="jcNormalHours" type="number" min="0" step="0.25" value="${safeAttr(card.normal_hours || '')}"></label><label>Overtime hours<input id="jcOvertimeHours" type="number" min="0" step="0.25" value="${safeAttr(card.overtime_hours || '')}"></label><label>Standby hours<input id="jcStandbyHours" type="number" min="0" step="0.25" value="${safeAttr(card.standby_hours || '')}"></label></div></section>
+      <section class="filter-card"><h3>Final Equipment Status</h3><div class="job-card-grid"><label>Status *<select id="jcEquipmentStatus">${[['SAFE','Safe and returned to service'],['RESTRICTED','Temporarily operational with restrictions'],['FURTHER_WORK','Further work required'],['OUT_OF_SERVICE','Isolated / out of service'],['NOT_TESTED','Not tested']].map(row => jobCardOption(row[0],row[1],card.equipment_status)).join('')}</select></label><label class="job-card-wide">Reason / restrictions<textarea id="jcEquipmentReason">${escapeHtml(card.equipment_status_reason || '')}</textarea></label></div></section>
+      <section class="filter-card"><h3>Customer Acknowledgement</h3><div class="job-card-grid"><label>Name<input id="jcSignatory" value="${safeAttr(card.customer_signatory_name || '')}"></label><label>Designation<input id="jcDesignation" value="${safeAttr(card.customer_signatory_designation || '')}"></label><label>Unavailable / refused reason<input id="jcSignatureReason" value="${safeAttr(card.signature_unavailable_reason || '')}"></label></div>${card.customer_signature_path ? `<p>Customer signature already captured.</p><img class="job-card-signature-image" src="${uploadUrl(card.customer_signature_path)}" alt="Customer signature">` : `<div class="signature-pad-wrap"><canvas id="jcSignatureCanvas" width="700" height="180"></canvas><button type="button" onclick="clearJobCardSignature()">Clear Signature</button></div>`}</section>
+      ${card.jobcardid ? `<section class="filter-card"><h3>Photographs</h3><div class="job-card-photo-grid">${(card.photos || []).map(photo => `<figure><img src="${uploadUrl(photo.photo_path)}" alt="Job card photograph"><figcaption>${escapeHtml(photo.photo_type)}: ${escapeHtml(photo.caption || '')}</figcaption></figure>`).join('')}</div><div class="job-card-grid"><label>Attach to deviation<select id="jcPhotoDeviation"><option value="">General job card</option>${(card.deviations || []).map(row => jobCardOption(row.deviationid,`${row.severity}: ${row.description}`,null)).join('')}</select></label><label>Photo type<select id="jcPhotoType">${['GENERAL','BEFORE','AFTER','DEFECT','NAMEPLATE','TEST'].map(value => jobCardOption(value,value,null)).join('')}</select></label><label>Caption<input id="jcPhotoCaption"></label><label>Take / choose photos<input id="jcPhotos" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple></label></div><button type="button" onclick="uploadJobCardPhotos()">Upload Photos</button></section>` : '<section class="filter-card"><p>Save the job card once to enable photographs.</p></section>'}
+      <section class="filter-card job-card-submit"><label>Workflow status<select id="jcStatus">${['DRAFT','ASSIGNED','IN_PROGRESS','AWAITING_SIGNATURE','SUBMITTED','APPROVED','INVOICED','CANCELLED'].filter(value => currentUser.role !== 'INSPECTOR' || !['APPROVED','INVOICED','CANCELLED'].includes(value)).map(value => jobCardOption(value,value.replaceAll('_',' '),card.status)).join('')}</select></label><div class="form-actions"><button type="button" onclick="saveJobCard('DRAFT')">Save Draft</button><button type="button" class="load-test-btn" onclick="saveJobCard()">Save Status</button></div></section>
+    </form>`
+  if (!card.customer_signature_path) initialiseJobCardSignature()
+}
+
+function dateTimeLocalValue(value) { if (!value) return ''; const date = new Date(value); return Number.isNaN(date.getTime()) ? '' : new Date(date.getTime() - date.getTimezoneOffset()*60000).toISOString().slice(0,16) }
+function jobCardTextarea(id,label,value) { return `<label>${label}<textarea id="${id}">${escapeHtml(value || '')}</textarea></label>` }
+function jobCardDateField(id,label,value) { return `<label>${label}<input id="${id}" type="datetime-local" value="${safeAttr(dateTimeLocalValue(value))}"></label>` }
+function renderJobCardMaterialRow(row = {}) { return `<div class="job-card-repeat-row jc-material"><input class="jc-mat-qty" type="number" min="0" step="0.1" value="${safeAttr(row.quantity || 1)}" aria-label="Quantity"><input class="jc-mat-desc" value="${safeAttr(row.description || '')}" placeholder="Description"><input class="jc-mat-part" value="${safeAttr(row.part_number || '')}" placeholder="Part number"><select class="jc-mat-supplier">${['FB_CRANES','CUSTOMER'].map(value => jobCardOption(value,value.replace('_',' '),row.supplied_by)).join('')}</select><select class="jc-mat-status">${['USED','RETURNED','REQUIRED'].map(value => jobCardOption(value,value,row.material_status)).join('')}</select><button type="button" onclick="this.parentElement.remove()">Remove</button></div>` }
+function renderJobCardDeviationRow(row = {}) { return `<div class="job-card-deviation jc-deviation" data-id="${safeAttr(row.deviationid || '')}"><div class="job-card-grid"><label>Category<select class="jc-dev-category">${['ELECTRICAL','MECHANICAL','STRUCTURAL','CONTROLS','SAFETY','HOUSEKEEPING','OTHER'].map(value => jobCardOption(value,value,row.category)).join('')}</select></label><label>Severity<select class="jc-dev-severity">${['OBSERVATION','MINOR','MAJOR','CRITICAL'].map(value => jobCardOption(value,value,row.severity)).join('')}</select></label><label>Status<select class="jc-dev-status">${['OPEN','CLOSED'].map(value => jobCardOption(value,value,row.deviation_status)).join('')}</select></label><label>Target date<input class="jc-dev-date" type="date" value="${safeAttr(row.target_date ? String(row.target_date).slice(0,10) : '')}"></label><label class="job-card-wide">Deviation description<textarea class="jc-dev-desc">${escapeHtml(row.description || '')}</textarea></label><label>Immediate action<textarea class="jc-dev-action">${escapeHtml(row.immediate_action || '')}</textarea></label><label>Further work required<textarea class="jc-dev-further">${escapeHtml(row.further_work_required || '')}</textarea></label></div><button type="button" onclick="this.parentElement.remove()">Remove Deviation</button></div>` }
+window.addJobCardMaterialRow = () => document.querySelector('#jcMaterials').insertAdjacentHTML('beforeend', renderJobCardMaterialRow())
+window.addJobCardDeviationRow = () => document.querySelector('#jcDeviations').insertAdjacentHTML('beforeend', renderJobCardDeviationRow())
+window.jobCardCustomerChanged = function () { jobCardEditing = { ...jobCardEditing, clientid: document.querySelector('#jcClient').value, siteid: '', sectionid: '' }; renderJobCardForm() }
+window.jobCardSiteChanged = function () { jobCardEditing = { ...jobCardEditing, clientid: document.querySelector('#jcClient').value, siteid: document.querySelector('#jcSite').value, sectionid: '' }; renderJobCardForm() }
+
+function initialiseJobCardSignature() { const canvas = document.querySelector('#jcSignatureCanvas'); if (!canvas) return; const ctx = canvas.getContext('2d'); ctx.lineWidth=2; ctx.lineCap='round'; let drawing=false; const point=e=>{ const r=canvas.getBoundingClientRect(), t=e.touches?.[0]||e; return {x:(t.clientX-r.left)*(canvas.width/r.width),y:(t.clientY-r.top)*(canvas.height/r.height)} }; const start=e=>{drawing=true;const p=point(e);ctx.beginPath();ctx.moveTo(p.x,p.y);e.preventDefault()}; const move=e=>{if(!drawing)return;const p=point(e);ctx.lineTo(p.x,p.y);ctx.stroke();e.preventDefault()}; const stop=()=>drawing=false; canvas.addEventListener('pointerdown',start);canvas.addEventListener('pointermove',move);canvas.addEventListener('pointerup',stop);canvas.addEventListener('pointerleave',stop) }
+window.clearJobCardSignature = function () { const canvas=document.querySelector('#jcSignatureCanvas'); canvas?.getContext('2d').clearRect(0,0,canvas.width,canvas.height) }
+function jobCardCanvasHasInk(canvas) { if (!canvas) return false; return canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data.some((value,index)=>index%4===3&&value>0) }
+
+function collectJobCardPayload(forcedStatus) {
+  const value=id=>document.querySelector(id)?.value || ''
+  return { clientid:value('#jcClient'),siteid:value('#jcSite'),sectionid:value('#jcSection')||null,assigned_to_user_id:value('#jcAssigned')||null,job_type:value('#jcType'),priority:value('#jcPriority'),status:forcedStatus||value('#jcStatus'),customer_reference:value('#jcReference'),customer_contact_name:value('#jcContact'),customer_contact_phone:value('#jcPhone'),planned_at:value('#jcPlanned')||null,assetids:[...document.querySelectorAll('[name="jcAsset"]:checked')].map(node=>Number(node.value)),reported_fault:value('#jcFault'),findings:value('#jcFindings'),root_cause:value('#jcRootCause'),work_performed:value('#jcWork'),test_performed:value('#jcTest'),test_result:value('#jcTestResult'),recommendations:value('#jcRecommendations'),materials:[...document.querySelectorAll('.jc-material')].map(row=>({quantity:row.querySelector('.jc-mat-qty').value,description:row.querySelector('.jc-mat-desc').value,part_number:row.querySelector('.jc-mat-part').value,supplied_by:row.querySelector('.jc-mat-supplier').value,material_status:row.querySelector('.jc-mat-status').value})),deviations:[...document.querySelectorAll('.jc-deviation')].map(row=>({deviationid:row.dataset.id||null,category:row.querySelector('.jc-dev-category').value,severity:row.querySelector('.jc-dev-severity').value,deviation_status:row.querySelector('.jc-dev-status').value,target_date:row.querySelector('.jc-dev-date').value||null,description:row.querySelector('.jc-dev-desc').value,immediate_action:row.querySelector('.jc-dev-action').value,further_work_required:row.querySelector('.jc-dev-further').value})),departed_at:value('#jcDeparted')||null,arrived_at:value('#jcArrived')||null,work_started_at:value('#jcStarted')||null,work_completed_at:value('#jcCompleted')||null,travel_completed_at:value('#jcTravelDone')||null,kilometres:value('#jcKm'),normal_hours:value('#jcNormalHours'),overtime_hours:value('#jcOvertimeHours'),standby_hours:value('#jcStandbyHours'),equipment_status:value('#jcEquipmentStatus'),equipment_status_reason:value('#jcEquipmentReason'),customer_signatory_name:value('#jcSignatory'),customer_signatory_designation:value('#jcDesignation'),signature_unavailable_reason:value('#jcSignatureReason'),customer_signature_data:jobCardCanvasHasInk(document.querySelector('#jcSignatureCanvas'))?document.querySelector('#jcSignatureCanvas').toDataURL('image/png'):null }
+}
+
+window.saveJobCard = async function (forcedStatus = null) { const payload=collectJobCardPayload(forcedStatus); const id=jobCardEditing?.jobcardid; const response=await fetch(`${API_BASE}/job-cards${id?`/${id}`:''}`,{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); const result=await readApiResponse(response); if(!response.ok){alert(result.error||'Could not save job card');return} jobCardEditing=result; alert(`Job card ${result.jobcard_reference} saved.`); renderJobCardForm() }
+window.uploadJobCardPhotos = async function () { const files=document.querySelector('#jcPhotos')?.files; if(!files?.length)return alert('Choose at least one photograph.'); const form=new FormData(); [...files].forEach(file=>{form.append('jobCardPhotos',file);form.append('photoCaptions',document.querySelector('#jcPhotoCaption').value);form.append('photoTypes',document.querySelector('#jcPhotoType').value)}); form.append('deviationid',document.querySelector('#jcPhotoDeviation').value); const response=await fetch(`${API_BASE}/job-cards/${jobCardEditing.jobcardid}/photos`,{method:'POST',body:form}); const result=await readApiResponse(response); if(!response.ok){alert(result.error||'Photo upload failed');return} await openJobCard(jobCardEditing.jobcardid) }
+
 const startupTap = getStartupAssetTap()
 if (startupTap) {
   setCurrentPage("quick-inspection")
@@ -10261,6 +10559,10 @@ switch (currentPage) {
 
   case "visits":
     showInspectionVisits()
+    break
+
+  case "job-cards":
+    showJobCards()
     break
 
   case "quick-inspection":
@@ -10321,6 +10623,7 @@ window.addEventListener('popstate', event => {
     assets: window.showAssetSetup,
     inspections: window.showInspections,
     visits: window.showInspectionVisits,
+    'job-cards': window.showJobCards,
     'quick-inspection': window.showQuickInspection,
     criteria: window.showEquipmentTypeCriteria,
     certificates: window.showCertificateSearch,

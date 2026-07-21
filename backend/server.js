@@ -331,6 +331,10 @@ const storage = multer.diskStorage({
       folder = path.join(uploadsRoot, "inspections")
     }
 
+    if (file.fieldname === "jobCardPhotos") {
+      folder = path.join(uploadsRoot, "job-cards")
+    }
+
     fs.mkdirSync(folder, { recursive: true })
     cb(null, folder);
   },
@@ -1599,6 +1603,7 @@ function authorizeRequest(req, res, next) {
   if (routePath.startsWith("/users/me/signature")) return next()
 
   if (role === "MANAGER") {
+    if (routePath.startsWith("/job-cards")) return next()
     if (isSetupMaintenanceRoute(method, routePath)) {
       return next()
     }
@@ -1739,6 +1744,7 @@ function authorizeRequest(req, res, next) {
   }
 
   if (role === "INSPECTOR") {
+    if (routePath.startsWith("/job-cards") && ["GET", "POST", "PUT"].includes(method)) return next()
     if (isSetupMaintenanceRoute(method, routePath)) {
       return next()
     }
@@ -12002,6 +12008,121 @@ app.get("/dashboard/review-queue/:queue", async (req, res) => {
   }
 })
 
+function requestedInspectionIds(req) {
+  const values = Array.isArray(req.body?.testids) ? req.body.testids : []
+  const ids = [...new Set(values.map(value => Number(value)).filter(value => Number.isSafeInteger(value) && value > 0))]
+  return ids.length <= 200 ? ids : []
+}
+
+async function certificateMetadataRepairCandidates(client, testids, lockRows = false) {
+  if (!testids.length) return []
+
+  const result = await client.query(
+    `
+    SELECT
+      i.testid,
+      i.assetid,
+      i.inspectiontype,
+      i.testdate,
+      i.inspector_user_id,
+      COALESCE(NULLIF(i.inspector_name, ''), i.inspector) AS inspector_name,
+      NULLIF(TRIM(COALESCE(i.inspector_signature_image, '')), '') IS NULL AS missing_signature,
+      NULLIF(TRIM(COALESCE(u.usersignature, '')), '') IS NOT NULL AS profile_has_signature,
+      CASE
+        WHEN i.inspector_user_id IS NULL THEN 'Inspection has no saved inspector user ID'
+        WHEN u.userid IS NULL THEN 'Saved inspector user no longer exists'
+        WHEN NULLIF(TRIM(COALESCE(i.inspector_signature_image, '')), '') IS NOT NULL THEN 'Signature is already present'
+        WHEN NULLIF(TRIM(COALESCE(u.usersignature, '')), '') IS NULL THEN 'Inspector profile has no signature'
+        ELSE NULL
+      END AS blocked_reason
+    FROM atec.tblinspection i
+    LEFT JOIN atec.tblusers u ON u.userid = i.inspector_user_id
+    WHERE i.testid = ANY($1::bigint[])
+      AND COALESCE(i.record_status, 'ACTIVE') = 'ACTIVE'
+    ORDER BY i.testid
+    ${lockRows ? "FOR UPDATE OF i" : ""}
+    `,
+    [testids]
+  )
+
+  return result.rows
+}
+
+app.post("/dashboard/certificate-metadata-repair/preview", async (req, res) => {
+  if (req.user?.role !== "ADMIN") {
+    return res.status(403).json({ error: "Only admins may repair certificate metadata" })
+  }
+
+  const testids = requestedInspectionIds(req)
+  if (!testids.length) return res.status(400).json({ error: "Select between 1 and 200 inspections" })
+
+  const rows = await certificateMetadataRepairCandidates(pool, testids)
+  const found = new Set(rows.map(row => Number(row.testid)))
+  const missing = testids.filter(testid => !found.has(testid))
+
+  res.json({
+    rows,
+    repairable: rows.filter(row => !row.blocked_reason).length,
+    blocked: rows.filter(row => row.blocked_reason).length,
+    notFound: missing
+  })
+})
+
+app.post("/dashboard/certificate-metadata-repair", async (req, res) => {
+  if (req.user?.role !== "ADMIN") {
+    return res.status(403).json({ error: "Only admins may repair certificate metadata" })
+  }
+
+  const testids = requestedInspectionIds(req)
+  if (!testids.length) return res.status(400).json({ error: "Select between 1 and 200 inspections" })
+
+  const client = await pool.connect()
+  try {
+    await client.query("BEGIN")
+    const candidates = await certificateMetadataRepairCandidates(client, testids, true)
+    const repairableIds = candidates.filter(row => !row.blocked_reason).map(row => row.testid)
+
+    let updated = []
+    if (repairableIds.length) {
+      const result = await client.query(
+        `
+        UPDATE atec.tblinspection i
+        SET inspector_signature_image = u.usersignature
+        FROM atec.tblusers u
+        WHERE i.testid = ANY($1::bigint[])
+          AND u.userid = i.inspector_user_id
+          AND NULLIF(TRIM(COALESCE(i.inspector_signature_image, '')), '') IS NULL
+          AND NULLIF(TRIM(COALESCE(u.usersignature, '')), '') IS NOT NULL
+        RETURNING i.testid, i.assetid, i.inspector_user_id
+        `,
+        [repairableIds]
+      )
+      updated = result.rows
+    }
+
+    await client.query("COMMIT")
+    await req.logAudit("CERTIFICATE_METADATA_REPAIR", "inspections", null, {
+      requested_testids: testids,
+      updated_testids: updated.map(row => row.testid),
+      blocked: candidates.filter(row => row.blocked_reason).map(row => ({
+        testid: row.testid,
+        reason: row.blocked_reason
+      }))
+    })
+
+    res.json({
+      updated,
+      blocked: candidates.filter(row => row.blocked_reason)
+    })
+  } catch (err) {
+    await client.query("ROLLBACK")
+    console.error("Certificate metadata repair error:", err)
+    res.status(500).json({ error: "The certificate metadata repair could not be completed" })
+  } finally {
+    client.release()
+  }
+})
+
 app.get("/dashboard/top-customers", async (req, res) => {
   try {
     const scopedToClient = req.user?.role === "CUSTOMER" && req.user?.clientid
@@ -13509,6 +13630,253 @@ app.get("/dashboard/visit-alerts", asyncRoute(async (req, res) => {
   )
 
   res.json(result.rows[0])
+}))
+
+const JOB_CARD_STATUSES = new Set(["DRAFT", "ASSIGNED", "IN_PROGRESS", "AWAITING_SIGNATURE", "SUBMITTED", "APPROVED", "INVOICED", "CANCELLED"])
+const JOB_CARD_EQUIPMENT_STATUSES = new Set(["SAFE", "RESTRICTED", "FURTHER_WORK", "OUT_OF_SERVICE", "NOT_TESTED"])
+
+function nullableNumber(value) {
+  return value === "" || value === null || value === undefined ? null : Number(value)
+}
+
+function jobCardSignaturePath(dataUrl, jobcardid) {
+  if (!dataUrl) return null
+  const match = String(dataUrl).match(/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/)
+  if (!match) throw Object.assign(new Error("Customer signature must be a PNG image"), { statusCode: 400 })
+  const buffer = Buffer.from(match[1], "base64")
+  if (!buffer.length || buffer.length > 2 * 1024 * 1024) {
+    throw Object.assign(new Error("Customer signature is invalid or too large"), { statusCode: 400 })
+  }
+  const folder = path.join(uploadsRoot, "job-cards")
+  fs.mkdirSync(folder, { recursive: true })
+  const filename = `job-card-${jobcardid}-customer-signature-${crypto.randomUUID()}.png`
+  fs.writeFileSync(path.join(folder, filename), buffer)
+  return `/uploads/job-cards/${filename}`
+}
+
+async function loadJobCard(jobcardid) {
+  const header = await pool.query(`
+    SELECT j.*, c.clientname, s.sitename, sec.sectionname,
+      COALESCE(NULLIF(u.fullname, ''), u.username) AS assigned_to_name,
+      COALESCE(NULLIF(cu.fullname, ''), cu.username) AS created_by_name,
+      COALESCE(NULLIF(au.fullname, ''), au.username) AS approved_by_name
+    FROM atec.tbljobcard j
+    JOIN atec.tblclients c ON c.clientid = j.clientid
+    JOIN atec.tblsites s ON s.siteid = j.siteid
+    LEFT JOIN atec.tblsection sec ON sec.sectionid = j.sectionid
+    LEFT JOIN atec.tblusers u ON u.userid = j.assigned_to_user_id
+    LEFT JOIN atec.tblusers cu ON cu.userid = j.created_by_user_id
+    LEFT JOIN atec.tblusers au ON au.userid = j.approved_by_user_id
+    WHERE j.jobcardid = $1
+  `, [jobcardid])
+  if (!header.rows[0]) return null
+  const [assets, materials, deviations, photos] = await Promise.all([
+    pool.query(`SELECT ja.*, a.serialno, a.assettagno, a.description, a.manufacturer, a.wll,
+      et.description AS equipmenttype FROM atec.tbljobcardasset ja LEFT JOIN atec.tblasset a ON a.assetid = ja.assetid
+      LEFT JOIN atec.tblequiptype et ON et.equiptypeid = a.equiptypeid WHERE ja.jobcardid = $1 ORDER BY ja.jobcardassetid`, [jobcardid]),
+    pool.query("SELECT * FROM atec.tbljobcardmaterial WHERE jobcardid = $1 ORDER BY materialid", [jobcardid]),
+    pool.query("SELECT * FROM atec.tbljobcarddeviation WHERE jobcardid = $1 ORDER BY deviationid", [jobcardid]),
+    pool.query("SELECT * FROM atec.tbljobcardphoto WHERE jobcardid = $1 ORDER BY photoid", [jobcardid])
+  ])
+  return { ...header.rows[0], assets: assets.rows, materials: materials.rows, deviations: deviations.rows, photos: photos.rows }
+}
+
+app.get("/job-cards", asyncRoute(async (req, res) => {
+  const values = []
+  const where = []
+  if (req.user.role === "INSPECTOR") {
+    values.push(req.user.user_id)
+    where.push(`(j.assigned_to_user_id = $${values.length} OR j.created_by_user_id = $${values.length})`)
+  }
+  if (req.query.status) {
+    values.push(String(req.query.status).toUpperCase())
+    where.push(`j.status = $${values.length}`)
+  }
+  const result = await pool.query(`
+    SELECT j.jobcardid, j.jobcard_reference, j.job_type, j.priority, j.status, j.equipment_status,
+      j.planned_at, j.updated_at, c.clientname, s.sitename,
+      COALESCE(NULLIF(u.fullname, ''), u.username) AS assigned_to_name,
+      (SELECT count(*)::int FROM atec.tbljobcarddeviation d WHERE d.jobcardid = j.jobcardid AND d.deviation_status = 'OPEN') AS open_deviations
+    FROM atec.tbljobcard j JOIN atec.tblclients c ON c.clientid = j.clientid
+    JOIN atec.tblsites s ON s.siteid = j.siteid LEFT JOIN atec.tblusers u ON u.userid = j.assigned_to_user_id
+    ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+    ORDER BY j.updated_at DESC LIMIT 250
+  `, values)
+  res.json(result.rows)
+}))
+
+app.get("/job-cards-technicians", asyncRoute(async (req, res) => {
+  const result = await pool.query(`SELECT userid AS user_id, COALESCE(NULLIF(fullname,''),username) AS full_name, role
+    FROM atec.tblusers WHERE COALESCE(is_active,true)=true AND COALESCE(role, CASE WHEN userlevel=3 THEN 'INSPECTOR' ELSE 'VIEWER' END)
+    IN ('ADMIN','MANAGER','INSPECTOR') ORDER BY COALESCE(NULLIF(fullname,''),username)`)
+  res.json(result.rows)
+}))
+
+app.get("/job-cards/:id", asyncRoute(async (req, res) => {
+  const card = await loadJobCard(req.params.id)
+  if (!card) return res.status(404).json({ error: "Job card not found" })
+  if (req.user.role === "INSPECTOR" && ![card.assigned_to_user_id, card.created_by_user_id].map(String).includes(String(req.user.user_id))) {
+    return res.status(403).json({ error: "This job card is not assigned to you" })
+  }
+  res.json(card)
+}))
+
+async function saveJobCard(req, res) {
+  const body = req.body || {}
+  const requestedStatus = String(body.status || "DRAFT").toUpperCase()
+  const equipmentStatus = String(body.equipment_status || "NOT_TESTED").toUpperCase()
+  if (!body.clientid || !body.siteid) return res.status(400).json({ error: "Customer and site are required" })
+  if (req.user.role === "INSPECTOR" && ["APPROVED", "INVOICED", "CANCELLED"].includes(requestedStatus)) {
+    return res.status(403).json({ error: "Only an Admin or Manager can approve, invoice or cancel a job card" })
+  }
+  if (!JOB_CARD_STATUSES.has(requestedStatus) || !JOB_CARD_EQUIPMENT_STATUSES.has(equipmentStatus)) {
+    return res.status(400).json({ error: "Invalid job-card or equipment status" })
+  }
+  const deviations = Array.isArray(body.deviations) ? body.deviations : []
+  const hasCritical = deviations.some(row => String(row.severity).toUpperCase() === "CRITICAL")
+  if (["SUBMITTED", "APPROVED", "INVOICED"].includes(requestedStatus)) {
+    if (!String(body.work_performed || "").trim()) return res.status(400).json({ error: "Work performed is required before submission" })
+    if (equipmentStatus === "NOT_TESTED" && !String(body.equipment_status_reason || "").trim()) return res.status(400).json({ error: "Explain why the equipment was not tested" })
+    if (hasCritical && !["OUT_OF_SERVICE", "RESTRICTED"].includes(equipmentStatus)) return res.status(400).json({ error: "A critical deviation requires Out of Service or Restricted status" })
+  }
+  if (["RESTRICTED", "FURTHER_WORK", "OUT_OF_SERVICE"].includes(equipmentStatus) && !String(body.equipment_status_reason || "").trim()) {
+    return res.status(400).json({ error: "Explain the equipment restriction or outstanding work" })
+  }
+
+  const client = await pool.connect()
+  let newSignaturePath = null
+  try {
+    await client.query("BEGIN")
+    let jobcardid = req.params.id ? Number(req.params.id) : null
+    let existingSignaturePath = null
+    if (jobcardid) {
+      const owner = await client.query("SELECT assigned_to_user_id, created_by_user_id, status, customer_signature_path FROM atec.tbljobcard WHERE jobcardid = $1 FOR UPDATE", [jobcardid])
+      if (!owner.rows[0]) { await client.query("ROLLBACK"); return res.status(404).json({ error: "Job card not found" }) }
+      if (req.user.role === "INSPECTOR" && ![owner.rows[0].assigned_to_user_id, owner.rows[0].created_by_user_id].map(String).includes(String(req.user.user_id))) {
+        await client.query("ROLLBACK"); return res.status(403).json({ error: "This job card is not assigned to you" })
+      }
+      existingSignaturePath = owner.rows[0].customer_signature_path
+    } else {
+      const inserted = await client.query(`INSERT INTO atec.tbljobcard (jobcard_reference, clientid, siteid, created_by_user_id)
+        VALUES ($1, $2, $3, $4) RETURNING jobcardid`, [`PENDING-${crypto.randomUUID()}`, body.clientid, body.siteid, req.user.user_id])
+      jobcardid = inserted.rows[0].jobcardid
+    }
+    if (["SUBMITTED", "APPROVED", "INVOICED"].includes(requestedStatus) &&
+        !body.customer_signature_data && !existingSignaturePath && !String(body.signature_unavailable_reason || "").trim()) {
+      await client.query("ROLLBACK")
+      return res.status(400).json({ error: "Capture the customer signature or provide an unavailable/refused reason" })
+    }
+    if (body.customer_signature_data) newSignaturePath = jobCardSignaturePath(body.customer_signature_data, jobcardid)
+    const reference = body.jobcard_reference || `JC-${new Date().getFullYear()}-${String(jobcardid).padStart(5, "0")}`
+    await client.query(`UPDATE atec.tbljobcard SET jobcard_reference=$1, clientid=$2, siteid=$3, sectionid=$4, visitid=$5,
+      assigned_to_user_id=$6, job_type=$7, priority=$8, status=$9, customer_reference=$10, customer_contact_name=$11,
+      customer_contact_phone=$12, reported_fault=$13, findings=$14, root_cause=$15, work_performed=$16,
+      test_performed=$17, test_result=$18, recommendations=$19, equipment_status=$20, equipment_status_reason=$21,
+      planned_at=$22, departed_at=$23, arrived_at=$24, work_started_at=$25, work_completed_at=$26, travel_completed_at=$27,
+      kilometres=$28, normal_hours=$29, overtime_hours=$30, standby_hours=$31, customer_signatory_name=$32,
+      customer_signatory_designation=$33, customer_signature_path=COALESCE($34, customer_signature_path),
+      customer_signed_at=CASE WHEN $34::text IS NOT NULL THEN now() ELSE customer_signed_at END,
+      signature_unavailable_reason=$35, submitted_at=CASE WHEN $9='SUBMITTED' AND submitted_at IS NULL THEN now() ELSE submitted_at END,
+      approved_at=CASE WHEN $9 IN ('APPROVED','INVOICED') AND approved_at IS NULL THEN now() ELSE approved_at END,
+      approved_by_user_id=CASE WHEN $9 IN ('APPROVED','INVOICED') THEN $36 ELSE approved_by_user_id END,
+      invoice_reference=$37, updated_at=now() WHERE jobcardid=$38`, [reference, body.clientid, body.siteid, body.sectionid || null,
+      body.visitid || null, body.assigned_to_user_id || (req.user.role === "INSPECTOR" ? req.user.user_id : null),
+      String(body.job_type || "REPAIR").toUpperCase(), String(body.priority || "NORMAL").toUpperCase(), requestedStatus,
+      body.customer_reference || "", body.customer_contact_name || "", body.customer_contact_phone || "", body.reported_fault || "",
+      body.findings || "", body.root_cause || "", body.work_performed || "", body.test_performed || "", body.test_result || "",
+      body.recommendations || "", equipmentStatus, body.equipment_status_reason || "", body.planned_at || null, body.departed_at || null,
+      body.arrived_at || null, body.work_started_at || null, body.work_completed_at || null, body.travel_completed_at || null,
+      nullableNumber(body.kilometres), nullableNumber(body.normal_hours), nullableNumber(body.overtime_hours), nullableNumber(body.standby_hours),
+      body.customer_signatory_name || "", body.customer_signatory_designation || "", newSignaturePath, body.signature_unavailable_reason || "",
+      req.user.user_id, body.invoice_reference || "", jobcardid])
+    await client.query("DELETE FROM atec.tbljobcardasset WHERE jobcardid=$1", [jobcardid])
+    for (const assetid of [...new Set((body.assetids || []).map(Number).filter(Boolean))]) {
+      await client.query(`INSERT INTO atec.tbljobcardasset (jobcardid, assetid, asset_snapshot)
+        SELECT $1, a.assetid, jsonb_build_object('serialno',a.serialno,'assettagno',a.assettagno,'description',a.description,'manufacturer',a.manufacturer,'wll',a.wll)
+        FROM atec.tblasset a WHERE a.assetid=$2`, [jobcardid, assetid])
+    }
+    await client.query("DELETE FROM atec.tbljobcardmaterial WHERE jobcardid=$1", [jobcardid])
+    for (const row of (body.materials || [])) if (String(row.description || "").trim()) await client.query(`INSERT INTO atec.tbljobcardmaterial
+      (jobcardid,quantity,description,part_number,supplied_by,material_status) VALUES ($1,$2,$3,$4,$5,$6)`,
+      [jobcardid, nullableNumber(row.quantity) || 1, row.description, row.part_number || "", row.supplied_by || "FB_CRANES", row.material_status || "USED"])
+    const retainedDeviationIds = deviations.map(row => Number(row.deviationid)).filter(Boolean)
+    await client.query(`DELETE FROM atec.tbljobcarddeviation WHERE jobcardid=$1
+      AND (cardinality($2::int[]) = 0 OR deviationid <> ALL($2::int[]))`, [jobcardid, retainedDeviationIds])
+    for (const row of deviations) {
+      if (!String(row.description || "").trim()) continue
+      if (row.deviationid) await client.query(`UPDATE atec.tbljobcarddeviation SET assetid=$1,category=$2,severity=$3,description=$4,
+        immediate_action=$5,further_work_required=$6,target_date=$7,deviation_status=$8 WHERE deviationid=$9 AND jobcardid=$10`,
+        [row.assetid || null, row.category || "OTHER", row.severity || "OBSERVATION", row.description, row.immediate_action || "",
+          row.further_work_required || "", row.target_date || null, row.deviation_status || "OPEN", row.deviationid, jobcardid])
+      else await client.query(`INSERT INTO atec.tbljobcarddeviation (jobcardid,assetid,category,severity,description,immediate_action,further_work_required,target_date,deviation_status,created_by_user_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [jobcardid, row.assetid || null, row.category || "OTHER", row.severity || "OBSERVATION",
+        row.description, row.immediate_action || "", row.further_work_required || "", row.target_date || null, row.deviation_status || "OPEN", req.user.user_id])
+    }
+    await client.query("COMMIT")
+    await req.logAudit(req.params.id ? "UPDATE" : "CREATE", "job_cards", jobcardid, { status: requestedStatus, equipment_status: equipmentStatus })
+    res.status(req.params.id ? 200 : 201).json(await loadJobCard(jobcardid))
+  } catch (err) {
+    await client.query("ROLLBACK")
+    if (newSignaturePath) deleteUploadFileIfUnreferenced(newSignaturePath).catch(() => {})
+    throw err
+  } finally { client.release() }
+}
+
+app.post("/job-cards", asyncRoute(saveJobCard))
+app.put("/job-cards/:id", asyncRoute(saveJobCard))
+
+app.post("/job-cards/:id/photos", uploadLimiter, upload.array("jobCardPhotos", 20), validateUploadedImages, compressUploadedPhotos, asyncRoute(async (req, res) => {
+  const card = await loadJobCard(req.params.id)
+  if (!card) { removeUploadedFiles(req.files); return res.status(404).json({ error: "Job card not found" }) }
+  if (req.user.role === "INSPECTOR" && ![card.assigned_to_user_id, card.created_by_user_id].map(String).includes(String(req.user.user_id))) {
+    removeUploadedFiles(req.files); return res.status(403).json({ error: "This job card is not assigned to you" })
+  }
+  const files = req.files || []
+  const captions = Array.isArray(req.body.photoCaptions) ? req.body.photoCaptions : [req.body.photoCaptions || ""]
+  const types = Array.isArray(req.body.photoTypes) ? req.body.photoTypes : [req.body.photoTypes || "GENERAL"]
+  const deviationid = req.body.deviationid || null
+  const rows = []
+  for (let index = 0; index < files.length; index += 1) {
+    const type = ["GENERAL","BEFORE","AFTER","DEFECT","NAMEPLATE","TEST"].includes(String(types[index]).toUpperCase()) ? String(types[index]).toUpperCase() : "GENERAL"
+    const inserted = await pool.query(`INSERT INTO atec.tbljobcardphoto (jobcardid,deviationid,photo_path,photo_type,caption,uploaded_by_user_id)
+      VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`, [card.jobcardid, deviationid, `/uploads/job-cards/${files[index].filename}`, type, captions[index] || "", req.user.user_id])
+    rows.push(inserted.rows[0])
+  }
+  await req.logAudit("UPLOAD", "job_card_photos", card.jobcardid, { count: rows.length, deviationid })
+  res.status(201).json(rows)
+}))
+
+app.get("/job-cards/:id/pdf", pdfLimiter, asyncRoute(async (req, res) => {
+  const card = await loadJobCard(req.params.id)
+  if (!card) return res.status(404).json({ error: "Job card not found" })
+  if (req.user.role === "INSPECTOR" && ![card.assigned_to_user_id, card.created_by_user_id].map(String).includes(String(req.user.user_id))) {
+    return res.status(403).json({ error: "This job card is not assigned to you" })
+  }
+  const doc = new PDFDocument({ size: "A4", margin: 42, bufferPages: true })
+  res.type("application/pdf").setHeader("Content-Disposition", `inline; filename=${card.jobcard_reference}.pdf`)
+  doc.pipe(res)
+  const line = (label, value) => { doc.font("Helvetica-Bold").text(`${label}: `, { continued: true }).font("Helvetica").text(String(value || "-")) }
+  doc.fontSize(19).font("Helvetica-Bold").fillColor("#183153").text("FB CRANE BUILDERS & REPAIRS", { align: "center" })
+  doc.fontSize(15).text("TECHNICIAN JOB CARD", { align: "center" }).moveDown()
+  doc.fillColor("black").fontSize(9)
+  line("Job card", card.jobcard_reference); line("Customer / Site", `${card.clientname} / ${card.sitename}`); line("Technician", card.assigned_to_name)
+  line("Customer reference", card.customer_reference); line("Status", card.status.replaceAll("_", " ")); line("Equipment status", card.equipment_status.replaceAll("_", " "))
+  const section = (title, value) => { doc.moveDown(.6).font("Helvetica-Bold").fillColor("#183153").text(title.toUpperCase()); doc.fillColor("black").font("Helvetica").text(String(value || "-")) }
+  section("Fault reported", card.reported_fault); section("Findings and diagnosis", card.findings); section("Root cause", card.root_cause)
+  section("Work performed", card.work_performed); section("Operational test", `${card.test_performed || "-"}\nResult: ${card.test_result || "-"}`)
+  section("Recommendations / outstanding work", card.recommendations); section("Equipment status reason", card.equipment_status_reason)
+  doc.moveDown().font("Helvetica-Bold").fillColor("#183153").text("MATERIALS")
+  doc.fillColor("black").font("Helvetica"); card.materials.forEach(row => doc.text(`${row.quantity} x ${row.description}${row.part_number ? ` (${row.part_number})` : ""} - ${row.material_status}`)); if (!card.materials.length) doc.text("None recorded")
+  doc.moveDown().font("Helvetica-Bold").fillColor("#183153").text("DEVIATIONS")
+  doc.fillColor("black").font("Helvetica"); card.deviations.forEach((row, i) => doc.text(`${i + 1}. ${row.severity} / ${row.category}: ${row.description}\n   Action: ${row.immediate_action || "-"}`)); if (!card.deviations.length) doc.text("None recorded")
+  line("Normal / Overtime / Standby hours", `${card.normal_hours || 0} / ${card.overtime_hours || 0} / ${card.standby_hours || 0}`); line("Travel", `${card.kilometres || 0} km`)
+  doc.moveDown(); line("Customer representative", `${card.customer_signatory_name || "-"} ${card.customer_signatory_designation ? `(${card.customer_signatory_designation})` : ""}`)
+  if (card.customer_signature_path) { const signatureFile = resolveUploadFilePath(card.customer_signature_path); if (signatureFile && fs.existsSync(signatureFile)) doc.image(signatureFile, { fit: [180, 65] }) }
+  if (card.photos.length) {
+    doc.addPage().fontSize(15).font("Helvetica-Bold").fillColor("#183153").text("JOB CARD PHOTOGRAPHS", { align: "center" }).moveDown()
+    for (const photo of card.photos) { const file = resolveUploadFilePath(photo.photo_path); if (file && fs.existsSync(file)) { doc.image(file, { fit: [500, 260], align: "center" }); doc.fontSize(9).fillColor("black").text(`${photo.photo_type}: ${photo.caption || ""}`, { align: "center" }).moveDown() } }
+  }
+  doc.end()
 }))
 
 app.use(errorHandler)
