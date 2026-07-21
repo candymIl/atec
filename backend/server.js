@@ -4742,11 +4742,39 @@ async function criteriaInspectionCategoryForEquipment(equiptypeid, requestedCate
     `,
     [equiptypeid]
   )
-  const equipmentTypeName = String(equipmentTypeResult.rows[0]?.description || "").trim().toLowerCase()
+  const equipmentTypeName = String(equipmentTypeResult.rows[0]?.description || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
 
   if ([
     "beam clamp",
     "beam clamps",
+    "bottle jack",
+    "bottlejack",
+    "bow shackle",
+    "bow shackles",
+    "chain sling",
+    "chain slings",
+    "d shackle",
+    "d shackles",
+    "d-shackle",
+    "d-shackles",
+    "dee shackle",
+    "dee shackles",
+    "drum lifter",
+    "drum lifters",
+    "endless round sling",
+    "endless round slings",
+    "eye bolt",
+    "eye bolts",
+    "eyebolt",
+    "eyebolts",
+    "fall arrestor",
+    "fall arrestors",
+    "fall arrester",
+    "fall arresters",
+    "hydraulic bottle jack",
     "general lifting devices/equipment",
     "general lifting devices and equipment"
   ].includes(equipmentTypeName)) {

@@ -9,6 +9,9 @@
     "2026-07-20-task17-scheduled-notification-deliveries.sql",
     "2026-07-18-void-inspections-entered-in-error.sql",
     "2026-07-21-beam-clamp-frequent-inspection.sql",
-    "2026-07-21-general-lifting-devices-frequent-inspection.sql"
+    "2026-07-21-general-lifting-devices-frequent-inspection.sql",
+    "2026-07-21-bottle-jack-frequent-inspection.sql",
+    "2026-07-21-bow-shackle-chain-sling-frequent-inspection.sql",
+    "2026-07-21-additional-lifting-tackle-frequent-inspection.sql"
   ]
 }

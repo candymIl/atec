@@ -5458,10 +5458,35 @@ function renderCriteriaPopup(row = {}) {
   const frequentOnlyEquipmentSelected = [
     "beam clamp",
     "beam clamps",
+    "bottle jack",
+    "bottlejack",
+    "bow shackle",
+    "bow shackles",
+    "chain sling",
+    "chain slings",
+    "d shackle",
+    "d shackles",
+    "d-shackle",
+    "d-shackles",
+    "dee shackle",
+    "dee shackles",
+    "drum lifter",
+    "drum lifters",
+    "endless round sling",
+    "endless round slings",
+    "eye bolt",
+    "eye bolts",
+    "eyebolt",
+    "eyebolts",
+    "fall arrestor",
+    "fall arrestors",
+    "fall arrester",
+    "fall arresters",
+    "hydraulic bottle jack",
     "general lifting devices/equipment",
     "general lifting devices and equipment"
   ].includes(
-    String(selectedEquipmentTypeRow?.description || "").trim().toLowerCase()
+    String(selectedEquipmentTypeRow?.description || "").trim().toLowerCase().replace(/\s+/g, " ")
   )
   const selectedInspectionGroup = frequentOnlyEquipmentSelected
     ? "FREQUENT_INSPECTION"
@@ -5766,10 +5791,35 @@ window.syncCriteriaInspectionGroup = function () {
   const isFrequentOnlyEquipment = [
     "beam clamp",
     "beam clamps",
+    "bottle jack",
+    "bottlejack",
+    "bow shackle",
+    "bow shackles",
+    "chain sling",
+    "chain slings",
+    "d shackle",
+    "d shackles",
+    "d-shackle",
+    "d-shackles",
+    "dee shackle",
+    "dee shackles",
+    "drum lifter",
+    "drum lifters",
+    "endless round sling",
+    "endless round slings",
+    "eye bolt",
+    "eye bolts",
+    "eyebolt",
+    "eyebolts",
+    "fall arrestor",
+    "fall arrestors",
+    "fall arrester",
+    "fall arresters",
+    "hydraulic bottle jack",
     "general lifting devices/equipment",
     "general lifting devices and equipment"
   ].includes(
-    String(equipmentType?.description || "").trim().toLowerCase()
+    String(equipmentType?.description || "").trim().toLowerCase().replace(/\s+/g, " ")
   )
   const periodicOption = inspectionGroup.querySelector('option[value="PERIODIC_THOROUGH_INSPECTION"]')
 

@@ -15,6 +15,18 @@ const generalLiftingDevicesFrequencyMigration = fs.readFileSync(
   path.join(root, "database", "2026-07-21-general-lifting-devices-frequent-inspection.sql"),
   "utf8"
 )
+const bottleJackFrequencyMigration = fs.readFileSync(
+  path.join(root, "database", "2026-07-21-bottle-jack-frequent-inspection.sql"),
+  "utf8"
+)
+const bowShackleChainSlingFrequencyMigration = fs.readFileSync(
+  path.join(root, "database", "2026-07-21-bow-shackle-chain-sling-frequent-inspection.sql"),
+  "utf8"
+)
+const additionalLiftingTackleFrequencyMigration = fs.readFileSync(
+  path.join(root, "database", "2026-07-21-additional-lifting-tackle-frequent-inspection.sql"),
+  "utf8"
+)
 
 const backupAt = deploy.indexOf("npm run backup:create")
 const migrationAt = deploy.indexOf("scripts/apply-production-migrations.js")
@@ -28,12 +40,27 @@ assert(restartAt > schemaCheckAt, "Backend restart must happen only after schema
 assert(manifest.migrations.includes("2026-07-18-void-inspections-entered-in-error.sql"))
 assert(manifest.migrations.includes("2026-07-21-beam-clamp-frequent-inspection.sql"))
 assert(manifest.migrations.includes("2026-07-21-general-lifting-devices-frequent-inspection.sql"))
+assert(manifest.migrations.includes("2026-07-21-bottle-jack-frequent-inspection.sql"))
+assert(manifest.migrations.includes("2026-07-21-bow-shackle-chain-sling-frequent-inspection.sql"))
+assert(manifest.migrations.includes("2026-07-21-additional-lifting-tackle-frequent-inspection.sql"))
 assert(beamClampFrequencyMigration.includes("'FREQUENT_INSPECTION'"))
 assert(beamClampFrequencyMigration.includes("'beam clamp', 'beam clamps'"))
 assert(beamClampFrequencyMigration.includes("COALESCE(criteria.inspectioncategory, 'VISUAL') = 'VISUAL'"))
 assert(generalLiftingDevicesFrequencyMigration.includes("'FREQUENT_INSPECTION'"))
 assert(generalLiftingDevicesFrequencyMigration.includes("'general lifting devices/equipment'"))
 assert(generalLiftingDevicesFrequencyMigration.includes("COALESCE(criteria.inspectioncategory, 'VISUAL') = 'VISUAL'"))
+assert(bottleJackFrequencyMigration.includes("'FREQUENT_INSPECTION'"))
+assert(bottleJackFrequencyMigration.includes("'bottle jack'"))
+assert(bottleJackFrequencyMigration.includes("COALESCE(criteria.inspectioncategory, 'VISUAL') = 'VISUAL'"))
+assert(bowShackleChainSlingFrequencyMigration.includes("'FREQUENT_INSPECTION'"))
+assert(bowShackleChainSlingFrequencyMigration.includes("'bow shackle'"))
+assert(bowShackleChainSlingFrequencyMigration.includes("'chain sling'"))
+assert(bowShackleChainSlingFrequencyMigration.includes("COALESCE(criteria.inspectioncategory, 'VISUAL') = 'VISUAL'"))
+assert(additionalLiftingTackleFrequencyMigration.includes("'FREQUENT_INSPECTION'"))
+for (const equipmentType of ["'d shackle'", "'drum lifter'", "'endless round sling'", "'eye bolt'", "'fall arrestor'"]) {
+  assert(additionalLiftingTackleFrequencyMigration.includes(equipmentType))
+}
+assert(additionalLiftingTackleFrequencyMigration.includes("COALESCE(criteria.inspectioncategory, 'VISUAL') = 'VISUAL'"))
 assert(contract.requirements.some(item => item.table === "tblinspection" && item.columns.includes("record_status")))
 assert(migrator.includes("schema_migrations"), "Migrator must record applied migrations")
 assert(migrator.includes("Checksum mismatch"), "Migrator must reject changed applied migrations")
