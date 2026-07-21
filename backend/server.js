@@ -7698,28 +7698,27 @@ app.get("/certificates/bulk-print", searchLimiter, async (req, res) => {
 
 app.get("/certificates/bulk-pdf", pdfLimiter, async (req, res) => {
   try {
-    const explicitSelection = String(req.query.testids || "").trim() !== ""
-    const { filters, certificates } = await getBulkCertificateMatches(req, true, !explicitSelection)
+    const { filters, certificates, blockedCertificates } = await getBulkCertificateMatches(req, true, true)
 
     if (!certificates.length) {
+      if (blockedCertificates.length) {
+        return res.status(409).json({
+          error: "None of the selected inspections can produce certificates yet.",
+          blocked: blockedCertificates.map(certificate => ({
+            testid: certificate.inspection?.testid,
+            reasons: certificateEligibility(certificate).reasons
+          })).slice(0, 25),
+          blockedCount: blockedCertificates.length
+        })
+      }
       return res.status(404).json({ error: "No certificates found for the selected filters" })
     }
 
-    const blockedCertificates = certificates.filter(certificate => !certificateIsEligible(certificate))
-
     if (blockedCertificates.length) {
-      await req.logAudit("BULK_PDF_BLOCKED", "certificates", null, {
+      await req.logAudit("BULK_PDF_SKIPPED", "certificates", null, {
         ...filters,
         blocked: blockedCertificates.length,
         blocked_testids: blockedCertificates.map(certificate => certificate.inspection?.testid).filter(Boolean).slice(0, 25)
-      })
-      return res.status(409).json({
-        error: "One or more selected inspections cannot produce certificates yet.",
-        blocked: blockedCertificates.map(certificate => ({
-          testid: certificate.inspection?.testid,
-          reasons: certificateEligibility(certificate).reasons
-        })).slice(0, 25),
-        blockedCount: blockedCertificates.length
       })
     }
 
@@ -7742,6 +7741,7 @@ app.get("/certificates/bulk-pdf", pdfLimiter, async (req, res) => {
     })
 
     res.setHeader("Content-Type", "application/pdf")
+    res.setHeader("X-Skipped-Certificates", String(blockedCertificates.length))
     res.setHeader(
       "Content-Disposition",
       `${req.query.inline === "1" ? "inline" : "attachment"}; filename="${filename}"`

@@ -147,8 +147,13 @@ const bulkPdfRoute = sourceBetween(
 )
 assertIncludes(
   bulkPdfRoute,
-  "blockedCertificates = certificates.filter(certificate => !certificateIsEligible(certificate))",
-  "Bulk PDF route must reject blocked certificates"
+  "getBulkCertificateMatches(req, true, true)",
+  "Bulk PDF route must exclude blocked certificates"
+)
+assertIncludes(
+  bulkPdfRoute,
+  'res.setHeader("X-Skipped-Certificates", String(blockedCertificates.length))',
+  "Bulk PDF route must report how many blocked certificates were skipped"
 )
 
 const dashboardStats = sourceBetween(

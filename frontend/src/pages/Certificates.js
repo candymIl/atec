@@ -1009,6 +1009,7 @@ async function downloadBulkCertificatesPdf(params) {
     return
   }
 
+  const skippedCount = Number(response.headers.get("x-skipped-certificates") || 0)
   const blob = await response.blob()
   const filename = getDownloadFilename(
     response.headers.get("content-disposition"),
@@ -1023,6 +1024,10 @@ async function downloadBulkCertificatesPdf(params) {
   link.click()
   link.remove()
   window.URL.revokeObjectURL(url)
+
+  if (skippedCount > 0) {
+    alert(`${skippedCount} incomplete inspection${skippedCount === 1 ? " was" : "s were"} skipped. The remaining certificates were downloaded.`)
+  }
 }
 
 function getDownloadFilename(contentDisposition, fallback) {
