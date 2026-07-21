@@ -11603,6 +11603,7 @@ app.get("/dashboard/stats", async (req, res) => {
         JOIN active_assets a
           ON a.assetid = i.assetid
         WHERE i.inspectiontype = 'VISUAL'
+          AND COALESCE(i.record_status, 'ACTIVE') = 'ACTIVE'
         ORDER BY i.assetid, i.testdate DESC NULLS LAST, i.testid DESC
       ),
       latest_load AS (
@@ -11621,6 +11622,7 @@ app.get("/dashboard/stats", async (req, res) => {
         JOIN active_assets a
           ON a.assetid = i.assetid
         WHERE i.inspectiontype = 'LOADTEST'
+          AND COALESCE(i.record_status, 'ACTIVE') = 'ACTIVE'
         ORDER BY i.assetid, i.testdate DESC NULLS LAST, i.testid DESC
       )
       SELECT
@@ -11650,6 +11652,7 @@ app.get("/dashboard/stats", async (req, res) => {
             FROM atec.tblinspectionresult r
             WHERE r.testid = i.testid
           )
+            AND COALESCE(i.record_status, 'ACTIVE') = 'ACTIVE'
         ) AS certificates,
         (
           SELECT COUNT(*)
@@ -11661,6 +11664,7 @@ app.get("/dashboard/stats", async (req, res) => {
             FROM atec.tblinspectionresult r
             WHERE r.testid = i.testid
           )
+            AND COALESCE(i.record_status, 'ACTIVE') = 'ACTIVE'
         ) AS incompleteinspections,
         (
           SELECT COUNT(*)
@@ -11814,6 +11818,7 @@ app.get("/dashboard/review-queue/:queue", async (req, res) => {
           FROM atec.tblinspectionresult r
           WHERE r.testid = i.testid
         )
+          AND COALESCE(i.record_status, 'ACTIVE') = 'ACTIVE'
         ORDER BY i.testdate DESC NULLS LAST, i.testid DESC
         LIMIT 200
       `,
@@ -11837,6 +11842,7 @@ app.get("/dashboard/review-queue/:queue", async (req, res) => {
           FROM atec.tblinspection i
           JOIN active_assets a ON a.assetid = i.assetid
           WHERE i.inspectiontype = 'VISUAL'
+            AND COALESCE(i.record_status, 'ACTIVE') = 'ACTIVE'
           ORDER BY i.assetid, i.testdate DESC NULLS LAST, i.testid DESC
         ),
         latest_load AS (
@@ -11855,6 +11861,7 @@ app.get("/dashboard/review-queue/:queue", async (req, res) => {
           FROM atec.tblinspection i
           JOIN active_assets a ON a.assetid = i.assetid
           WHERE i.inspectiontype = 'LOADTEST'
+            AND COALESCE(i.record_status, 'ACTIVE') = 'ACTIVE'
           ORDER BY i.assetid, i.testdate DESC NULLS LAST, i.testid DESC
         )
         SELECT
