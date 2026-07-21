@@ -5452,8 +5452,15 @@ function renderCriteriaPopup(row = {}) {
   const selectedResultType =
     row.resulttype || (selectedFieldType === "NUMBER" ? "MEASURED" : "PASS_FAIL")
 
-  const selectedInspectionGroup =
-    row.inspection_category || "PERIODIC_THOROUGH_INSPECTION"
+  const selectedEquipmentTypeRow = sortedEquipmentTypes.find(type =>
+    String(type.equiptypeid) === String(selectedEquipmentType)
+  )
+  const beamClampSelected = ["beam clamp", "beam clamps"].includes(
+    String(selectedEquipmentTypeRow?.description || "").trim().toLowerCase()
+  )
+  const selectedInspectionGroup = beamClampSelected
+    ? "FREQUENT_INSPECTION"
+    : row.inspection_category || "PERIODIC_THOROUGH_INSPECTION"
 
   const selectedSeverity =
     row.severity || "MINOR"
@@ -5483,7 +5490,7 @@ function renderCriteriaPopup(row = {}) {
           <div class="form-row">
             <div class="form-group">
               <label>Equipment Type</label>
-              <select id="criteriaEquipType">
+              <select id="criteriaEquipType" onchange="syncCriteriaInspectionGroup()">
                 ${sortedEquipmentTypes.map(type => `
                   <option
                     value="${safeAttr(type.equiptypeid)}"
@@ -5540,7 +5547,7 @@ function renderCriteriaPopup(row = {}) {
                 <option value="FREQUENT_INSPECTION" ${selectedInspectionGroup === "FREQUENT_INSPECTION" ? "selected" : ""}>
                   Frequent Inspection
                 </option>
-                <option value="PERIODIC_THOROUGH_INSPECTION" ${selectedInspectionGroup === "PERIODIC_THOROUGH_INSPECTION" ? "selected" : ""}>
+                <option value="PERIODIC_THOROUGH_INSPECTION" ${selectedInspectionGroup === "PERIODIC_THOROUGH_INSPECTION" ? "selected" : ""} ${beamClampSelected ? "disabled" : ""}>
                   Periodic Thorough Inspection
                 </option>
               </select>
@@ -5741,6 +5748,23 @@ window.showCustomerDetailedReport = function (options = {}) {
   setCurrentPage("customer-report")
 
   renderCustomerDetailedReport(customers, equipmentTypes, sites, sections, responsiblePersons, options)
+}
+
+window.syncCriteriaInspectionGroup = function () {
+  const equipmentTypeId = document.querySelector('#criteriaEquipType')?.value
+  const inspectionGroup = document.querySelector('#criteriaInspectionGroup')
+  if (!inspectionGroup) return
+
+  const equipmentType = equipmentTypes.find(type =>
+    String(type.equiptypeid) === String(equipmentTypeId)
+  )
+  const isBeamClamp = ["beam clamp", "beam clamps"].includes(
+    String(equipmentType?.description || "").trim().toLowerCase()
+  )
+  const periodicOption = inspectionGroup.querySelector('option[value="PERIODIC_THOROUGH_INSPECTION"]')
+
+  if (periodicOption) periodicOption.disabled = isBeamClamp
+  if (isBeamClamp) inspectionGroup.value = "FREQUENT_INSPECTION"
 }
 
 window.showSystemHealth = function () {

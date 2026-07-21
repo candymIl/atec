@@ -4733,6 +4733,24 @@ app.get("/equipment-types", async (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 
+async function criteriaInspectionCategoryForEquipment(equiptypeid, requestedCategory) {
+  const equipmentTypeResult = await pool.query(
+    `
+    SELECT description
+    FROM atec.tblequiptype
+    WHERE equiptypeid = $1
+    `,
+    [equiptypeid]
+  )
+  const equipmentTypeName = String(equipmentTypeResult.rows[0]?.description || "").trim().toLowerCase()
+
+  if (["beam clamp", "beam clamps"].includes(equipmentTypeName)) {
+    return "FREQUENT_INSPECTION"
+  }
+
+  return requestedCategory || "PERIODIC_THOROUGH_INSPECTION"
+}
+
 app.get("/equipment-type-criteria", async (req, res) => {
   try {
     const { category } = req.query
@@ -4810,6 +4828,10 @@ app.post("/equipment-type-criteria", async (req, res) => {
     const normalizedFieldType =
       normalizedResultType === "MEASURED" ? "NUMBER" : (fieldtype || "PASS_FAIL")
     const normalizedDescription = criteriadescription || criterianame
+    const normalizedInspectionCategory = await criteriaInspectionCategoryForEquipment(
+      equiptypeid,
+      inspection_category
+    )
 
     const result = await pool.query(
       `
@@ -4842,7 +4864,7 @@ app.post("/equipment-type-criteria", async (req, res) => {
         sortorder || displayorder || null,
         displayorder || sortorder || null,
         inspectioncategory || "VISUAL",
-        inspection_category || "PERIODIC_THOROUGH_INSPECTION",
+        normalizedInspectionCategory,
         severity || "MINOR",
         active !== false
       ]
@@ -4880,6 +4902,10 @@ app.put("/equipment-type-criteria/:id", async (req, res) => {
     const normalizedFieldType =
       normalizedResultType === "MEASURED" ? "NUMBER" : (fieldtype || "PASS_FAIL")
     const normalizedDescription = criteriadescription || criterianame
+    const normalizedInspectionCategory = await criteriaInspectionCategoryForEquipment(
+      equiptypeid,
+      inspection_category
+    )
 
     const result = await pool.query(
       `
@@ -4910,7 +4936,7 @@ app.put("/equipment-type-criteria/:id", async (req, res) => {
         sortorder || displayorder || null,
         displayorder || sortorder || null,
         inspectioncategory || "VISUAL",
-        inspection_category || "PERIODIC_THOROUGH_INSPECTION",
+        normalizedInspectionCategory,
         severity || "MINOR",
         active !== false,
         id
@@ -4931,28 +4957,57 @@ app.put("/equipment-type-criteria/:id", async (req, res) => {
 })
 
 app.delete("/equipment-type-criteria/:id", async (req, res) => {
+  const client = await pool.connect()
+
   try {
     const { id } = req.params
 
-    const result = await pool.query(
+    await client.query("BEGIN")
+
+    const deleted = await client.query(
       `
       DELETE FROM atec.tblequiptypecriteria
+      WHERE criteriaid = $1
+        AND NOT EXISTS (
+          SELECT 1
+          FROM atec.tblinspectionresult result
+          WHERE result.criteriaid = tblequiptypecriteria.criteriaid
+        )
+      RETURNING *
+      `,
+      [id]
+    )
+
+    if (deleted.rows.length) {
+      await client.query("COMMIT")
+      return res.json({ success: true, archived: false })
+    }
+
+    const archived = await client.query(
+      `
+      UPDATE atec.tblequiptypecriteria
+      SET active = false
       WHERE criteriaid = $1
       RETURNING *
       `,
       [id]
     )
 
-    if (result.rows.length === 0) {
+    if (archived.rows.length === 0) {
+      await client.query("ROLLBACK")
       return res.status(404).json({ error: "Criteria not found" })
     }
 
-    res.json({ success: true })
+    await client.query("COMMIT")
+    res.json({ success: true, archived: true })
   } catch (err) {
+    await client.query("ROLLBACK")
     console.error(err)
     res.status(500).json({
       error: "An unexpected server error occurred"
     })
+  } finally {
+    client.release()
   }
 })
 

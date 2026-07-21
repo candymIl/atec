@@ -7,6 +7,10 @@ const deploy = fs.readFileSync(path.join(root, "deployment", "deploy-live.sh"), 
 const contract = JSON.parse(fs.readFileSync(path.join(root, "deployment", "production-schema-contract.json"), "utf8"))
 const manifest = JSON.parse(fs.readFileSync(path.join(root, "deployment", "production-migrations.json"), "utf8"))
 const migrator = fs.readFileSync(path.join(root, "scripts", "apply-production-migrations.js"), "utf8")
+const beamClampFrequencyMigration = fs.readFileSync(
+  path.join(root, "database", "2026-07-21-beam-clamp-frequent-inspection.sql"),
+  "utf8"
+)
 
 const backupAt = deploy.indexOf("npm run backup:create")
 const migrationAt = deploy.indexOf("scripts/apply-production-migrations.js")
@@ -18,6 +22,10 @@ assert(migrationAt > backupAt, "Migrations must run after the backup")
 assert(schemaCheckAt > migrationAt, "Schema verification must run after migrations")
 assert(restartAt > schemaCheckAt, "Backend restart must happen only after schema verification")
 assert(manifest.migrations.includes("2026-07-18-void-inspections-entered-in-error.sql"))
+assert(manifest.migrations.includes("2026-07-21-beam-clamp-frequent-inspection.sql"))
+assert(beamClampFrequencyMigration.includes("'FREQUENT_INSPECTION'"))
+assert(beamClampFrequencyMigration.includes("'beam clamp', 'beam clamps'"))
+assert(beamClampFrequencyMigration.includes("COALESCE(criteria.inspectioncategory, 'VISUAL') = 'VISUAL'"))
 assert(contract.requirements.some(item => item.table === "tblinspection" && item.columns.includes("record_status")))
 assert(migrator.includes("schema_migrations"), "Migrator must record applied migrations")
 assert(migrator.includes("Checksum mismatch"), "Migrator must reject changed applied migrations")

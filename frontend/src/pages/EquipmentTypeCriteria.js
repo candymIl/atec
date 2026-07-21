@@ -10,9 +10,10 @@ export function renderEquipmentTypeCriteria(equipmentTypes, criteria) {
   const selectedFilter =
     window.criteriaEquipmentFilter || ""
 
+  const activeCriteria = criteria.filter(row => row.active !== false)
   const visibleCriteria = selectedFilter
-    ? criteria.filter(row => String(row.equiptypeid) === String(selectedFilter))
-    : criteria
+    ? activeCriteria.filter(row => String(row.equiptypeid) === String(selectedFilter))
+    : activeCriteria
   const sortedCriteria = sortTableRows(visibleCriteria, 'criteria', {
     equipmenttype: row => row.equipmenttype,
     inspectioncategory: row => row.inspectioncategory,
