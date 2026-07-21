@@ -29,7 +29,7 @@ function isCriticalCriteria(criteriaRow = {}) {
   return normalizeUpper(criteriaRow.severity) === "CRITICAL"
 }
 
-function inspectionTypeMatchesCriteria(inspection = {}, criteriaRow = {}) {
+function inspectionTypeOnlyMatchesCriteria(inspection = {}, criteriaRow = {}) {
   const inspectionType = normalizeUpper(inspection.inspectiontype)
   const criteriaInspectionType = normalizeUpper(criteriaRow.inspectioncategory)
   const legacyCategory = normalizeUpper(criteriaRow.inspection_category)
@@ -42,6 +42,14 @@ function inspectionTypeMatchesCriteria(inspection = {}, criteriaRow = {}) {
   }
 
   if (effectiveCriteriaType === "LOADTEST") return false
+
+  return true
+}
+
+function inspectionTypeMatchesCriteria(inspection = {}, criteriaRow = {}) {
+  if (!inspectionTypeOnlyMatchesCriteria(inspection, criteriaRow)) return false
+
+  const legacyCategory = normalizeUpper(criteriaRow.inspection_category)
 
   if (
     normalizeUpper(inspection.inspectionfrequency) === "FREQUENT" &&
@@ -124,6 +132,12 @@ function evaluateInspectionCompleteness(input = {}) {
   const criteriaRows = normalizeCriteriaRows(input)
   const reasons = []
   const relevantCriteria = relevantCriteriaRows(inspection, criteriaRows)
+  const hasSavedMatchingCriteria = results.some(row =>
+    Number.isInteger(Number(row.criteriaid)) &&
+    Number(row.criteriaid) > 0 &&
+    Boolean(normalizeUpper(row.inspectioncategory)) &&
+    inspectionTypeOnlyMatchesCriteria(inspection, row)
+  )
   const missingCriteriaIds = getMissingCriteriaIds(inspection, results, criteriaRows)
   const derivedStatus = deriveInspectionStatus(results, criteriaRows, inspection.status)
   const storedStatus = normalizeUpper(inspection.status)
@@ -143,7 +157,7 @@ function evaluateInspectionCompleteness(input = {}) {
   if (!normalizeText(inspection.inspector_signature_image)) {
     reasons.push("Inspector signature snapshot is missing.")
   }
-  if (!relevantCriteria.length) {
+  if (!relevantCriteria.length && !hasSavedMatchingCriteria) {
     reasons.push("No approved criteria are configured for this equipment type and inspection type.")
   }
   if (!results.length) {

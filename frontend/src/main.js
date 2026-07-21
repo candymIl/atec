@@ -5521,7 +5521,11 @@ function renderCriteriaPopup(row = {}) {
     "fork attachments / hooks",
     "hydraulic bottle jack",
     "general lifting devices/equipment",
-    "general lifting devices and equipment"
+    "general lifting devices and equipment",
+    "manual chain hoist",
+    "hoists - manual chain hoist",
+    "manual lever hoist",
+    "hoists - manual lever hoist"
   ].includes(
     String(selectedEquipmentTypeRow?.description || "").trim().toLowerCase().replace(/\s+/g, " ")
   )
@@ -5895,7 +5899,11 @@ window.syncCriteriaInspectionGroup = function () {
     "fork attachments / hooks",
     "hydraulic bottle jack",
     "general lifting devices/equipment",
-    "general lifting devices and equipment"
+    "general lifting devices and equipment",
+    "manual chain hoist",
+    "hoists - manual chain hoist",
+    "manual lever hoist",
+    "hoists - manual lever hoist"
   ].includes(
     String(equipmentType?.description || "").trim().toLowerCase().replace(/\s+/g, " ")
   )

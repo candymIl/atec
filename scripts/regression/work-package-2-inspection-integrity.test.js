@@ -325,6 +325,20 @@ assert.strictEqual(
   false,
   "Annual crane inspections must require frequent and periodic criteria"
 )
+assert.strictEqual(
+  evaluateCertificateEligibility({
+    inspection: { ...completeInspection, testid: 84150, inspectionfrequency: "FREQUENT" },
+    results: [{
+      criteriaid: 102,
+      result: "PASS",
+      inspectioncategory: "VISUAL",
+      inspection_category: "PERIODIC_THOROUGH_INSPECTION"
+    }],
+    criteria: [frequencyCriteria[1]]
+  }).eligible,
+  true,
+  "Historical visual certificates must recognize the visual criteria linked to their saved results even after frequency rules change"
+)
 assert(
   frontendMain.includes("criteriaMatchesSelectedFrequency") &&
     frontendMain.includes("changeInspectionFrequency"),

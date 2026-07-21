@@ -32,6 +32,10 @@ const moreFrequentInspectionEquipmentMigration = fs.readFileSync(
   path.join(root, "database", "2026-07-21-more-frequent-inspection-equipment.sql"),
   "utf8"
 )
+const manualHoistsFrequencyMigration = fs.readFileSync(
+  path.join(root, "database", "2026-07-21-manual-hoists-frequent-inspection.sql"),
+  "utf8"
+)
 const trolleyPalletJackLoadTestMigration = fs.readFileSync(
   path.join(root, "database", "2026-07-21-trolley-pallet-jack-load-test-criteria.sql"),
   "utf8"
@@ -57,6 +61,7 @@ assert(manifest.migrations.includes("2026-07-21-bottle-jack-frequent-inspection.
 assert(manifest.migrations.includes("2026-07-21-bow-shackle-chain-sling-frequent-inspection.sql"))
 assert(manifest.migrations.includes("2026-07-21-additional-lifting-tackle-frequent-inspection.sql"))
 assert(manifest.migrations.includes("2026-07-21-more-frequent-inspection-equipment.sql"))
+assert(manifest.migrations.includes("2026-07-21-manual-hoists-frequent-inspection.sql"))
 assert(manifest.migrations.includes("2026-07-21-trolley-pallet-jack-load-test-criteria.sql"))
 assert(manifest.migrations.includes("2026-07-21-trestle-man-cage-load-test-criteria.sql"))
 assert(beamClampFrequencyMigration.includes("'FREQUENT_INSPECTION'"))
@@ -86,6 +91,9 @@ for (const equipmentType of [
 }
 assert(moreFrequentInspectionEquipmentMigration.includes("'FREQUENT_INSPECTION'"))
 assert(moreFrequentInspectionEquipmentMigration.includes("COALESCE(criteria.inspectioncategory, 'VISUAL') = 'VISUAL'"))
+assert(manualHoistsFrequencyMigration.includes("'FREQUENT_INSPECTION'"))
+assert(manualHoistsFrequencyMigration.includes("'hoists - manual chain hoist'"))
+assert(manualHoistsFrequencyMigration.includes("'hoists - manual lever hoist'"))
 assert(trolleyPalletJackLoadTestMigration.includes("'LOADTEST'"))
 assert(trolleyPalletJackLoadTestMigration.includes("'trolley jack / pallet jack'"))
 assert(trolleyPalletJackLoadTestMigration.includes("'SAFE FOR CONTINUED OPERATION'"))

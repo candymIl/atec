@@ -4817,7 +4817,13 @@ async function criteriaInspectionCategoryForEquipment(equiptypeid, inspectionTyp
     "fork attachments / hooks",
     "hydraulic bottle jack",
     "general lifting devices/equipment",
-    "general lifting devices and equipment"
+    "general lifting devices and equipment",
+    "manual chain hoist",
+    "hoists - manual chain hoist",
+    "manual lever hoist",
+    "hoists - manual lever hoist",
+    "electric rope hoist",
+    "hoists - electric rope hoist"
   ].includes(equipmentTypeName)) {
     return "FREQUENT_INSPECTION"
   }
