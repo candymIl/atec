@@ -13,11 +13,19 @@
     "2026-07-21-bottle-jack-frequent-inspection.sql",
     "2026-07-21-bow-shackle-chain-sling-frequent-inspection.sql",
     "2026-07-21-additional-lifting-tackle-frequent-inspection.sql",
+    "2026-07-21-crawls-plain-geared-frequent-inspection.sql",
+    "2026-07-21-endless-round-sling-polyester-frequent-inspection.sql",
+    "2026-07-21-eye-bolt-nut-frequent-inspection.sql",
+    "2026-07-21-fork-attachments-hooks-frequent-inspection.sql",
     "2026-07-21-more-frequent-inspection-equipment.sql",
     "2026-07-21-trolley-pallet-jack-load-test-criteria.sql",
     "2026-07-21-sync-manual-hoist-visual-loadtest-criteria.sql",
     "2026-07-21-load-tests-periodic.sql",
     "2026-07-21-manual-hoists-frequent-inspection.sql",
-    "2026-07-21-trestle-man-cage-load-test-criteria.sql"
+    "2026-07-21-trestle-man-cage-load-test-criteria.sql",
+    "2026-07-21-electric-chain-hoist-frequent-inspection.sql",
+    "2026-07-21-pneumatic-hoist-frequent-inspection.sql",
+    "2026-07-21-electric-rope-hoist-inspection-criteria.sql",
+    "2026-07-21-electric-rope-hoist-remove-top-hook.sql"
   ]
 }

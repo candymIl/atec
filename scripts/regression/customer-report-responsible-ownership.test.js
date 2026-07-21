@@ -103,8 +103,13 @@ assert(
 
 assertIncludes(
   scopeBody,
-  '["CUSTOMER", "VIEWER"].includes(req.user.role)',
-  "Customer Detailed Report must enforce backend customer scoping for customer and viewer roles"
+  'req.user.role === "CUSTOMER" && req.user.clientid',
+  "Customer Detailed Report must enforce backend customer scoping for customer users"
+)
+assertIncludes(
+  scopeBody,
+  'req.user.role === "CUSTOMER" && !req.user.clientid',
+  "Customer users without an assigned customer must receive an empty report scope"
 )
 assertIncludes(
   server,

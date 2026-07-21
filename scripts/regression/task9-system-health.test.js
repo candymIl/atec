@@ -23,7 +23,7 @@ function writeFileWithMtime(folder, filename, content, mtime) {
 }
 
 async function main() {
-  const now = new Date("2026-07-14T10:00:00.000Z")
+  const now = new Date()
   const backupDir = makeTempDir("atec-task9-backups")
   const staleBackupDir = makeTempDir("atec-task9-stale-backups")
   const emptyBackupDir = makeTempDir("atec-task9-empty-backups")
@@ -33,19 +33,19 @@ async function main() {
     backupDir,
     "fbcranes-20260714.dump",
     "database-backup",
-    new Date("2026-07-14T08:30:00.000Z")
+    new Date(now.getTime() - 90 * 60 * 1000)
   )
   writeFileWithMtime(
     backupDir,
     "uploads-20260714.zip",
     "uploads-backup",
-    new Date("2026-07-14T08:45:00.000Z")
+    new Date(now.getTime() - 75 * 60 * 1000)
   )
   writeFileWithMtime(
     staleBackupDir,
     "fbcranes-20260710.dump",
     "old-database-backup",
-    new Date("2026-07-10T08:30:00.000Z")
+    new Date(now.getTime() - 96 * 60 * 60 * 1000)
   )
 
   const currentBackup = getBackupStatus({
@@ -128,9 +128,9 @@ async function main() {
       SMTP_PASS: "should-not-appear",
       ATEC_BACKUP_ROOT: backupDir,
       BACKUP_MAX_AGE_HOURS: "72",
-      BUILD_DATE: "2026-07-14T08:00:00.000Z"
+      BUILD_DATE: new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString()
     },
-    startedAt: new Date("2026-07-14T09:00:00.000Z"),
+    startedAt: new Date(now.getTime() - 60 * 60 * 1000),
     port: 5000,
     appVersion: "1.0.0"
   })

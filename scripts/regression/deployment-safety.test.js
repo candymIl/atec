@@ -115,6 +115,16 @@ for (const migration of manifest.migrations) {
   assert(fs.existsSync(path.join(root, "database", migration)), `Missing production migration: ${migration}`)
 }
 
+const currentCriteriaMigrations = fs.readdirSync(path.join(root, "database"))
+  .filter(filename => filename.startsWith("2026-07-21-") && filename.endsWith(".sql"))
+
+for (const migration of currentCriteriaMigrations) {
+  assert(
+    manifest.migrations.includes(migration),
+    `Current criteria migration is not approved for deployment: ${migration}`
+  )
+}
+
 for (const requirement of contract.requirements) {
   assert(
     manifest.migrations.includes(requirement.migration),

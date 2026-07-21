@@ -12,6 +12,7 @@
     "backup:retention:dry-run": "node scripts/atec-backup.js backup:retention",
     "backup:retention:apply": "node scripts/atec-backup.js backup:retention --apply",
     "backup:status": "node scripts/atec-backup.js backup:status",
+    "test:all": "node scripts/run-release-tests.js",
     "test:task7": "node scripts/regression/task7-performance-regression.test.js",
     "test:task9": "node scripts/regression/task9-system-health.test.js",
     "test:task13": "node scripts/regression/task13-nfc-assets.test.js",
