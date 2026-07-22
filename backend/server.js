@@ -13665,6 +13665,7 @@ async function loadJobCard(jobcardid) {
   const header = await pool.query(`
     SELECT j.*, c.clientname, s.sitename, sec.sectionname,
       COALESCE(NULLIF(u.fullname, ''), u.username) AS assigned_to_name,
+      u.email AS assigned_to_email,
       COALESCE(NULLIF(cu.fullname, ''), cu.username) AS created_by_name,
       COALESCE(NULLIF(au.fullname, ''), au.username) AS approved_by_name
     FROM atec.tbljobcard j
@@ -13728,6 +13729,51 @@ app.get("/job-cards/:id", asyncRoute(async (req, res) => {
   res.json(card)
 }))
 
+function jobCardApplicationUrl() {
+  const configured = String(process.env.PUBLIC_APP_URL || process.env.FRONTEND_ORIGIN || "").split(",")[0].trim()
+  return configured || "https://www.atecinspections.co.za/atec/"
+}
+
+async function emailAssignedTechnician(card) {
+  if (!isValidEmailAddress(card.assigned_to_email)) {
+    throw new Error(`${card.assigned_to_name || "The selected technician"} does not have a valid email address in ATEC`)
+  }
+  const mailConfigIssues = getMailConfigIssues()
+  if (mailConfigIssues.length) {
+    throw new Error(`Email is not configured. Missing: ${mailConfigIssues.join(", ")}`)
+  }
+  const assetSummary = card.assets.length
+    ? card.assets.map(asset => `${asset.assettagno || asset.serialno || `Asset ${asset.assetid}`} - ${asset.equipmenttype || asset.description || "Equipment"}`).join("\n")
+    : "No equipment selected"
+  await sendApplicationEmail({
+    from: process.env.MAIL_FROM,
+    to: card.assigned_to_email,
+    subject: `ATEC Job Card Assigned - ${card.jobcard_reference}`,
+    text: [
+      `Good day ${card.assigned_to_name || "Technician"},`,
+      "",
+      `A technician job card has been assigned to you on ATEC.`,
+      "",
+      `Job card: ${card.jobcard_reference}`,
+      `Job type: ${String(card.job_type || "").replaceAll("_", " ")}`,
+      `Priority: ${card.priority}`,
+      `Customer: ${card.clientname}`,
+      `Site: ${card.sitename}`,
+      `Section: ${card.sectionname || "Not specified"}`,
+      `Planned date: ${card.planned_at ? new Date(card.planned_at).toLocaleString("en-ZA", { timeZone: "Africa/Johannesburg" }) : "Not specified"}`,
+      `Fault reported: ${card.reported_fault || "Not specified"}`,
+      "",
+      "Equipment:",
+      assetSummary,
+      "",
+      `Sign in to ATEC and open Technician Job Cards to start the job: ${jobCardApplicationUrl()}`,
+      "",
+      "Regards,",
+      "ATEC Inspection Platform"
+    ].join("\n")
+  })
+}
+
 async function saveJobCard(req, res) {
   const body = req.body || {}
   const requestedStatus = String(body.status || "DRAFT").toUpperCase()
@@ -13738,6 +13784,9 @@ async function saveJobCard(req, res) {
   }
   if (!JOB_CARD_STATUSES.has(requestedStatus) || !JOB_CARD_EQUIPMENT_STATUSES.has(equipmentStatus)) {
     return res.status(400).json({ error: "Invalid job-card or equipment status" })
+  }
+  if (requestedStatus === "ASSIGNED" && !body.assigned_to_user_id) {
+    return res.status(400).json({ error: "Select a technician before assigning the job card" })
   }
   const deviations = Array.isArray(body.deviations) ? body.deviations : []
   const hasCritical = deviations.some(row => String(row.severity).toUpperCase() === "CRITICAL")
@@ -13763,6 +13812,20 @@ async function saveJobCard(req, res) {
         await client.query("ROLLBACK"); return res.status(403).json({ error: "This job card is not assigned to you" })
       }
       existingSignaturePath = owner.rows[0].customer_signature_path
+      const allowedTransitions = {
+        DRAFT: ["DRAFT", "ASSIGNED", "IN_PROGRESS", "CANCELLED"],
+        ASSIGNED: ["ASSIGNED", "IN_PROGRESS", "CANCELLED"],
+        IN_PROGRESS: ["IN_PROGRESS", "AWAITING_SIGNATURE", "SUBMITTED", "CANCELLED"],
+        AWAITING_SIGNATURE: ["AWAITING_SIGNATURE", "IN_PROGRESS", "SUBMITTED", "CANCELLED"],
+        SUBMITTED: ["SUBMITTED", "IN_PROGRESS", "APPROVED"],
+        APPROVED: ["APPROVED", "INVOICED"],
+        INVOICED: ["INVOICED"],
+        CANCELLED: ["CANCELLED"]
+      }
+      if (!(allowedTransitions[owner.rows[0].status] || []).includes(requestedStatus)) {
+        await client.query("ROLLBACK")
+        return res.status(409).json({ error: `A ${owner.rows[0].status.replaceAll("_", " ")} job card cannot move directly to ${requestedStatus.replaceAll("_", " ")}` })
+      }
     } else {
       const inserted = await client.query(`INSERT INTO atec.tbljobcard (jobcard_reference, clientid, siteid, created_by_user_id)
         VALUES ($1, $2, $3, $4) RETURNING jobcardid`, [`PENDING-${crypto.randomUUID()}`, body.clientid, body.siteid, req.user.user_id])
@@ -13821,7 +13884,26 @@ async function saveJobCard(req, res) {
     }
     await client.query("COMMIT")
     await req.logAudit(req.params.id ? "UPDATE" : "CREATE", "job_cards", jobcardid, { status: requestedStatus, equipment_status: equipmentStatus })
-    res.status(req.params.id ? 200 : 201).json(await loadJobCard(jobcardid))
+    let emailNotification = { requested: false, sent: false }
+    if (requestedStatus === "ASSIGNED" && body.email_assigned_technician === true && ["ADMIN", "MANAGER"].includes(req.user.role)) {
+      emailNotification.requested = true
+      const assignedCard = await loadJobCard(jobcardid)
+      try {
+        await emailAssignedTechnician(assignedCard)
+        await pool.query(`UPDATE atec.tbljobcard SET assignment_email_to=$1, assignment_email_sent_at=now(),
+          assignment_email_error=NULL WHERE jobcardid=$2`, [assignedCard.assigned_to_email, jobcardid])
+        await req.logAudit("JOB_CARD_ASSIGNMENT_EMAIL_SENT", "job_cards", jobcardid, { to: assignedCard.assigned_to_email })
+        emailNotification = { requested: true, sent: true, to: assignedCard.assigned_to_email }
+      } catch (emailError) {
+        const emailMessage = getMailErrorMessage(emailError)
+        await pool.query(`UPDATE atec.tbljobcard SET assignment_email_to=$1, assignment_email_error=$2
+          WHERE jobcardid=$3`, [assignedCard.assigned_to_email || null, emailMessage, jobcardid])
+        await req.logAudit("JOB_CARD_ASSIGNMENT_EMAIL_FAILED", "job_cards", jobcardid, { to: assignedCard.assigned_to_email || null, error: emailMessage })
+        emailNotification = { requested: true, sent: false, to: assignedCard.assigned_to_email || null, error: emailMessage }
+      }
+    }
+    const savedCard = await loadJobCard(jobcardid)
+    res.status(req.params.id ? 200 : 201).json({ ...savedCard, email_notification: emailNotification })
   } catch (err) {
     await client.query("ROLLBACK")
     if (newSignaturePath) deleteUploadFileIfUnreferenced(newSignaturePath).catch(() => {})
@@ -13853,18 +13935,76 @@ app.post("/job-cards/:id/photos", uploadLimiter, upload.array("jobCardPhotos", 2
   res.status(201).json(rows)
 }))
 
+function drawJobCardPdfFrame(doc, card) {
+  const savedX = doc.x
+  const savedY = doc.y
+  const pageWidth = doc.page.width
+  const pageHeight = doc.page.height
+  const marginX = 28.35
+  const width = pageWidth - (marginX * 2)
+  const headerPath = path.join(__dirname, "..", "frontend", "public", "header.jpg")
+  const footerPath = path.join(__dirname, "..", "frontend", "public", "footer.jpg")
+  const savedBottomMargin = doc.page.margins.bottom
+
+  if (fs.existsSync(headerPath)) {
+    doc.image(headerPath, marginX, 14, { width, height: 82 })
+  }
+
+  if (fs.existsSync(footerPath)) {
+    doc.image(footerPath, marginX, pageHeight - 66, { width, height: 42 })
+  }
+
+  doc.page.margins.bottom = 0
+  doc
+    .font("Helvetica")
+    .fontSize(6.5)
+    .fillColor("#1f2937")
+    .text(`Job Card ${card.jobcard_reference}`, marginX, pageHeight - 79, {
+      width: width / 2,
+      align: "left",
+      lineBreak: false
+    })
+    .fillColor("#111827")
+
+  doc.page.margins.bottom = savedBottomMargin
+  doc.x = savedX
+  doc.y = savedY
+}
+
+function addJobCardPdfPageFrames(doc, card) {
+  const range = doc.bufferedPageRange()
+  const marginX = 28.35
+  for (let index = 0; index < range.count; index += 1) {
+    doc.switchToPage(range.start + index)
+    drawJobCardPdfFrame(doc, card)
+    const savedX = doc.x
+    const savedY = doc.y
+    const savedBottomMargin = doc.page.margins.bottom
+    const width = doc.page.width - (marginX * 2)
+    doc.page.margins.bottom = 0
+    doc.font("Helvetica").fontSize(6.5).fillColor("#1f2937").text(
+      `Page ${index + 1} of ${range.count}`,
+      marginX,
+      doc.page.height - 79,
+      { width, align: "right", lineBreak: false }
+    )
+    doc.page.margins.bottom = savedBottomMargin
+    doc.x = savedX
+    doc.y = savedY
+  }
+}
+
 app.get("/job-cards/:id/pdf", pdfLimiter, asyncRoute(async (req, res) => {
   const card = await loadJobCard(req.params.id)
   if (!card) return res.status(404).json({ error: "Job card not found" })
   if (req.user.role === "INSPECTOR" && ![card.assigned_to_user_id, card.created_by_user_id].map(String).includes(String(req.user.user_id))) {
     return res.status(403).json({ error: "This job card is not assigned to you" })
   }
-  const doc = new PDFDocument({ size: "A4", margin: 42, bufferPages: true })
+  const doc = new PDFDocument({ size: "A4", margins: { top: 108, right: 42, bottom: 92, left: 42 }, bufferPages: true })
   res.type("application/pdf").setHeader("Content-Disposition", `inline; filename=${card.jobcard_reference}.pdf`)
   doc.pipe(res)
   const line = (label, value) => { doc.font("Helvetica-Bold").text(`${label}: `, { continued: true }).font("Helvetica").text(String(value || "-")) }
-  doc.fontSize(19).font("Helvetica-Bold").fillColor("#183153").text("FB CRANE BUILDERS & REPAIRS", { align: "center" })
-  doc.fontSize(15).text("TECHNICIAN JOB CARD", { align: "center" }).moveDown()
+  doc.fontSize(15).font("Helvetica-Bold").fillColor("#183153").text("TECHNICIAN JOB CARD", { align: "center" }).moveDown(.6)
   doc.fillColor("black").fontSize(9)
   line("Job card", card.jobcard_reference); line("Customer / Site", `${card.clientname} / ${card.sitename}`); line("Technician", card.assigned_to_name)
   line("Customer reference", card.customer_reference); line("Status", card.status.replaceAll("_", " ")); line("Equipment status", card.equipment_status.replaceAll("_", " "))
@@ -13883,6 +14023,7 @@ app.get("/job-cards/:id/pdf", pdfLimiter, asyncRoute(async (req, res) => {
     doc.addPage().fontSize(15).font("Helvetica-Bold").fillColor("#183153").text("JOB CARD PHOTOGRAPHS", { align: "center" }).moveDown()
     for (const photo of card.photos) { const file = resolveUploadFilePath(photo.photo_path); if (file && fs.existsSync(file)) { doc.image(file, { fit: [500, 260], align: "center" }); doc.fontSize(9).fillColor("black").text(`${photo.photo_type}: ${photo.caption || ""}`, { align: "center" }).moveDown() } }
   }
+  addJobCardPdfPageFrames(doc, card)
   doc.end()
 }))
 
