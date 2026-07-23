@@ -804,6 +804,20 @@ function blankToNull(value) {
   return value === "" || value === undefined ? null : value
 }
 
+function validatePermissibleDeflection(value) {
+  if (value === null || value === undefined || value === "") return null
+
+  const numericValue = Number(value)
+  if (Number.isInteger(numericValue) && numericValue >= 0) return null
+
+  return {
+    error: "Permissible Deflection must be a whole number of zero or more, in millimetres.",
+    field: "permissibledeflection",
+    enteredValue: String(value),
+    acceptedFormat: "Whole millimetres only (for example: 19 or 20). Decimals such as 19.9 are not accepted."
+  }
+}
+
 function truncateDbText(value, maxLength = 255) {
   const text = String(value || "")
   if (text.length <= maxLength) return text
@@ -4114,6 +4128,11 @@ app.post("/assets", async (req, res) => {
       auxhoistropemm
     } = req.body;
 
+    const deflectionError = validatePermissibleDeflection(permissibledeflection)
+    if (deflectionError) {
+      return res.status(400).json(deflectionError)
+    }
+
     const normalizedSerialNo = normalizeAssetLookupValue(serialno)
     const normalizedAssetTagNo = normalizeAssetLookupValue(assettagno)
 
@@ -4268,6 +4287,11 @@ app.put("/assets/:id", async (req, res) => {
       auxhoisthooksize,
       auxhoistropemm
     } = req.body;
+
+    const deflectionError = validatePermissibleDeflection(permissibledeflection)
+    if (deflectionError) {
+      return res.status(400).json(deflectionError)
+    }
 
     const normalizedSerialNo = normalizeAssetLookupValue(serialno)
     const normalizedAssetTagNo = normalizeAssetLookupValue(assettagno)

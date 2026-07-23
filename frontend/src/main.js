@@ -4196,7 +4196,7 @@ window.loadDynamicAssetFields = function () {
       <div class="form-group"><label>Main Hoist WLL(kg)</label><input id="assetWLL" type="number"></div>
       <div class="form-group"><label>Auxiliary Hoist WLL(kg)</label><input id="assetAuxHoistWLL" type="number"></div>
       <div class="form-group"><label>Span(mm)</label><input id="assetSpan" type="number"></div>
-      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="assetPermissibleDeflection" type="number"></div>
+      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="assetPermissibleDeflection" type="number" min="0" step="1" placeholder="Whole number, e.g. 19"></div>
       <div class="form-group"><label>Main Hoist Description</label><input id="assetHoistDescription" type="text"></div>
       <div class="form-group"><label>Main Hoist Serial No</label><input id="assetHoistSerialNo" type="text"></div>
       <div class="form-group"><label>Auxiliary Hoist Description</label><input id="assetAuxHoistDescription" type="text"></div>
@@ -4213,7 +4213,7 @@ window.loadDynamicAssetFields = function () {
     html = `
       <div class="form-group"><label>WLL(kg)</label><input id="assetWLL" type="number"></div>
       <div class="form-group"><label>Span(mm)</label><input id="assetSpan" type="number"></div>
-      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="assetPermissibleDeflection" type="number"></div>
+      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="assetPermissibleDeflection" type="number" min="0" step="1" placeholder="Whole number, e.g. 19"></div>
       <div class="form-group"><label>Hook Size(mm)</label><input id="assetHookSize" type="number"></div>
       <div class="form-group"><label>Hoist Description</label><input id="assetHoistDescription" type="text"></div>
       <div class="form-group"><label>Hoist Serial No</label><input id="assetHoistSerialNo" type="text"></div>
@@ -4391,6 +4391,35 @@ function validateAssetPhotoFiles(files) {
   return true
 }
 
+function validatePermissibleDeflection(selector) {
+  const input = document.querySelector(selector)
+  const value = input?.value.trim() || ''
+
+  if (!value) return true
+
+  const numericValue = Number(value)
+  if (Number.isInteger(numericValue) && numericValue >= 0) return true
+
+  alert(
+    `Permissible Deflection must be a whole number of zero or more, in millimetres.\n\n` +
+    `Entered value: ${value}\n` +
+    `Correct examples: 19 or 20\n` +
+    `Decimals such as 19.9 are not accepted. Round to the appropriate whole millimetre before saving.`
+  )
+  input?.focus()
+  return false
+}
+
+function formatAssetSaveError(result, fallbackMessage) {
+  const lines = [result?.error || fallbackMessage]
+
+  if (result?.field) lines.push(`Field: ${result.field}`)
+  if (result?.enteredValue !== undefined) lines.push(`Entered value: ${result.enteredValue}`)
+  if (result?.acceptedFormat) lines.push(`Required format: ${result.acceptedFormat}`)
+
+  return lines.join('\n')
+}
+
 window.saveAssetFromForm = async function () {
   if (!canManageAssetRecords()) {
     alert("You do not have permission to add assets.")
@@ -4410,6 +4439,10 @@ window.saveAssetFromForm = async function () {
   
   if (!clientid || !siteid || !sectionid || !responsibleid || !equiptypeid || !description) {
     alert("Please complete Client, Site, Section, Responsible Person, Equipment Type, and Description")
+    return
+  }
+
+  if (!validatePermissibleDeflection('#assetPermissibleDeflection')) {
     return
   }
 
@@ -4461,7 +4494,7 @@ window.saveAssetFromForm = async function () {
   const newAsset = await response.json()
 
   if (!response.ok) {
-    alert("Error saving asset: " + newAsset.error)
+    alert("Error saving asset:\n\n" + formatAssetSaveError(newAsset, "The asset could not be saved."))
     return
   }
 
@@ -4885,7 +4918,7 @@ function buildEditAssetDynamicFields(groupid, values = {}, equiptypeid = '') {
       <div class="form-group"><label>Main Hoist WLL(kg)</label><input id="editAssetWLL" type="number" value="${safeAttr(values.wll || '')}"></div>
       <div class="form-group"><label>Auxiliary Hoist WLL(kg)</label><input id="editAssetAuxHoistWLL" type="number" value="${safeAttr(values.auxhoistwll || '')}"></div>
       <div class="form-group"><label>Span(mm)</label><input id="editAssetSpan" type="number" value="${safeAttr(values.span || '')}"></div>
-      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="editAssetPermissibleDeflection" type="number" value="${safeAttr(values.permissibledeflection || '')}"></div>
+      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="editAssetPermissibleDeflection" type="number" min="0" step="1" placeholder="Whole number, e.g. 19" value="${safeAttr(values.permissibledeflection || '')}"></div>
       <div class="form-group"><label>Main Hoist Description</label><input id="editAssetHoistDescription" type="text" value="${safeAttr(values.hoistdescription || '')}"></div>
       <div class="form-group"><label>Main Hoist Serial No</label><input id="editAssetHoistSerialNo" type="text" value="${safeAttr(values.hoistserialno || '')}"></div>
       <div class="form-group"><label>Auxiliary Hoist Description</label><input id="editAssetAuxHoistDescription" type="text" value="${safeAttr(values.auxhoistdescription || '')}"></div>
@@ -4902,7 +4935,7 @@ function buildEditAssetDynamicFields(groupid, values = {}, equiptypeid = '') {
     dynamicEditFields = `
       <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${safeAttr(values.wll || '')}"></div>
       <div class="form-group"><label>Span(mm)</label><input id="editAssetSpan" type="number" value="${safeAttr(values.span || '')}"></div>
-      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="editAssetPermissibleDeflection" type="number" value="${safeAttr(values.permissibledeflection || '')}"></div>
+      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="editAssetPermissibleDeflection" type="number" min="0" step="1" placeholder="Whole number, e.g. 19" value="${safeAttr(values.permissibledeflection || '')}"></div>
       <div class="form-group"><label>Hook Size(mm)</label><input id="editAssetHookSize" type="number" value="${safeAttr(values.hooksize || '')}"></div>
       <div class="form-group"><label>Hoist Description</label><input id="editAssetHoistDescription" type="text" value="${safeAttr(values.hoistdescription || '')}"></div>
       <div class="form-group"><label>Hoist Serial No</label><input id="editAssetHoistSerialNo" type="text" value="${safeAttr(values.hoistserialno || '')}"></div>
@@ -5135,6 +5168,10 @@ window.saveAssetChanges = async function (assetid) {
   const manufactdate = document.querySelector('#editAssetManufactDate')?.value || ""
   const description = document.querySelector('#editAssetDescription').value
 
+  if (!validatePermissibleDeflection('#editAssetPermissibleDeflection')) {
+    return
+  }
+
   const response = await fetch(`${API_BASE}/assets/${assetid}`, {
     method: "PUT",
     headers: {
@@ -5172,7 +5209,7 @@ window.saveAssetChanges = async function (assetid) {
   const updatedAsset = await response.json()
 
   if (!response.ok) {
-    alert("Error updating asset: " + updatedAsset.error)
+    alert("Error updating asset:\n\n" + formatAssetSaveError(updatedAsset, "The asset could not be updated."))
     return
   }
 
