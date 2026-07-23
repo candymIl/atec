@@ -29,7 +29,12 @@ const {
   evaluateCertificateEligibility
 } = require("./services/inspectionIntegrity")
 const { buildSystemInfo } = require("./services/systemInfo")
-const { pdfConfig, positiveInteger, uploadProcessingConfig } = require("./services/runtimeConfig")
+const {
+  pdfConfig,
+  positiveInteger,
+  resolveUploadRoot,
+  uploadProcessingConfig
+} = require("./services/runtimeConfig")
 const backendPackage = require("./package.json")
 const {
   asyncRoute,
@@ -50,11 +55,12 @@ const {
 const defaultFrontendOrigin = process.env.NODE_ENV === "production"
   ? "https://www.atecinspections.co.za"
   : "http://localhost:5174,http://localhost:5173,http://127.0.0.1:5174,http://127.0.0.1:5173"
-const uploadsRoot = path.resolve(
-  process.env.UPLOAD_ROOT ||
-  process.env.UPLOADS_PATH ||
-  path.join(__dirname, "uploads")
-)
+const uploadStorage = resolveUploadRoot({
+  env: process.env,
+  projectRoot: path.join(__dirname, ".."),
+  backendRoot: __dirname
+})
+const uploadsRoot = uploadStorage.path
 const publicBasePath = (process.env.PUBLIC_BASE_PATH || "/").replace(/\/+$/, "")
 const slowRequestMs = positiveInteger(process.env.SLOW_REQUEST_MS, 2000, 60000)
 const pdfRuntimeConfig = pdfConfig(process.env)
@@ -10771,14 +10777,32 @@ app.put("/she/risk-assessments/:id/archive", async (req, res) => {
   }
 })
 
-app.get("/dashboard/visual-due", async (req, res) => {
-  try {
-    res.json({ total: 0 })
-  } catch (err) {
-    console.error(err)
-    res.status(500).json({ error: "An unexpected server error occurred" })
-  }
-})
+app.get("/dashboard/visual-due", asyncRoute(async (req, res) => {
+  const scope = dashboardClientScope(req, "a", "AND")
+  const result = await pool.query(
+    `
+    SELECT count(*)::int AS total
+    FROM atec.tblasset a
+    LEFT JOIN LATERAL (
+      SELECT i.validdate
+      FROM atec.tblinspection i
+      WHERE i.assetid = a.assetid
+        AND i.inspectiontype = 'VISUAL'
+      ORDER BY i.testdate DESC NULLS LAST, i.testid DESC
+      LIMIT 1
+    ) latest_visual ON true
+    WHERE COALESCE(a.archived, false) = false
+      AND (
+        latest_visual.validdate IS NULL
+        OR latest_visual.validdate < CURRENT_DATE
+      )
+      ${scope.clause}
+    `,
+    scope.values
+  )
+
+  res.json({ total: result.rows[0]?.total || 0 })
+}))
 
 function dashboardClientScope(req, tableAlias = "a", prefix = "AND") {
   if (req.user?.role === "CUSTOMER" && req.user?.clientid) {

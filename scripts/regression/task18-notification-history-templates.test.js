@@ -33,7 +33,7 @@ assertIncludes(main, "notificationHistoryCounts", "Frontend must summarize deliv
 assertIncludes(style, ".dashboard-notification-history", "History panel styles are missing")
 
 assertIncludes(roadmap, "Task 17: Scheduled Automatic Notifications - Complete Locally", "Roadmap must mark Task 17 complete")
-assertIncludes(roadmap, "Task 18: Notification History And Templates - In Progress Locally", "Roadmap must mark Task 18 in progress")
+assertIncludes(roadmap, "Task 18: Notification History And Templates - Complete Locally", "Roadmap must mark Task 18 complete")
 assertIncludes(docs, "Recent Notification History panel", "Notification docs must mention history visibility")
 assert.strictEqual(packageJson.scripts["test:task18"], "node scripts/regression/task18-notification-history-templates.test.js")
 

@@ -380,7 +380,16 @@ async function restoreVerify(args = {}) {
     const folder = args.setId ? safeResolveInside(backupRoot(), args.setId) : latestManifestFolder()
     const manifest = readManifest(folder)
     const dbPrefix = process.env.RESTORE_VERIFY_DB_PREFIX || "atec_restore_verify_"
-    const dbName = assertSafeRestoreDatabaseName(`${dbPrefix}${Date.now()}`, process.env)
+    const requestedDatabase = String(args.database || "").trim()
+    const skipCreate = Boolean(args.skipCreate)
+    if (skipCreate && !requestedDatabase) {
+      throw new Error("--skip-create requires --database=<safe_restore_database_name>")
+    }
+    const dbName = assertSafeRestoreDatabaseName(
+      requestedDatabase || `${dbPrefix}${Date.now()}`,
+      process.env
+    )
+    const createdByVerification = !skipCreate
     const dbHost = process.env.DB_HOST || "127.0.0.1"
     const dbPort = process.env.DB_PORT || "5432"
     const dbUser = process.env.DB_USER
@@ -390,15 +399,19 @@ async function restoreVerify(args = {}) {
     if (!dbUser) throw new Error("DB_USER is required for restore verification")
 
     try {
-      await runCommand("createdb", [`--host=${dbHost}`, `--port=${dbPort}`, `--username=${dbUser}`, dbName])
-      await runCommand("pg_restore", [
+      if (createdByVerification) {
+        await runCommand("createdb", [`--host=${dbHost}`, `--port=${dbPort}`, `--username=${dbUser}`, dbName])
+      }
+      const restoreArgs = [
         `--host=${dbHost}`,
         `--port=${dbPort}`,
         `--username=${dbUser}`,
         `--dbname=${dbName}`,
         "--no-owner",
+        ...(skipCreate ? ["--clean", "--if-exists"] : []),
         dumpPath
-      ])
+      ]
+      await runCommand("pg_restore", restoreArgs)
 
       const tables = ["tblasset", "tblinspection", "tblinspectionresult", "tblequiptype", "tblusers"]
       for (const table of tables) {
@@ -418,6 +431,7 @@ async function restoreVerify(args = {}) {
         status: "success",
         timestamp: new Date().toISOString(),
         databaseName: dbName.replace(/\d+$/, "[timestamp]"),
+        databaseProvisioning: createdByVerification ? "automatic" : "pre-created",
         rowCounts
       }
       manifest.lastFailure = null
@@ -433,13 +447,15 @@ async function restoreVerify(args = {}) {
       writeManifest(folder, manifest)
       throw err
     } finally {
-      await runCommand("dropdb", [
-        "--if-exists",
-        `--host=${dbHost}`,
-        `--port=${dbPort}`,
-        `--username=${dbUser}`,
-        dbName
-      ]).catch(() => {})
+      if (createdByVerification) {
+        await runCommand("dropdb", [
+          "--if-exists",
+          `--host=${dbHost}`,
+          `--port=${dbPort}`,
+          `--username=${dbUser}`,
+          dbName
+        ]).catch(() => {})
+      }
     }
   })
 }
@@ -466,7 +482,13 @@ function applyRetention(args = {}) {
 async function main() {
   const args = parseArgs(process.argv.slice(2))
   const command = args._[0] || "status"
-  const commandArgs = { setId: args.set, apply: args.apply, force: args.force }
+  const commandArgs = {
+    setId: args.set,
+    apply: args.apply,
+    force: args.force,
+    database: args.database,
+    skipCreate: args["skip-create"]
+  }
 
   const handlers = {
     "backup:database": () => backupDatabase(commandArgs),

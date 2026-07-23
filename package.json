@@ -12,6 +12,11 @@
     "backup:retention:dry-run": "node scripts/atec-backup.js backup:retention",
     "backup:retention:apply": "node scripts/atec-backup.js backup:retention --apply",
     "backup:status": "node scripts/atec-backup.js backup:status",
+    "smoke:release": "node scripts/release-smoke-check.js",
+    "mail:verify": "node scripts/smtp-smoke-test.js",
+    "mail:test-self": "node scripts/smtp-smoke-test.js --send-self",
+    "smtp:verify": "node scripts/smtp-smoke-test.js",
+    "smtp:test-self": "node scripts/smtp-smoke-test.js --send-self",
     "test:all": "node scripts/run-release-tests.js",
     "test:task7": "node scripts/regression/task7-performance-regression.test.js",
     "test:task9": "node scripts/regression/task9-system-health.test.js",
@@ -34,7 +39,8 @@
     "test:deployment-safety": "node scripts/regression/deployment-safety.test.js",
     "test:certificate-error-access": "node scripts/regression/certificate-entered-in-error-access.test.js",
     "test:asset-archive-reason": "node scripts/regression/asset-archive-reason.test.js",
-    "test:job-cards": "node scripts/regression/technician-job-cards.test.js"
+    "test:job-cards": "node scripts/regression/technician-job-cards.test.js",
+    "test:asset-deflection": "node scripts/regression/asset-permissible-deflection.test.js"
   },
   "dependencies": {
     "multer": "^2.1.1"

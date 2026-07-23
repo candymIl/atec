@@ -20,6 +20,19 @@ Add automated email and notification workflows for due assets, coverage exceptio
 
 Turn the manual Notification Centre into a controlled automatic send workflow. This adds delivery history, last-sent visibility, daily scheduler controls, duplicate-send protection, and a manual "run scheduled check" action for admins and managers.
 
-## Task 18: Notification History And Templates - In Progress Locally
+## Task 18: Notification History And Templates - Complete Locally
 
 Expose recent manual and automatic notification delivery history on the dashboard and improve customer-facing notification email wording so customers can quickly see what needs attention.
+
+Verification:
+
+- Notification history and template regression checks pass.
+- Task 18 is included in the root release test suite.
+
+## Next Delivery Focus
+
+1. Complete production-like, role-based UAT across Admin, Manager, Inspector, Viewer, and Customer accounts.
+2. Prove database and uploads restore against an isolated restore database.
+3. Resolve migration-ledger drift and keep all future production migrations checksum-governed.
+4. Add browser-level tests for asset setup, inspections, job cards, notifications, and customer isolation.
+5. Gradually split the large backend and frontend entry files into domain modules.

@@ -10,10 +10,15 @@ const testScripts = Object.keys(packageJson.scripts)
 
 function run(command, args, label) {
   console.log(`\n=== ${label} ===`)
-  const result = spawnSync(command, args, {
+  const useWindowsCommandHost = process.platform === "win32" && command === npmCommand
+  const executable = useWindowsCommandHost ? (process.env.ComSpec || "cmd.exe") : command
+  const executableArgs = useWindowsCommandHost
+    ? ["/d", "/s", "/c", command, ...args]
+    : args
+  const result = spawnSync(executable, executableArgs, {
     cwd: root,
     stdio: "inherit",
-    shell: process.platform === "win32" && command === npmCommand
+    shell: false
   })
   if (result.error) throw result.error
   if (result.status !== 0) process.exit(result.status || 1)

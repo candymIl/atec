@@ -154,6 +154,18 @@ async function main() {
   assert.strictEqual(onlyPlan.actions[0].action, "retain")
 
   assert.deepStrictEqual(parseArgs(["backup:retention"]).apply, undefined)
+  assert.deepStrictEqual(
+    parseArgs([
+      "backup:restore-verify",
+      "--database=atec_restore_verify_manual",
+      "--skip-create"
+    ]),
+    {
+      _: ["backup:restore-verify"],
+      database: "atec_restore_verify_manual",
+      "skip-create": true
+    }
+  )
   process.env.ATEC_BACKUP_ROOT = onlyRoot
   const appliedDryRun = applyRetention({})
   assert.strictEqual(appliedDryRun.dryRun, true)
@@ -184,12 +196,16 @@ async function main() {
   assert.strictEqual(systemInfo.backup.latestBackupSetId, currentId)
 
   const serverSource = fs.readFileSync(path.join(__dirname, "..", "..", "backend", "server.js"), "utf8")
+  const backupSource = fs.readFileSync(path.join(__dirname, "..", "atec-backup.js"), "utf8")
   assert(serverSource.indexOf('app.use(requireAuth)') < serverSource.indexOf('app.get("/admin/system-info"'))
   assert(serverSource.includes('if (req.user.role !== "ADMIN")'))
   assert(serverSource.includes('app.get("/health"'))
+  assert(backupSource.includes('...(skipCreate ? ["--clean", "--if-exists"] : [])'))
 
   const docs = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "backup-and-disaster-recovery.md"), "utf8")
   assert(docs.includes("RESTORE_VERIFY_DB_PREFIX"))
+  assert(docs.includes("--skip-create"))
+  assert(docs.includes("--database="))
   assert(docs.includes("Offsite Copy"))
   assert(docs.includes("Full Server Loss Runbook"))
 

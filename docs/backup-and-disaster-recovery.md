@@ -74,6 +74,22 @@ Run weekly isolated restore verification:
 npm run backup:restore-verify
 ```
 
+If the application database account is intentionally not allowed to create databases, have a PostgreSQL administrator create an empty, application-owned verification database using the configured safe prefix:
+
+```sql
+CREATE DATABASE atec_restore_verify_manual OWNER atec_app;
+```
+
+Then run:
+
+```bash
+npm run backup:restore-verify -- --force --database=atec_restore_verify_manual --skip-create
+```
+
+`--skip-create` requires an explicit `--database=` value. The database name must pass the same safety policy as automatically generated restore databases. A pre-created database is not dropped automatically; the administrator remains responsible for dropping or recreating it after verification.
+
+For repeatability, restore verification cleans objects represented in the backup before restoring into a pre-created test database. Never point this command at a database containing data that must be retained.
+
 Preview retention:
 
 ```bash
@@ -131,10 +147,12 @@ Routine isolated restore verification:
 
 - Requires `RESTORE_VERIFY_ENABLED=true`.
 - Creates a temporary database with prefix `atec_restore_verify_`.
+- Alternatively accepts a safely pre-created empty database through `--database=<name> --skip-create`.
 - Refuses `fbcranes`, the configured `DB_NAME`, `postgres`, and template databases.
 - Restores the latest valid dump.
 - Queries critical `atec` tables without exposing row data.
-- Drops the temporary verification database after success or failure where possible.
+- Drops only databases that the verification command created itself.
+- Never automatically drops a database supplied with `--skip-create`.
 
 Real production restore is different and requires explicit human approval.
 

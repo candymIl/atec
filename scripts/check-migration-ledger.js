@@ -41,13 +41,18 @@ function migrationFiles() {
 function statusFor(file, ledgerMissing, ledgerRow) {
   if (ledgerMissing) return "LEDGER MISSING"
   if (!ledgerRow) return "UNTRACKED"
-  if (ledgerRow.checksum !== file.checksum) return "CHECKSUM MISMATCH"
+  if (ledgerRow.checksum !== file.checksum) {
+    if (String(ledgerRow.notes || "").startsWith("Production baseline:")) {
+      return "BASELINE DRIFT"
+    }
+    return "CHECKSUM MISMATCH"
+  }
   return "TRACKED"
 }
 
 function printTable(rows) {
   const headers = [
-    ["status", 18],
+    ["status", 20],
     ["migration", 72],
     ["checksum", 64],
     ["applied_at", 24],
@@ -147,6 +152,7 @@ async function main() {
       console.log("")
       console.log(
         `Summary: ${combinedReport.filter(row => row.status === "TRACKED").length} tracked, ` +
+        `${combinedReport.filter(row => row.status === "BASELINE DRIFT").length} baseline drift, ` +
         `${combinedReport.filter(row => row.status === "UNTRACKED").length} untracked, ` +
         `${combinedReport.filter(row => row.status === "CHECKSUM MISMATCH").length} checksum mismatch, ` +
         `${combinedReport.filter(row => row.status === "LEDGER MISSING").length} ledger missing.`

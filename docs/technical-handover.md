@@ -125,19 +125,21 @@ Repository root:
 - `backend/package.json`: backend scripts and dependencies.
 - `backend/package-lock.json`: exact backend dependency lock.
 - `backend/.env.example`: complete example backend environment file.
-- `backend/uploads`: default local upload root when `UPLOADS_PATH` is not set.
+- `backend/uploads`: legacy fallback upload root when neither `UPLOAD_ROOT` nor `UPLOADS_PATH` is set. Current Windows development uses the external `D:\ATECData\uploads` store.
 
 `backend/middleware`:
 
 - `backend/middleware/security.js`: JWT helpers, cookie options, `requireAuth`, role helpers, audit logger, async route wrapper, centralized error handler, upload MIME/extension validation, filename sanitization, and file magic-byte validation.
 
-`backend/uploads`:
+Upload storage:
 
 - `assets`: asset photos.
 - `inspections`: inspection photos.
 - `signatures`: inspector/user signature images.
-- This directory contains business data and must be backed up with the database.
-- In production, prefer an external path such as `/var/lib/atec/uploads` and set `UPLOADS_PATH`.
+- `job-cards`: job-card photos and customer signatures.
+- These directories contain business data and must be backed up with the matching database.
+- Keep the active store outside the source tree. Prefer `UPLOAD_ROOT=D:\ATECData\uploads` on Windows or `UPLOAD_ROOT=/var/lib/atec/uploads` on Linux.
+- `UPLOADS_PATH` remains a compatibility alias.
 
 `frontend`:
 
@@ -150,7 +152,7 @@ Repository root:
 - `frontend/src/api.js`: API base URL and asset URL helpers.
 - `frontend/src/style.css` and `frontend/src/App.css`: application styling.
 - `frontend/src/pages`: page-specific modules.
-- `frontend/src/tableSort.js`, `pagination.js`, `counter.js`: UI utility modules.
+- `frontend/src/tableSort.js` and `pagination.js`: UI utility modules.
 - `frontend/src/assets`: source assets.
 
 `frontend/public`:
@@ -284,7 +286,8 @@ Backend variables:
 - `PUBLIC_BASE_PATH`: frontend base path, currently `/`.
 - `BACKEND_API_PREFIX`: mounted API prefix, normally `/api` in production.
 - `TRUST_PROXY`: set to `1` behind Nginx/Apache/SSL proxy.
-- `UPLOADS_PATH`: filesystem path for uploaded assets, inspection photos, and signatures. Defaults to `backend/uploads`.
+- `UPLOAD_ROOT`: preferred upload-storage variable. It is mandatory in production and must resolve outside the application source tree.
+- `UPLOADS_PATH`: compatibility alias for older environments. Development may fall back to `backend/uploads`; production does not.
 - `BACKUP_ROOT`: optional default backup location for `scripts/backup-atec.ps1`.
 - `PUPPETEER_EXECUTABLE_PATH`: path to Chromium/Edge when Chromium is not bundled.
 - `SMTP_HOST`: SMTP server host.
@@ -293,6 +296,11 @@ Backend variables:
 - `SMTP_USER`: SMTP username.
 - `SMTP_PASS`: SMTP password.
 - `MAIL_FROM`: sender address used for certificate email.
+- `MAIL_PROVIDER`: set to `graph` to use Microsoft Graph; otherwise the SMTP transport is used.
+- `GRAPH_TENANT_ID`: Microsoft Entra tenant ID for application authentication.
+- `GRAPH_CLIENT_ID`: Microsoft Entra application/client ID.
+- `GRAPH_CLIENT_SECRET`: Microsoft Entra application secret. Store and rotate it as a production secret.
+- `GRAPH_SENDER`: licensed/shared mailbox used by the Graph `sendMail` endpoint.
 
 Frontend variables:
 
@@ -318,7 +326,7 @@ JWT_EXPIRES_IN=8h
 COOKIE_SECURE=true
 COOKIE_SAME_SITE=lax
 COOKIE_PATH=/
-UPLOADS_PATH=/var/lib/atec/uploads
+UPLOAD_ROOT=/var/lib/atec/uploads
 PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 SMTP_HOST=smtp.example.com
 SMTP_PORT=587
@@ -856,14 +864,16 @@ Frontend startup:
 
 Email:
 
-- Uses SMTP via `nodemailer`.
-- Required variables: `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM`.
+- Uses Microsoft Graph when `MAIL_PROVIDER=graph`; this is the currently verified provider.
+- Graph requires `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`, and `GRAPH_SENDER`.
+- SMTP via `nodemailer` remains available as a fallback when Graph is not selected.
+- SMTP requires `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, and `MAIL_FROM`.
 - Used by `POST /certificates/:testid/email` to email certificate PDFs.
 
 PDF/browser rendering:
 
 - Uses `puppeteer-core`.
-- Requires `PUPPETEER_EXECUTABLE_PATH` when Chromium is not bundled.
+- Auto-detects common Chrome, Edge, and Chromium locations. Set `PUPPETEER_EXECUTABLE_PATH` when the browser is installed elsewhere.
 
 PostgreSQL:
 
@@ -874,7 +884,7 @@ Other services:
 - No SMS integration found.
 - No payment gateway found.
 - No Azure-specific integration found.
-- No Microsoft 365 Graph integration found.
+- Microsoft 365 Graph application-mail integration is available and is the active local provider when `MAIL_PROVIDER=graph`.
 - No Google API integration found.
 - No maps integration found.
 
@@ -931,9 +941,10 @@ CORS:
 
 CSRF:
 
-- There is no explicit CSRF token implementation.
-- SameSite `lax` cookies reduce some CSRF exposure.
-- Because the API uses cookies, consider adding CSRF tokens for high-risk write operations if the app will be exposed broadly.
+- Mutating `POST`, `PUT`, `PATCH`, and `DELETE` requests are protected by configured-origin validation.
+- Login, logout, and all authenticated mutating routes use the same CSRF-origin policy.
+- Session cookies also use SameSite protection.
+- Production must keep `FRONTEND_ORIGIN` restricted to the real public application origins.
 
 Uploads:
 
@@ -1087,6 +1098,29 @@ cd D:\Projects\ATEC\frontend
 npm run build
 ```
 
+Release smoke check:
+
+```powershell
+cd D:\Projects\ATEC
+npm.cmd run smoke:release
+```
+
+This read-only check verifies backend HTTP health, PostgreSQL/schema connectivity, external upload storage, current backup/restore evidence, required SMTP configuration, and an available Chrome/Edge/Chromium PDF engine. It does not send email or modify business data.
+
+Mail-provider authentication check:
+
+```powershell
+npm.cmd run mail:verify
+```
+
+Explicit self-addressed delivery test:
+
+```powershell
+npm.cmd run mail:test-self
+```
+
+The command follows `MAIL_PROVIDER`. For Graph it authenticates with the configured application credentials and sends only to `GRAPH_SENDER`; for SMTP it sends only to `SMTP_USER`. The message identifies itself as an integration test and does not use customer data.
+
 Deploy:
 
 - Build frontend.
@@ -1236,18 +1270,19 @@ Rollback:
 
 - No full baseline schema dump is committed. Migration depends on a restored existing ATEC database.
 - API routes and many helper functions are concentrated in `backend/server.js`, which makes future maintenance harder.
-- There is no automated test suite in the repository.
+- The repository has a root release suite covering major feature regressions, backend syntax, and the frontend production build. Browser and live integration coverage still needs expansion.
 - No TypeScript, lint, or formatting configuration is present.
 - No Docker configuration is present.
 - No PM2 ecosystem file is present.
 - No dedicated application log folder exists; logging depends on process manager and reverse proxy logs.
-- No explicit CSRF token implementation exists despite cookie-based auth.
-- Non-login routes do not have specific rate limits.
-- `GET /dashboard/visual-due` currently returns a placeholder `{ "total": 0 }`.
-- Root `package.json` appears unused for the main app.
-- `frontend/package.json` only declares Vite even though `.jsx` files exist; verify whether those files are legacy or whether frontend dependencies are incomplete.
-- The working tree currently contains many upload-file changes and generated artifacts. Do not treat the current working tree as a clean release without reviewing `git status`.
-- Uploads are business-critical data and should not be stored only inside the application code folder in production.
+- CSRF protection is origin-based rather than token-based. Keep the allowed-origin configuration narrow and review whether a token-based design is required if additional client types are introduced.
+- Dedicated rate-limit profiles protect login, search, uploads, PDF generation, exports, email, and scheduler actions. Continue reviewing new high-cost routes as they are added.
+- `GET /dashboard/visual-due` now calculates a real customer-scoped count for active assets with no visual inspection or an expired visual inspection.
+- Root `package.json` orchestrates release, backup, media-maintenance, and regression commands.
+- The unused React/JSX starter files were removed; the frontend is intentionally a Vite/plain-JavaScript application.
+- Operational uploads are excluded from Git and the active Windows upload store is outside the source workspace. The verified legacy in-workspace copy was removed after the backend restarted successfully against the external store.
+- Production startup now rejects a missing upload-root configuration or any upload root inside the source tree.
+- Historical migration checks distinguish verified baseline checksum drift from true post-baseline checksum mismatches. Baseline drift still requires documentation, but it does not imply that historical data-changing migrations should be rerun.
 - Certificate PDF generation depends on a Chromium-compatible executable when using `puppeteer-core`; this must be verified on the target Linux distribution.
-- SMTP is optional but certificate email fails until SMTP variables are configured.
+- Microsoft Graph is the verified mail provider. On 2026-07-23, application authentication succeeded and a self-addressed test message was accepted by Graph with HTTP 202. SMTP remains a fallback path and may still be blocked by Microsoft 365 security defaults.
 - Some foreign keys were historically skipped until data was cleaned. Validate constraints after restoring a live database.

@@ -1,3 +1,5 @@
+const path = require("path")
+
 function positiveInteger(value, fallback, max = fallback) {
   const parsed = Number(value)
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback
@@ -15,6 +17,35 @@ function dbPoolConfig(env = process.env) {
     connectionTimeoutMillis: positiveInteger(env.DB_CONNECTION_TIMEOUT_MS, 5000, 60000),
     statement_timeout: positiveInteger(env.DB_STATEMENT_TIMEOUT_MS, 30000, 10 * 60 * 1000),
     query_timeout: positiveInteger(env.DB_QUERY_TIMEOUT_MS, 30000, 10 * 60 * 1000)
+  }
+}
+
+function resolveUploadRoot({
+  env = process.env,
+  projectRoot = path.resolve(__dirname, "..", ".."),
+  backendRoot = path.resolve(__dirname, "..")
+} = {}) {
+  const configured = String(env.UPLOAD_ROOT || env.UPLOADS_PATH || "").trim()
+  const resolved = path.resolve(configured || path.join(backendRoot, "uploads"))
+  const workspace = path.resolve(projectRoot)
+  const insideWorkspace =
+    resolved === workspace ||
+    resolved.startsWith(workspace + path.sep)
+
+  if (String(env.NODE_ENV || "").toLowerCase() === "production") {
+    if (!configured) {
+      throw new Error("UPLOAD_ROOT is required in production")
+    }
+
+    if (insideWorkspace) {
+      throw new Error("UPLOAD_ROOT must be outside the application source tree in production")
+    }
+  }
+
+  return {
+    path: resolved,
+    configured: Boolean(configured),
+    insideWorkspace
   }
 }
 
@@ -41,5 +72,6 @@ module.exports = {
   dbPoolConfig,
   pdfConfig,
   positiveInteger,
+  resolveUploadRoot,
   uploadProcessingConfig
 }

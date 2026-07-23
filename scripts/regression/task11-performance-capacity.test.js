@@ -1,11 +1,13 @@
 const assert = require("assert")
 const fs = require("fs")
 const path = require("path")
+const testRoot = path.resolve(__dirname, "..", "..")
 
 const {
   dbPoolConfig,
   pdfConfig,
   positiveInteger,
+  resolveUploadRoot,
   uploadProcessingConfig
 } = require("../../backend/services/runtimeConfig")
 const {
@@ -69,6 +71,47 @@ assert.deepStrictEqual(uploadProcessingConfig({
   compressMinBytes: 512000,
   concurrency: 8
 })
+
+const developmentUploadRoot = resolveUploadRoot({
+  env: { NODE_ENV: "development" },
+  projectRoot: path.join(testRoot, "project"),
+  backendRoot: path.join(testRoot, "project", "backend")
+})
+assert.strictEqual(developmentUploadRoot.configured, false)
+assert.strictEqual(developmentUploadRoot.insideWorkspace, true)
+assert.strictEqual(
+  developmentUploadRoot.path,
+  path.resolve(testRoot, "project", "backend", "uploads")
+)
+
+const productionUploadRoot = resolveUploadRoot({
+  env: { NODE_ENV: "production", UPLOAD_ROOT: path.join(testRoot, "atec-data", "uploads") },
+  projectRoot: path.join(testRoot, "project"),
+  backendRoot: path.join(testRoot, "project", "backend")
+})
+assert.strictEqual(productionUploadRoot.configured, true)
+assert.strictEqual(productionUploadRoot.insideWorkspace, false)
+
+assert.throws(
+  () => resolveUploadRoot({
+    env: { NODE_ENV: "production" },
+    projectRoot: path.join(testRoot, "project"),
+    backendRoot: path.join(testRoot, "project", "backend")
+  }),
+  /UPLOAD_ROOT is required in production/
+)
+
+assert.throws(
+  () => resolveUploadRoot({
+    env: {
+      NODE_ENV: "production",
+      UPLOAD_ROOT: path.join(testRoot, "project", "backend", "uploads")
+    },
+    projectRoot: path.join(testRoot, "project"),
+    backendRoot: path.join(testRoot, "project", "backend")
+  }),
+  /outside the application source tree/
+)
 
 const safePerf = safePerformanceInfo({
   checkedAt: "2026-07-14T10:00:00.000Z",

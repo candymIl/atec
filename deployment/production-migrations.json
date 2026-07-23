@@ -1,6 +1,7 @@
 {
   "schema": "atec",
   "migrations": [
+    "2026-07-13-sync-behind-postgres-sequences.sql",
     "2026-07-14-inspection-frequency.sql",
     "2026-07-15-task12a-optional-inspection-tag.sql",
     "2026-07-15-task13-nfc-asset-support.sql",
