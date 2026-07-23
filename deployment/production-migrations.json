@@ -26,6 +26,7 @@
     "2026-07-21-electric-chain-hoist-frequent-inspection.sql",
     "2026-07-21-pneumatic-hoist-frequent-inspection.sql",
     "2026-07-21-electric-rope-hoist-inspection-criteria.sql",
-    "2026-07-21-electric-rope-hoist-remove-top-hook.sql"
+    "2026-07-21-electric-rope-hoist-remove-top-hook.sql",
+    "2026-07-21-technician-job-cards.sql"
   ]
 }

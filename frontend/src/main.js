@@ -9074,7 +9074,7 @@ window.saveDashboardSectionAllocation = async function (assetid, siteid) {
     closeDashboardSectionAllocation()
     await loadData()
     await showDashboardReviewQueue('missing-section')
-    loadDashboardStats()
+    await loadDashboardSummary()
   } catch (err) {
     console.error('Section allocation failed:', err)
     alert(err.message || 'Unable to allocate the section.')
@@ -9259,7 +9259,7 @@ window.repairSelectedCertificateMetadata = async function () {
 
     alert(`${result.updated.length} inspection signature(s) repaired. ${result.blocked.length} left unchanged.`)
     await showDashboardReviewQueue('certificate-metadata')
-    loadDashboardStats()
+    await loadDashboardSummary()
   } catch (err) {
     console.error('Certificate metadata repair failed:', err)
     alert(err.message || 'Certificate metadata repair failed.')
