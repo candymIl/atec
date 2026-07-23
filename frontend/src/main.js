@@ -10464,9 +10464,17 @@ window.showJobCards = async function () {
 }
 
 async function loadJobCardFormData() {
-  const [assetResponse, techResponse] = await Promise.all([fetch(`${API_BASE}/assets?limit=250&sortKey=clientname&sortDir=asc`), fetch(`${API_BASE}/job-cards-technicians`)])
+  const assetPageUrl = page => `${API_BASE}/assets?limit=250&page=${page}&sortKey=clientname&sortDir=asc`
+  const [assetResponse, techResponse] = await Promise.all([fetch(assetPageUrl(1)), fetch(`${API_BASE}/job-cards-technicians`)])
   const assetPayload = await readApiResponse(assetResponse)
   jobCardAssets = Array.isArray(assetPayload) ? assetPayload : (assetPayload.rows || [])
+  const totalAssets = Number(assetPayload.total || jobCardAssets.length)
+  const remainingPages = Math.ceil(totalAssets / 250)
+  if (assetResponse.ok && remainingPages > 1) {
+    const pageResponses = await Promise.all(Array.from({ length: remainingPages - 1 }, (_, index) => fetch(assetPageUrl(index + 2))))
+    const pagePayloads = await Promise.all(pageResponses.map(response => readApiResponse(response)))
+    jobCardAssets.push(...pagePayloads.flatMap(payload => Array.isArray(payload) ? payload : (payload.rows || [])))
+  }
   jobCardTechnicians = techResponse.ok ? await techResponse.json() : [{ user_id: currentUser.user_id, full_name: currentUser.full_name }]
 }
 
@@ -10501,7 +10509,7 @@ function renderJobCardForm() {
         ${['ADMIN','MANAGER'].includes(currentUser.role) ? `<label class="job-card-email-option"><span><input id="jcEmailTechnician" type="checkbox" checked> Email technician when assigned</span><small>The assignment still saves if email delivery fails.</small></label>` : ''}
         <label>Job type<select id="jcType">${['BREAKDOWN','REPAIR','LOAD_TEST','SERVICES','INSPECTIONS','INSTALLATION','INVESTIGATION','OTHER'].map(value => jobCardOption(value,value.replaceAll('_',' '),card.job_type)).join('')}</select></label>
         <label>Priority<select id="jcPriority">${['LOW','NORMAL','HIGH','URGENT'].map(value => jobCardOption(value,value,card.priority)).join('')}</select></label>
-        <label>Customer PO / requisition<input id="jcReference" value="${safeAttr(card.customer_reference || '')}"></label>
+        <label>Job Number<input id="jcReference" value="${safeAttr(card.customer_reference || '')}"></label>
         <label>Contact person<input id="jcContact" value="${safeAttr(card.customer_contact_name || '')}"></label>
         <label>Contact number<input id="jcPhone" value="${safeAttr(card.customer_contact_phone || '')}"></label>
         <label>Planned date/time<input id="jcPlanned" type="datetime-local" value="${safeAttr(dateTimeLocalValue(card.planned_at))}"></label>

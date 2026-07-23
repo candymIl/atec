@@ -14018,6 +14018,47 @@ function addJobCardPdfPageFrames(doc, card) {
   }
 }
 
+function drawJobCardPdfSummary(doc, card) {
+  const x = doc.page.margins.left
+  const y = doc.y
+  const width = doc.page.width - doc.page.margins.left - doc.page.margins.right
+  const height = 108
+  const columnWidth = width / 2
+  const rowHeight = height / 3
+  const paddingX = 11
+  const fields = [
+    ["Job Card", card.jobcard_reference],
+    ["Customer / Site", `${card.clientname || "-"} / ${card.sitename || "-"}`],
+    ["Technician", card.assigned_to_name],
+    ["Job Number", card.customer_reference],
+    ["Job Status", String(card.status || "-").replaceAll("_", " ")],
+    ["Equipment Status", String(card.equipment_status || "-").replaceAll("_", " ")]
+  ]
+
+  doc.save()
+  doc.roundedRect(x, y, width, height, 5).fillAndStroke("#f8fafc", "#cbd5e1")
+  doc.strokeColor("#e2e8f0").lineWidth(0.6)
+  doc.moveTo(x + columnWidth, y).lineTo(x + columnWidth, y + height).stroke()
+  for (let row = 1; row < 3; row += 1) {
+    doc.moveTo(x, y + (row * rowHeight)).lineTo(x + width, y + (row * rowHeight)).stroke()
+  }
+
+  fields.forEach(([label, value], index) => {
+    const column = index % 2
+    const row = Math.floor(index / 2)
+    const cellX = x + (column * columnWidth) + paddingX
+    const cellY = y + (row * rowHeight) + 7
+    const textWidth = columnWidth - (paddingX * 2)
+    doc.font("Helvetica-Bold").fontSize(6.5).fillColor("#64748b")
+      .text(label.toUpperCase(), cellX, cellY, { width: textWidth, lineBreak: false })
+    doc.font("Helvetica").fontSize(9).fillColor("#111827")
+      .text(String(value || "-"), cellX, cellY + 11, { width: textWidth, height: 16, ellipsis: true })
+  })
+  doc.restore()
+  doc.x = x
+  doc.y = y + height + 9
+}
+
 app.get("/job-cards/:id/pdf", pdfLimiter, asyncRoute(async (req, res) => {
   const card = await loadJobCard(req.params.id)
   if (!card) return res.status(404).json({ error: "Job card not found" })
@@ -14029,9 +14070,8 @@ app.get("/job-cards/:id/pdf", pdfLimiter, asyncRoute(async (req, res) => {
   doc.pipe(res)
   const line = (label, value) => { doc.font("Helvetica-Bold").text(`${label}: `, { continued: true }).font("Helvetica").text(String(value || "-")) }
   doc.fontSize(15).font("Helvetica-Bold").fillColor("#183153").text("TECHNICIAN JOB CARD", { align: "center" }).moveDown(.6)
+  drawJobCardPdfSummary(doc, card)
   doc.fillColor("black").fontSize(9)
-  line("Job card", card.jobcard_reference); line("Customer / Site", `${card.clientname} / ${card.sitename}`); line("Technician", card.assigned_to_name)
-  line("Customer reference", card.customer_reference); line("Status", card.status.replaceAll("_", " ")); line("Equipment status", card.equipment_status.replaceAll("_", " "))
   const section = (title, value) => { doc.moveDown(.6).font("Helvetica-Bold").fillColor("#183153").text(title.toUpperCase()); doc.fillColor("black").font("Helvetica").text(String(value || "-")) }
   section("Fault reported", card.reported_fault); section("Findings and diagnosis", card.findings); section("Root cause", card.root_cause)
   section("Work performed", card.work_performed); section("Operational test", `${card.test_performed || "-"}\nResult: ${card.test_result || "-"}`)
