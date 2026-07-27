@@ -45,6 +45,12 @@ const trestleManCageLoadTestMigration = fs.readFileSync(
   path.join(root, "database", "2026-07-21-trestle-man-cage-load-test-criteria.sql"),
   "utf8"
 )
+const trestleSans1854Migration = fs.readFileSync(
+  path.join(root, "database", "2026-07-27-trestle-sans1854-criteria.sql"),
+  "utf8"
+)
+const backendServer = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8")
+const frontendMain = fs.readFileSync(path.join(root, "frontend", "src", "main.js"), "utf8")
 
 const backupAt = deploy.indexOf("npm run backup:create")
 const migrationAt = deploy.indexOf("scripts/apply-production-migrations.js")
@@ -67,6 +73,7 @@ assert(manifest.migrations.includes("2026-07-21-more-frequent-inspection-equipme
 assert(manifest.migrations.includes("2026-07-21-manual-hoists-frequent-inspection.sql"))
 assert(manifest.migrations.includes("2026-07-21-trolley-pallet-jack-load-test-criteria.sql"))
 assert(manifest.migrations.includes("2026-07-21-trestle-man-cage-load-test-criteria.sql"))
+assert(manifest.migrations.includes("2026-07-27-trestle-sans1854-criteria.sql"))
 assert(beamClampFrequencyMigration.includes("'FREQUENT_INSPECTION'"))
 assert(beamClampFrequencyMigration.includes("'beam clamp', 'beam clamps'"))
 assert(beamClampFrequencyMigration.includes("COALESCE(criteria.inspectioncategory, 'VISUAL') = 'VISUAL'"))
@@ -104,6 +111,17 @@ assert(trestleManCageLoadTestMigration.includes("'TRESTLE'"))
 assert(trestleManCageLoadTestMigration.includes("'MAN_CAGE'"))
 assert(trestleManCageLoadTestMigration.includes("'PERIODIC_THOROUGH_INSPECTION'"))
 assert(trestleManCageLoadTestMigration.includes("SWL/test load actually lifted"))
+assert(trestleSans1854Migration.includes("SET description = 'Trestle'"))
+assert(trestleSans1854Migration.includes("not less than 16 kN"))
+assert(trestleSans1854Migration.includes("minimum of 8 kN"))
+assert(trestleSans1854Migration.includes("no more than 5 kN per minute"))
+assert(trestleSans1854Migration.includes("inspection observations at 10 kN"))
+assert(trestleSans1854Migration.includes("exactly 13 active SANS 1854 load-test criteria"))
+assert(trestleSans1854Migration.includes("failure mode and the location of any failure"))
+assert(!backendServer.includes('"engine lifter"'))
+assert(!backendServer.includes('"trestles / engine lifter"'))
+assert(!frontendMain.includes('"engine lifter"'))
+assert(!frontendMain.includes('"trestles / engine lifter"'))
 assert(contract.requirements.some(item => item.table === "tblinspection" && item.columns.includes("record_status")))
 assert(migrator.includes("schema_migrations"), "Migrator must record applied migrations")
 assert(migrator.includes("Checksum mismatch"), "Migrator must reject changed applied migrations")
