@@ -49,6 +49,10 @@ const trestleSans1854Migration = fs.readFileSync(
   path.join(root, "database", "2026-07-27-trestle-sans1854-criteria.sql"),
   "utf8"
 )
+const trestleVisualInspectionMigration = fs.readFileSync(
+  path.join(root, "database", "2026-07-27-trestle-visual-inspection-criteria.sql"),
+  "utf8"
+)
 const inspectionCriteriaSnapshotsMigration = fs.readFileSync(
   path.join(root, "database", "2026-07-27-inspection-criteria-snapshots.sql"),
   "utf8"
@@ -78,6 +82,7 @@ assert(manifest.migrations.includes("2026-07-21-manual-hoists-frequent-inspectio
 assert(manifest.migrations.includes("2026-07-21-trolley-pallet-jack-load-test-criteria.sql"))
 assert(manifest.migrations.includes("2026-07-21-trestle-man-cage-load-test-criteria.sql"))
 assert(manifest.migrations.includes("2026-07-27-trestle-sans1854-criteria.sql"))
+assert(manifest.migrations.includes("2026-07-27-trestle-visual-inspection-criteria.sql"))
 assert(manifest.migrations.includes("2026-07-27-inspection-criteria-snapshots.sql"))
 assert(beamClampFrequencyMigration.includes("'FREQUENT_INSPECTION'"))
 assert(beamClampFrequencyMigration.includes("'beam clamp', 'beam clamps'"))
@@ -122,12 +127,12 @@ assert(trestleSans1854Migration.includes("minimum of 8 kN"))
 assert(trestleSans1854Migration.includes("no more than 5 kN per minute"))
 assert(trestleSans1854Migration.includes("inspection observations at 10 kN"))
 assert(trestleSans1854Migration.includes("exactly 13 active SANS 1854 load-test criteria"))
-assert(trestleSans1854Migration.includes("exactly 12 active SANS 1854 visual-inspection criteria"))
+assert(trestleVisualInspectionMigration.includes("exactly 12 active SANS 1854 visual-inspection criteria"))
 assert(trestleSans1854Migration.includes("failure mode and the location of any failure"))
-assert(trestleSans1854Migration.includes("'VISUAL'"))
-assert(trestleSans1854Migration.includes("'FREQUENT_INSPECTION'"))
-assert(trestleSans1854Migration.includes("height-adjustment mechanism"))
-assert(trestleSans1854Migration.includes("platform-carrying member and welded end stops"))
+assert(trestleVisualInspectionMigration.includes("'VISUAL'"))
+assert(trestleVisualInspectionMigration.includes("'FREQUENT_INSPECTION'"))
+assert(trestleVisualInspectionMigration.includes("height-adjustment mechanism"))
+assert(trestleVisualInspectionMigration.includes("platform-carrying member and welded end stops"))
 assert(!backendServer.includes('"engine lifter"'))
 assert(!backendServer.includes('"trestles / engine lifter"'))
 assert(!frontendMain.includes('"engine lifter"'))
