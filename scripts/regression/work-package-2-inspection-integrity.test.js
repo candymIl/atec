@@ -136,6 +136,16 @@ assertIncludes(
   "certificate.certificateEligibility = evaluateCertificateEligibility(certificate)",
   "Certificate data loader must attach a shared eligibility decision"
 )
+assertIncludes(
+  certificateLoader,
+  "snapshotCriteriaByTestid.get",
+  "Historical certificate validation must use the criteria snapshot captured for that inspection"
+)
+assertIncludes(
+  inspectionCreateRoute,
+  "INSERT INTO atec.tblinspectioncriteriasnapshot",
+  "New inspections must snapshot their expected criteria set"
+)
 assert(
   !certificateLoader.includes("certificate.results.push(...criteriaRows.map"),
   "Certificate loader must not fabricate result rows from criteria"

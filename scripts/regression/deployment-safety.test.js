@@ -49,6 +49,10 @@ const trestleSans1854Migration = fs.readFileSync(
   path.join(root, "database", "2026-07-27-trestle-sans1854-criteria.sql"),
   "utf8"
 )
+const inspectionCriteriaSnapshotsMigration = fs.readFileSync(
+  path.join(root, "database", "2026-07-27-inspection-criteria-snapshots.sql"),
+  "utf8"
+)
 const backendServer = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8")
 const frontendMain = fs.readFileSync(path.join(root, "frontend", "src", "main.js"), "utf8")
 
@@ -74,6 +78,7 @@ assert(manifest.migrations.includes("2026-07-21-manual-hoists-frequent-inspectio
 assert(manifest.migrations.includes("2026-07-21-trolley-pallet-jack-load-test-criteria.sql"))
 assert(manifest.migrations.includes("2026-07-21-trestle-man-cage-load-test-criteria.sql"))
 assert(manifest.migrations.includes("2026-07-27-trestle-sans1854-criteria.sql"))
+assert(manifest.migrations.includes("2026-07-27-inspection-criteria-snapshots.sql"))
 assert(beamClampFrequencyMigration.includes("'FREQUENT_INSPECTION'"))
 assert(beamClampFrequencyMigration.includes("'beam clamp', 'beam clamps'"))
 assert(beamClampFrequencyMigration.includes("COALESCE(criteria.inspectioncategory, 'VISUAL') = 'VISUAL'"))
@@ -127,6 +132,9 @@ assert(!backendServer.includes('"engine lifter"'))
 assert(!backendServer.includes('"trestles / engine lifter"'))
 assert(!frontendMain.includes('"engine lifter"'))
 assert(!frontendMain.includes('"trestles / engine lifter"'))
+assert(inspectionCriteriaSnapshotsMigration.includes("CREATE TABLE IF NOT EXISTS atec.tblinspectioncriteriasnapshot"))
+assert(inspectionCriteriaSnapshotsMigration.includes("FROM atec.tblinspectionresult result"))
+assert(inspectionCriteriaSnapshotsMigration.includes("ON CONFLICT (testid, criteriaid) DO NOTHING"))
 assert(contract.requirements.some(item => item.table === "tblinspection" && item.columns.includes("record_status")))
 assert(migrator.includes("schema_migrations"), "Migrator must record applied migrations")
 assert(migrator.includes("Checksum mismatch"), "Migrator must reject changed applied migrations")

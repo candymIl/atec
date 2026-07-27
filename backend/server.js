@@ -6774,6 +6774,43 @@ app.post("/inspections",
 
       const testid = inspection.rows[0].testid
 
+      await client.query(
+        `
+        INSERT INTO atec.tblinspectioncriteriasnapshot (testid, criteriaid)
+        SELECT $1, criteria.criteriaid
+        FROM atec.tblequiptypecriteria criteria
+        WHERE criteria.equiptypeid = $2
+          AND COALESCE(criteria.active, true) = true
+          AND (
+            (
+              $3 = 'LOADTEST'
+              AND (
+                UPPER(COALESCE(criteria.inspectioncategory, '')) = 'LOADTEST'
+                OR UPPER(COALESCE(criteria.criterianame, criteria.criteriadescription, '')) IN (
+                  'SAFE FOR SERVICE',
+                  'SAFE FOR CONTINUED OPERATION'
+                )
+              )
+            )
+            OR (
+              $3 <> 'LOADTEST'
+              AND UPPER(COALESCE(criteria.inspectioncategory, 'VISUAL')) <> 'LOADTEST'
+              AND (
+                $4 <> 'FREQUENT'
+                OR UPPER(COALESCE(criteria.inspection_category, '')) <> 'PERIODIC_THOROUGH_INSPECTION'
+              )
+            )
+          )
+        ON CONFLICT (testid, criteriaid) DO NOTHING
+        `,
+        [
+          testid,
+          criteriaAvailability.equiptypeid,
+          inspectionTypeForCriteria,
+          normalizedInspectionFrequency
+        ]
+      )
+
       const photoFiles = req.files?.inspectionPhotos || []
       const captions = Array.isArray(req.body.photoCaptions)
         ? req.body.photoCaptions
@@ -8160,6 +8197,36 @@ async function getCertificatesData(testids = []) {
       .filter(value => Number.isInteger(value) && value > 0)
   )]
 
+  const snapshotCriteriaResult = await pool.query(
+    `
+    SELECT
+      snapshot.testid,
+      criteria.criteriaid,
+      criteria.equiptypeid,
+      COALESCE(criteria.criteriadescription, criteria.criterianame, 'Criteria ' || criteria.criteriaid) AS criterianame,
+      criteria.fieldtype,
+      COALESCE(criteria.resulttype,
+        CASE WHEN UPPER(COALESCE(criteria.fieldtype, '')) = 'NUMBER' THEN 'MEASURED' ELSE 'PASS_FAIL' END
+      ) AS resulttype,
+      COALESCE(criteria.inspectioncategory, 'VISUAL') AS inspectioncategory,
+      COALESCE(criteria.inspection_category, 'PERIODIC_THOROUGH_INSPECTION') AS inspection_category,
+      COALESCE(criteria.severity, 'MINOR') AS severity,
+      COALESCE(criteria.displayorder, criteria.sortorder, criteria.criteriaid) AS displayorder
+    FROM atec.tblinspectioncriteriasnapshot snapshot
+    INNER JOIN atec.tblequiptypecriteria criteria
+      ON criteria.criteriaid = snapshot.criteriaid
+    WHERE snapshot.testid = ANY($1::int[])
+    ORDER BY snapshot.testid, COALESCE(criteria.displayorder, criteria.sortorder, criteria.criteriaid), criteria.criteriaid
+    `,
+    [normalizedTestIds]
+  )
+  const snapshotCriteriaByTestid = new Map()
+  for (const row of snapshotCriteriaResult.rows) {
+    const key = String(row.testid)
+    if (!snapshotCriteriaByTestid.has(key)) snapshotCriteriaByTestid.set(key, [])
+    snapshotCriteriaByTestid.get(key).push(row)
+  }
+
   if (criteriaEquiptypeIds.length) {
     const criteriaResult = await pool.query(
       `
@@ -8191,7 +8258,10 @@ async function getCertificatesData(testids = []) {
     }
 
     for (const certificate of certificates.values()) {
-      certificate.criteria = criteriaByEquiptype.get(String(certificate.inspection?.equiptypeid)) || []
+      const snapshotCriteria = snapshotCriteriaByTestid.get(String(certificate.inspection?.testid))
+      certificate.criteria = snapshotCriteria ||
+        criteriaByEquiptype.get(String(certificate.inspection?.equiptypeid)) ||
+        []
       certificate.certificateEligibility = evaluateCertificateEligibility(certificate)
     }
   }
