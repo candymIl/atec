@@ -13781,6 +13781,7 @@ async function loadJobCard(jobcardid) {
     SELECT j.*, c.clientname, s.sitename, sec.sectionname,
       COALESCE(NULLIF(u.fullname, ''), u.username) AS assigned_to_name,
       u.email AS assigned_to_email,
+      u.usersignature AS technician_signature_image,
       COALESCE(NULLIF(cu.fullname, ''), cu.username) AS created_by_name,
       COALESCE(NULLIF(au.fullname, ''), au.username) AS approved_by_name
     FROM atec.tbljobcard j
@@ -13847,6 +13848,25 @@ app.get("/job-cards/:id", asyncRoute(async (req, res) => {
 function jobCardApplicationUrl() {
   const configured = String(process.env.PUBLIC_APP_URL || process.env.FRONTEND_ORIGIN || "").split(",")[0].trim()
   return configured || "https://www.atecinspections.co.za/atec/"
+}
+
+async function inspectedAssetIdsForJob(client, body, userId) {
+  if (String(body.job_type || "").toUpperCase() !== "INSPECTIONS" || !body.clientid || !body.siteid) return []
+  const inspectorUserId = body.assigned_to_user_id || userId
+  const startDate = body.work_started_at || body.arrived_at || body.planned_at || new Date().toISOString()
+  const endDate = body.work_completed_at || body.travel_completed_at || startDate
+  const result = await client.query(`
+    SELECT DISTINCT i.assetid
+    FROM atec.tblinspection i
+    JOIN atec.tblasset a ON a.assetid = i.assetid
+    WHERE a.clientid = $1
+      AND a.siteid = $2
+      AND ($3::int IS NULL OR a.sectionid = $3)
+      AND i.inspector_user_id = $4
+      AND i.testdate BETWEEN LEAST($5::date, $6::date) AND GREATEST($5::date, $6::date)
+      AND COALESCE(i.entered_in_error, false) = false
+  `, [body.clientid, body.siteid, body.sectionid || null, inspectorUserId, startDate, endDate])
+  return result.rows.map(row => Number(row.assetid)).filter(Boolean)
 }
 
 async function emailAssignedTechnician(card) {
@@ -13974,8 +13994,10 @@ async function saveJobCard(req, res) {
       nullableNumber(body.kilometres), nullableNumber(body.normal_hours), nullableNumber(body.overtime_hours), nullableNumber(body.standby_hours),
       body.customer_signatory_name || "", body.customer_signatory_designation || "", newSignaturePath, body.signature_unavailable_reason || "",
       req.user.user_id, body.invoice_reference || "", jobcardid])
+    const inspectedAssetIds = await inspectedAssetIdsForJob(client, body, req.user.user_id)
+    const selectedAssetIds = [...new Set([...(body.assetids || []), ...inspectedAssetIds].map(Number).filter(Boolean))]
     await client.query("DELETE FROM atec.tbljobcardasset WHERE jobcardid=$1", [jobcardid])
-    for (const assetid of [...new Set((body.assetids || []).map(Number).filter(Boolean))]) {
+    for (const assetid of selectedAssetIds) {
       await client.query(`INSERT INTO atec.tbljobcardasset (jobcardid, assetid, asset_snapshot)
         SELECT $1, a.assetid, jsonb_build_object('serialno',a.serialno,'assettagno',a.assettagno,'description',a.description,'manufacturer',a.manufacturer,'wll',a.wll)
         FROM atec.tblasset a WHERE a.assetid=$2`, [jobcardid, assetid])
@@ -14174,6 +14196,14 @@ app.get("/job-cards/:id/pdf", pdfLimiter, asyncRoute(async (req, res) => {
   line("Normal / Overtime / Standby hours", `${card.normal_hours || 0} / ${card.overtime_hours || 0} / ${card.standby_hours || 0}`); line("Travel", `${card.kilometres || 0} km`)
   doc.moveDown(); line("Customer representative", `${card.customer_signatory_name || "-"} ${card.customer_signatory_designation ? `(${card.customer_signatory_designation})` : ""}`)
   if (card.customer_signature_path) { const signatureFile = resolveUploadFilePath(card.customer_signature_path); if (signatureFile && fs.existsSync(signatureFile)) doc.image(signatureFile, { fit: [180, 65] }) }
+  doc.moveDown(.6); line("Technician", card.assigned_to_name)
+  if (card.technician_signature_image) {
+    const technicianSignatureFile = resolveUploadFilePath(card.technician_signature_image)
+    if (technicianSignatureFile && fs.existsSync(technicianSignatureFile)) doc.image(technicianSignatureFile, { fit: [180, 65] })
+    else doc.font("Helvetica-Oblique").text("Technician signature image is unavailable")
+  } else {
+    doc.font("Helvetica-Oblique").text("No technician signature saved")
+  }
   if (card.photos.length) {
     doc.addPage().fontSize(15).font("Helvetica-Bold").fillColor("#183153").text("JOB CARD PHOTOGRAPHS", { align: "center" }).moveDown()
     for (const photo of card.photos) { const file = resolveUploadFilePath(photo.photo_path); if (file && fs.existsSync(file)) { doc.image(file, { fit: [500, 260], align: "center" }); doc.fontSize(9).fillColor("black").text(`${photo.photo_type}: ${photo.caption || ""}`, { align: "center" }).moveDown() } }
