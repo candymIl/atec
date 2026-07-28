@@ -10454,7 +10454,7 @@ window.showJobCards = async function () {
   const rows = await readApiResponse(response)
   const box = document.querySelector('#jobCardList')
   if (!response.ok) { box.innerHTML = `<p class="login-error">${escapeHtml(rows.error || 'Could not load job cards')}</p>`; return }
-  box.innerHTML = `<div class="job-card-list">${rows.map(card => `<button type="button" class="job-card-list-item" onclick="openJobCard(${card.jobcardid})"><span><strong>${escapeHtml(card.jobcard_reference)}</strong><small>${escapeHtml(card.clientname)} / ${escapeHtml(card.sitename)}</small></span><span><b class="job-card-status status-${safeAttr(card.status.toLowerCase())}">${escapeHtml(card.status.replaceAll('_',' '))}</b><small>${escapeHtml(card.assigned_to_name || 'Unassigned')} · ${escapeHtml(card.open_deviations)} open deviation(s)</small></span></button>`).join('') || '<p>No job cards yet.</p>'}</div>`
+  box.innerHTML = `<div class="job-card-list">${rows.map(card => `<div class="job-card-list-row"><button type="button" class="job-card-list-item" onclick="openJobCard(${card.jobcardid})"><span><strong>${escapeHtml(card.jobcard_reference)}</strong><small>${escapeHtml(card.clientname)} / ${escapeHtml(card.sitename)}</small></span><span><b class="job-card-status status-${safeAttr(card.status.toLowerCase())}">${escapeHtml(card.status.replaceAll('_',' '))}</b><small>${escapeHtml(card.assigned_to_name || 'Unassigned')} · ${escapeHtml(card.open_deviations)} open deviation(s)</small></span></button><button type="button" class="job-card-list-pdf" aria-label="Open PDF for ${safeAttr(card.jobcard_reference)}" onclick="window.open('${API_BASE}/job-cards/${card.jobcardid}/pdf','_blank','noopener')">PDF</button></div>`).join('') || '<p>No job cards yet.</p>'}</div>`
 }
 
 async function loadJobCardFormData() {
@@ -10492,6 +10492,10 @@ function renderJobCardForm() {
   const relevantSites = sites.filter(site => !card.clientid || String(site.clientid) === String(card.clientid))
   const relevantSections = sections.filter(section => !card.siteid || String(section.siteid) === String(card.siteid))
   const availableAssets = jobCardAssets.filter(asset => (!card.clientid || String(asset.clientid) === String(card.clientid)) && (!card.siteid || String(asset.siteid) === String(card.siteid)))
+  const equipmentGroups = [...new Map(availableAssets.map(asset => [
+    String(asset.equipgroupid || ''),
+    String(asset.equipmentgroup || `Equipment group ${asset.equipgroupid || 'unassigned'}`).trim()
+  ])).entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
   document.querySelector('#page').innerHTML = `
     <div class="page-heading"><div><h2>${escapeHtml(card.jobcard_reference || 'New Technician Job Card')}</h2><p>Complete this worksheet on site. Fields are saved when you use a save button below.</p></div><div class="form-actions"><button onclick="showJobCards()">Back</button>${card.jobcardid ? `<button onclick="window.open('${API_BASE}/job-cards/${card.jobcardid}/pdf','_blank')">PDF</button>` : ''}</div></div>
     <form id="jobCardForm" class="job-card-form" onsubmit="return false">
@@ -10508,7 +10512,21 @@ function renderJobCardForm() {
         <label>Contact number<input id="jcPhone" value="${safeAttr(card.customer_contact_phone || '')}"></label>
         <label>Planned date/time<input id="jcPlanned" type="datetime-local" value="${safeAttr(dateTimeLocalValue(card.planned_at))}"></label>
       </div></section>
-      <section class="filter-card"><h3>Equipment</h3><p class="muted-text">Select one or more assets. For Inspection jobs, assets inspected by the assigned technician during the job dates are added automatically when the job card is saved. Equipment details will be preserved on the completed job card.</p><div id="jcAssetChoices" class="job-card-asset-choices">${availableAssets.map(asset => `<label><input type="checkbox" name="jcAsset" value="${asset.assetid}" ${selectedAssets.has(String(asset.assetid)) ? 'checked' : ''}><span><strong>${escapeHtml(asset.assettagno || asset.serialno || `Asset ${asset.assetid}`)}</strong><small>${escapeHtml(asset.equipmenttype || asset.description || '')} · ${escapeHtml(asset.serialno || '')}</small></span></label>`).join('') || '<p>No active assets match this customer and site.</p>'}</div></section>
+      <section class="filter-card"><h3>Equipment</h3><p class="muted-text">Filter by equipment group or search by tag/serial number, then select the filtered results in one step. For Inspection jobs, matching inspected assets are also added automatically when saved.</p>
+        <div class="job-card-asset-toolbar">
+          <label>Equipment group<select id="jcAssetGroup" onchange="jobCardAssetGroupChanged()"><option value="">All equipment groups</option>${equipmentGroups.map(group => jobCardOption(group.id, group.name, '')).join('')}</select></label>
+          <label>Equipment type<select id="jcAssetType" onchange="filterJobCardAssets()"><option value="">All equipment types</option></select></label>
+          <label>Search assets<input id="jcAssetSearch" type="search" placeholder="Tag, serial or description" oninput="filterJobCardAssets()"></label>
+          <div class="job-card-asset-actions"><button type="button" class="load-test-btn" onclick="setFilteredJobCardAssets(true)">Select filtered</button><button type="button" onclick="setFilteredJobCardAssets(false)">Clear filtered</button></div>
+          <p id="jcAssetSelectionSummary" class="job-card-asset-summary" aria-live="polite"></p>
+        </div>
+        <div id="jcAssetChoices" class="job-card-asset-choices">${availableAssets.map(asset => {
+          const group = String(asset.equipmentgroup || `Equipment group ${asset.equipgroupid || 'unassigned'}`).trim()
+          const type = String(asset.equipmenttype || asset.description || 'Other equipment').trim()
+          const search = [asset.assettagno, asset.serialno, group, type, asset.description].filter(Boolean).join(' ').toLowerCase()
+          return `<label data-asset-group="${safeAttr(asset.equipgroupid || '')}" data-asset-type="${safeAttr(type)}" data-asset-search="${safeAttr(search)}"><input type="checkbox" name="jcAsset" value="${asset.assetid}" onchange="updateJobCardAssetSummary()" ${selectedAssets.has(String(asset.assetid)) ? 'checked' : ''}><span><strong>${escapeHtml(asset.assettagno || asset.serialno || `Asset ${asset.assetid}`)}</strong><small>${escapeHtml(group)} · ${escapeHtml(type)} · ${escapeHtml(asset.serialno || '')}</small></span></label>`
+        }).join('') || '<p>No active assets match this customer and site.</p>'}</div>
+      </section>
       <section class="filter-card"><h3>Fault, Findings and Work</h3><div class="job-card-text-grid">
         ${jobCardTextarea('jcFault','Fault reported',card.reported_fault)}${jobCardTextarea('jcFindings','Findings and diagnosis',card.findings)}${jobCardTextarea('jcRootCause','Root cause',card.root_cause)}${jobCardTextarea('jcWork','Repairs / work performed *',card.work_performed)}${jobCardTextarea('jcTest','Operational test performed',card.test_performed)}${jobCardTextarea('jcTestResult','Test result',card.test_result)}${jobCardTextarea('jcRecommendations','Recommendations / outstanding work',card.recommendations)}
       </div></section>
@@ -10517,10 +10535,11 @@ function renderJobCardForm() {
       <section class="filter-card"><h3>Time and Travel</h3><div class="job-card-grid">${jobCardDateField('jcDeparted','Departed workshop',card.departed_at)}${jobCardDateField('jcArrived','Arrived on site',card.arrived_at)}${jobCardDateField('jcStarted','Work started',card.work_started_at)}${jobCardDateField('jcCompleted','Work completed',card.work_completed_at)}${jobCardDateField('jcTravelDone','Travel completed',card.travel_completed_at)}<label>Kilometres<input id="jcKm" type="number" min="0" step="0.1" value="${safeAttr(card.kilometres || '')}"></label><label>Normal hours<input id="jcNormalHours" type="number" min="0" step="0.25" value="${safeAttr(card.normal_hours || '')}"></label><label>Overtime hours<input id="jcOvertimeHours" type="number" min="0" step="0.25" value="${safeAttr(card.overtime_hours || '')}"></label><label>Standby hours<input id="jcStandbyHours" type="number" min="0" step="0.25" value="${safeAttr(card.standby_hours || '')}"></label></div></section>
       <section class="filter-card"><h3>Final Equipment Status</h3><div class="job-card-grid"><label>Status *<select id="jcEquipmentStatus">${[['SAFE','Safe and returned to service'],['RESTRICTED','Temporarily operational with restrictions'],['FURTHER_WORK','Further work required'],['OUT_OF_SERVICE','Isolated / out of service'],['NOT_TESTED','Not tested']].map(row => jobCardOption(row[0],row[1],card.equipment_status)).join('')}</select></label><label class="job-card-wide">Reason / restrictions<textarea id="jcEquipmentReason">${escapeHtml(card.equipment_status_reason || '')}</textarea></label></div></section>
       <section class="filter-card"><h3>Customer Acknowledgement</h3><div class="job-card-grid"><label>Name<input id="jcSignatory" value="${safeAttr(card.customer_signatory_name || '')}"></label><label>Designation<input id="jcDesignation" value="${safeAttr(card.customer_signatory_designation || '')}"></label><label>Unavailable / refused reason<input id="jcSignatureReason" value="${safeAttr(card.signature_unavailable_reason || '')}"></label></div>${card.customer_signature_path ? `<p>Customer signature already captured.</p><img class="job-card-signature-image" src="${uploadUrl(card.customer_signature_path)}" alt="Customer signature">` : `<div class="signature-pad-wrap"><canvas id="jcSignatureCanvas" width="700" height="180"></canvas><button type="button" onclick="clearJobCardSignature()">Clear Signature</button></div>`}</section>
-      ${card.jobcardid ? `<section class="filter-card"><h3>Photographs</h3><div class="job-card-photo-grid">${(card.photos || []).map(photo => `<figure><img src="${uploadUrl(photo.photo_path)}" alt="Job card photograph"><figcaption>${escapeHtml(photo.photo_type)}: ${escapeHtml(photo.caption || '')}</figcaption></figure>`).join('')}</div><div class="job-card-grid"><label>Attach to deviation<select id="jcPhotoDeviation"><option value="">General job card</option>${(card.deviations || []).map(row => jobCardOption(row.deviationid,`${row.severity}: ${row.description}`,null)).join('')}</select></label><label>Photo type<select id="jcPhotoType">${['GENERAL','BEFORE','AFTER','DEFECT','NAMEPLATE','TEST'].map(value => jobCardOption(value,value,null)).join('')}</select></label><label>Caption<input id="jcPhotoCaption"></label><label>Take / choose photos<input id="jcPhotos" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple></label></div><button type="button" onclick="uploadJobCardPhotos()">Upload Photos</button></section>` : '<section class="filter-card"><p>Save the job card once to enable photographs.</p></section>'}
+      <section class="filter-card"><h3>Photographs</h3><div class="job-card-photo-grid">${(card.photos || []).map(photo => `<figure><img src="${uploadUrl(photo.photo_path)}" alt="Job card photograph"><figcaption>${escapeHtml(photo.photo_type)}: ${escapeHtml(photo.caption || '')}</figcaption></figure>`).join('')}</div><div class="job-card-grid"><label>Attach to deviation<select id="jcPhotoDeviation" ${card.jobcardid ? '' : 'disabled'}><option value="">General job card</option>${(card.deviations || []).map(row => jobCardOption(row.deviationid,`${row.severity}: ${row.description}`,null)).join('')}</select></label><label>Photo type<select id="jcPhotoType">${['GENERAL','BEFORE','AFTER','DEFECT','NAMEPLATE','TEST'].map(value => jobCardOption(value,value,null)).join('')}</select></label><label>Caption<input id="jcPhotoCaption"></label><label>Take / choose photos<input id="jcPhotos" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple></label></div>${card.jobcardid ? '<button type="button" onclick="uploadJobCardPhotos()">Upload Photos</button>' : '<p class="muted-text">Selected photos will upload automatically when the on-site job is submitted.</p>'}</section>
       ${renderJobCardWorkflow(card)}
     </form>`
   if (!card.customer_signature_path) initialiseJobCardSignature()
+  jobCardAssetGroupChanged()
 }
 
 function dateTimeLocalValue(value) { if (!value) return ''; const date = new Date(value); return Number.isNaN(date.getTime()) ? '' : new Date(date.getTime() - date.getTimezoneOffset()*60000).toISOString().slice(0,16) }
@@ -10546,7 +10565,7 @@ function renderJobCardWorkflow(card) {
   const actions = []
   if (status === 'DRAFT') {
     if (officeUser) actions.push(`<button type="button" class="load-test-btn" onclick="saveJobCard('ASSIGNED')">Save & Assign</button>`)
-    else actions.push('<button type="button" class="load-test-btn" onclick="saveJobCard(\'IN_PROGRESS\')">Start Job</button>')
+    else actions.push('<button type="button" onclick="saveJobCard(\'IN_PROGRESS\')">Save & Continue On-site</button>', '<button type="button" class="load-test-btn" onclick="saveJobCard(\'SUBMITTED\')">Save & Submit On-site</button>')
   }
   if (status === 'ASSIGNED') actions.push('<button type="button" class="load-test-btn" onclick="saveJobCard(\'IN_PROGRESS\')">Start Job</button>')
   if (status === 'IN_PROGRESS') actions.push('<button type="button" onclick="saveJobCard(\'AWAITING_SIGNATURE\')">Request Customer Signature</button>', '<button type="button" class="load-test-btn" onclick="saveJobCard(\'SUBMITTED\')">Submit to Office</button>')
@@ -10563,6 +10582,43 @@ window.addJobCardDeviationRow = () => document.querySelector('#jcDeviations').in
 window.jobCardCustomerChanged = function () { jobCardEditing = { ...jobCardEditing, clientid: document.querySelector('#jcClient').value, siteid: '', sectionid: '' }; renderJobCardForm() }
 window.jobCardSiteChanged = function () { jobCardEditing = { ...jobCardEditing, clientid: document.querySelector('#jcClient').value, siteid: document.querySelector('#jcSite').value, sectionid: '' }; renderJobCardForm() }
 
+window.filterJobCardAssets = function () {
+  const group = document.querySelector('#jcAssetGroup')?.value || ''
+  const type = document.querySelector('#jcAssetType')?.value || ''
+  const search = (document.querySelector('#jcAssetSearch')?.value || '').trim().toLowerCase()
+  document.querySelectorAll('#jcAssetChoices > label').forEach(label => {
+    label.hidden = !((!group || label.dataset.assetGroup === group) && (!type || label.dataset.assetType === type) && (!search || (label.dataset.assetSearch || '').includes(search)))
+  })
+  updateJobCardAssetSummary()
+}
+
+window.jobCardAssetGroupChanged = function () {
+  const group = document.querySelector('#jcAssetGroup')?.value || ''
+  const typeSelect = document.querySelector('#jcAssetType')
+  if (!typeSelect) return
+  const previousType = typeSelect.value
+  const types = [...new Set([...document.querySelectorAll('#jcAssetChoices > label')]
+    .filter(label => !group || label.dataset.assetGroup === group)
+    .map(label => label.dataset.assetType)
+    .filter(Boolean))].sort((a, b) => a.localeCompare(b))
+  typeSelect.innerHTML = `<option value="">All equipment types</option>${types.map(type => jobCardOption(type, type, previousType)).join('')}`
+  if (!types.includes(previousType)) typeSelect.value = ''
+  filterJobCardAssets()
+}
+
+window.setFilteredJobCardAssets = function (checked) {
+  document.querySelectorAll('#jcAssetChoices > label:not([hidden]) input[name="jcAsset"]').forEach(input => { input.checked = checked })
+  updateJobCardAssetSummary()
+}
+
+window.updateJobCardAssetSummary = function () {
+  const all = [...document.querySelectorAll('#jcAssetChoices input[name="jcAsset"]')]
+  const visible = all.filter(input => !input.closest('label')?.hidden)
+  const selected = all.filter(input => input.checked)
+  const summary = document.querySelector('#jcAssetSelectionSummary')
+  if (summary) summary.textContent = `${selected.length} selected · ${visible.length} shown · ${all.length} available`
+}
+
 function initialiseJobCardSignature() { const canvas = document.querySelector('#jcSignatureCanvas'); if (!canvas) return; const ctx = canvas.getContext('2d'); ctx.lineWidth=2; ctx.lineCap='round'; let drawing=false; const point=e=>{ const r=canvas.getBoundingClientRect(), t=e.touches?.[0]||e; return {x:(t.clientX-r.left)*(canvas.width/r.width),y:(t.clientY-r.top)*(canvas.height/r.height)} }; const start=e=>{drawing=true;const p=point(e);ctx.beginPath();ctx.moveTo(p.x,p.y);e.preventDefault()}; const move=e=>{if(!drawing)return;const p=point(e);ctx.lineTo(p.x,p.y);ctx.stroke();e.preventDefault()}; const stop=()=>drawing=false; canvas.addEventListener('pointerdown',start);canvas.addEventListener('pointermove',move);canvas.addEventListener('pointerup',stop);canvas.addEventListener('pointerleave',stop) }
 window.clearJobCardSignature = function () { const canvas=document.querySelector('#jcSignatureCanvas'); canvas?.getContext('2d').clearRect(0,0,canvas.width,canvas.height) }
 function jobCardCanvasHasInk(canvas) { if (!canvas) return false; return canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data.some((value,index)=>index%4===3&&value>0) }
@@ -10572,8 +10628,87 @@ function collectJobCardPayload(forcedStatus) {
   return { clientid:value('#jcClient'),siteid:value('#jcSite'),sectionid:value('#jcSection')||null,assigned_to_user_id:value('#jcAssigned')||null,email_assigned_technician:document.querySelector('#jcEmailTechnician')?.checked===true,job_type:value('#jcType'),priority:value('#jcPriority'),status:forcedStatus||jobCardEditing?.status||'DRAFT',customer_reference:value('#jcReference'),customer_contact_name:value('#jcContact'),customer_contact_phone:value('#jcPhone'),planned_at:value('#jcPlanned')||null,assetids:[...document.querySelectorAll('[name="jcAsset"]:checked')].map(node=>Number(node.value)),reported_fault:value('#jcFault'),findings:value('#jcFindings'),root_cause:value('#jcRootCause'),work_performed:value('#jcWork'),test_performed:value('#jcTest'),test_result:value('#jcTestResult'),recommendations:value('#jcRecommendations'),materials:[...document.querySelectorAll('.jc-material')].map(row=>({quantity:row.querySelector('.jc-mat-qty').value,description:row.querySelector('.jc-mat-desc').value,part_number:row.querySelector('.jc-mat-part').value,supplied_by:row.querySelector('.jc-mat-supplier').value,material_status:row.querySelector('.jc-mat-status').value})),deviations:[...document.querySelectorAll('.jc-deviation')].map(row=>({deviationid:row.dataset.id||null,category:row.querySelector('.jc-dev-category').value,severity:row.querySelector('.jc-dev-severity').value,deviation_status:row.querySelector('.jc-dev-status').value,target_date:row.querySelector('.jc-dev-date').value||null,description:row.querySelector('.jc-dev-desc').value,immediate_action:row.querySelector('.jc-dev-action').value,further_work_required:row.querySelector('.jc-dev-further').value})),departed_at:value('#jcDeparted')||null,arrived_at:value('#jcArrived')||null,work_started_at:value('#jcStarted')||null,work_completed_at:value('#jcCompleted')||null,travel_completed_at:value('#jcTravelDone')||null,kilometres:value('#jcKm'),normal_hours:value('#jcNormalHours'),overtime_hours:value('#jcOvertimeHours'),standby_hours:value('#jcStandbyHours'),equipment_status:value('#jcEquipmentStatus'),equipment_status_reason:value('#jcEquipmentReason'),customer_signatory_name:value('#jcSignatory'),customer_signatory_designation:value('#jcDesignation'),signature_unavailable_reason:value('#jcSignatureReason'),customer_signature_data:jobCardCanvasHasInk(document.querySelector('#jcSignatureCanvas'))?document.querySelector('#jcSignatureCanvas').toDataURL('image/png'):null }
 }
 
-window.saveJobCard = async function (forcedStatus = null) { const payload=collectJobCardPayload(forcedStatus); const id=jobCardEditing?.jobcardid; const response=await fetch(`${API_BASE}/job-cards${id?`/${id}`:''}`,{method:id?'PUT':'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); const result=await readApiResponse(response); if(!response.ok){alert(result.error||'Could not save job card');return} jobCardEditing=result; const email=result.email_notification; const assignedMessage=email?.requested?(email.sent?`Job card assigned to ${result.assigned_to_name}. Email sent to ${email.to}.`:`Job card assigned and visible in ${result.assigned_to_name}'s ATEC profile, but the email was not sent: ${email.error}`):`Job card assigned to ${result.assigned_to_name||'the technician'} and is visible in their ATEC profile. Email was not requested.`; const messages={ASSIGNED:assignedMessage,IN_PROGRESS:'Job started.',AWAITING_SIGNATURE:'Job card is awaiting customer acknowledgement.',SUBMITTED:'Job card submitted to the office.',APPROVED:'Job card approved.',INVOICED:'Job card marked as invoiced.',CANCELLED:'Job card cancelled.'}; alert(messages[forcedStatus]||`Job card ${result.jobcard_reference} saved for later.`); renderJobCardForm() }
-window.uploadJobCardPhotos = async function () { const files=document.querySelector('#jcPhotos')?.files; if(!files?.length)return alert('Choose at least one photograph.'); const form=new FormData(); [...files].forEach(file=>{form.append('jobCardPhotos',file);form.append('photoCaptions',document.querySelector('#jcPhotoCaption').value);form.append('photoTypes',document.querySelector('#jcPhotoType').value)}); form.append('deviationid',document.querySelector('#jcPhotoDeviation').value); const response=await fetch(`${API_BASE}/job-cards/${jobCardEditing.jobcardid}/photos`,{method:'POST',body:form}); const result=await readApiResponse(response); if(!response.ok){alert(result.error||'Photo upload failed');return} await openJobCard(jobCardEditing.jobcardid) }
+async function uploadJobCardPhotoFiles(jobcardid, files, { caption = '', photoType = 'GENERAL', deviationid = '' } = {}) {
+  if (!files?.length) return { uploaded: 0 }
+  const form = new FormData()
+  ;[...files].forEach(file => {
+    form.append('jobCardPhotos', file)
+    form.append('photoCaptions', caption)
+    form.append('photoTypes', photoType)
+  })
+  form.append('deviationid', deviationid)
+  const response = await fetch(`${API_BASE}/job-cards/${jobcardid}/photos`, { method: 'POST', body: form })
+  const result = await readApiResponse(response)
+  if (!response.ok) throw new Error(result.error || 'Photo upload failed')
+  return { uploaded: files.length, result }
+}
+
+window.saveJobCard = async function (forcedStatus = null) {
+  const payload = collectJobCardPayload(forcedStatus)
+  const id = jobCardEditing?.jobcardid
+  const pendingFiles = !id ? [...(document.querySelector('#jcPhotos')?.files || [])] : []
+  const pendingPhotoDetails = {
+    caption: document.querySelector('#jcPhotoCaption')?.value || '',
+    photoType: document.querySelector('#jcPhotoType')?.value || 'GENERAL',
+    deviationid: ''
+  }
+  const response = await fetch(`${API_BASE}/job-cards${id ? `/${id}` : ''}`, {
+    method: id ? 'PUT' : 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  const result = await readApiResponse(response)
+  if (!response.ok) {
+    alert(result.error || 'Could not save job card')
+    return
+  }
+  jobCardEditing = result
+  try {
+    if (pendingFiles.length) {
+      await uploadJobCardPhotoFiles(result.jobcardid, pendingFiles, pendingPhotoDetails)
+      const refreshed = await fetch(`${API_BASE}/job-cards/${result.jobcardid}`)
+      if (refreshed.ok) jobCardEditing = await refreshed.json()
+    }
+  } catch (photoError) {
+    alert(`Job card ${result.jobcard_reference} was saved, but the photographs were not uploaded: ${photoError.message}`)
+    renderJobCardForm()
+    return
+  }
+  const email = result.email_notification
+  const assignedMessage = email?.requested
+    ? (email.sent
+      ? `Job card assigned to ${result.assigned_to_name}. Email sent to ${email.to}.`
+      : `Job card assigned and visible in ${result.assigned_to_name}'s ATEC profile, but the email was not sent: ${email.error}`)
+    : `Job card assigned to ${result.assigned_to_name || 'the technician'} and is visible in their ATEC profile. Email was not requested.`
+  const messages = {
+    ASSIGNED: assignedMessage,
+    IN_PROGRESS: id ? 'Job started.' : 'On-site job created. You can now add photographs and continue working.',
+    AWAITING_SIGNATURE: 'Job card is awaiting customer acknowledgement.',
+    SUBMITTED: pendingFiles.length
+      ? `On-site job submitted to the office with ${pendingFiles.length} photograph(s).`
+      : 'Job card submitted to the office.',
+    APPROVED: 'Job card approved.',
+    INVOICED: 'Job card marked as invoiced.',
+    CANCELLED: 'Job card cancelled.'
+  }
+  alert(messages[forcedStatus] || `Job card ${result.jobcard_reference} saved for later.`)
+  renderJobCardForm()
+}
+
+window.uploadJobCardPhotos = async function () {
+  const files = [...(document.querySelector('#jcPhotos')?.files || [])]
+  if (!files.length) return alert('Choose at least one photograph.')
+  try {
+    await uploadJobCardPhotoFiles(jobCardEditing.jobcardid, files, {
+      caption: document.querySelector('#jcPhotoCaption').value,
+      photoType: document.querySelector('#jcPhotoType').value,
+      deviationid: document.querySelector('#jcPhotoDeviation').value
+    })
+    await openJobCard(jobCardEditing.jobcardid)
+  } catch (error) {
+    alert(error.message || 'Photo upload failed')
+  }
+}
 
 const startupTap = getStartupAssetTap()
 if (startupTap) {

@@ -3181,6 +3181,7 @@ async function getPagedAssets(req, defaultSortKey = "assetid", defaultSortDirect
     LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
     LEFT JOIN atec.tblpeople p ON a.responsibleid = p.personid
     LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
+    LEFT JOIN atec.tblequipgroup eg ON eg.equipgroupid = et.equipgroupid
     ${whereSql}
     `,
     values
@@ -3230,13 +3231,15 @@ async function getPagedAssets(req, defaultSortKey = "assetid", defaultSortDirect
       s.sitename,
       sec.sectionname,
       et.description AS equipmenttype,
-      et.equipgroupid
+      et.equipgroupid,
+      eg.groupname AS equipmentgroup
     FROM atec.tblasset a
     LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
     LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
     LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
     LEFT JOIN atec.tblpeople p ON a.responsibleid = p.personid
     LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
+    LEFT JOIN atec.tblequipgroup eg ON eg.equipgroupid = et.equipgroupid
     ${whereSql}
     ORDER BY ${orderSql}, a.assetid DESC
     LIMIT ${limitParam}
@@ -13864,7 +13867,7 @@ async function inspectedAssetIdsForJob(client, body, userId) {
       AND ($3::int IS NULL OR a.sectionid = $3)
       AND i.inspector_user_id = $4
       AND i.testdate BETWEEN LEAST($5::date, $6::date) AND GREATEST($5::date, $6::date)
-      AND COALESCE(i.entered_in_error, false) = false
+      AND COALESCE(i.record_status, 'ACTIVE') = 'ACTIVE'
   `, [body.clientid, body.siteid, body.sectionid || null, inspectorUserId, startDate, endDate])
   return result.rows.map(row => Number(row.assetid)).filter(Boolean)
 }
@@ -14172,6 +14175,66 @@ function drawJobCardPdfSummary(doc, card) {
   doc.y = y + height + 9
 }
 
+function drawJobCardPdfPhotoPages(doc, card) {
+  if (!card.photos.length) return
+  const columns = 2
+  const rows = 3
+  const photosPerPage = columns * rows
+  const left = doc.page.margins.left
+  const right = doc.page.margins.right
+  const contentWidth = doc.page.width - left - right
+  const columnGap = 10
+  const rowGap = 10
+  const cellWidth = (contentWidth - columnGap) / columns
+  const gridTop = 142
+  const gridBottom = doc.page.height - 94
+  const cellHeight = (gridBottom - gridTop - (rowGap * (rows - 1))) / rows
+  const imagePadding = 6
+  const captionHeight = 28
+
+  for (let pageStart = 0; pageStart < card.photos.length; pageStart += photosPerPage) {
+    doc.addPage()
+    const pagePhotos = card.photos.slice(pageStart, pageStart + photosPerPage)
+    doc.fontSize(14).font("Helvetica-Bold").fillColor("#183153")
+      .text("JOB CARD PHOTOGRAPHS", left, 108, { width: contentWidth, align: "center" })
+    doc.fontSize(7).font("Helvetica").fillColor("#64748b")
+      .text(`${pageStart + 1}-${pageStart + pagePhotos.length} of ${card.photos.length}`, left, 126, { width: contentWidth, align: "center" })
+
+    pagePhotos.forEach((photo, index) => {
+      const column = index % columns
+      const row = Math.floor(index / columns)
+      const x = left + (column * (cellWidth + columnGap))
+      const y = gridTop + (row * (cellHeight + rowGap))
+      const imageHeight = cellHeight - captionHeight
+      doc.save()
+      doc.roundedRect(x, y, cellWidth, cellHeight, 4).fillAndStroke("#f8fafc", "#cbd5e1")
+      const file = resolveUploadFilePath(photo.photo_path)
+      if (file && fs.existsSync(file)) {
+        doc.image(file, x + imagePadding, y + imagePadding, {
+          fit: [cellWidth - (imagePadding * 2), imageHeight - (imagePadding * 2)],
+          align: "center",
+          valign: "center"
+        })
+      } else {
+        doc.font("Helvetica-Oblique").fontSize(8).fillColor("#64748b")
+          .text("Photograph unavailable", x + imagePadding, y + (imageHeight / 2), {
+            width: cellWidth - (imagePadding * 2),
+            align: "center"
+          })
+      }
+      const caption = `${photo.photo_type || "GENERAL"}${photo.caption ? `: ${photo.caption}` : ""}`
+      doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#1f2937")
+        .text(caption, x + imagePadding, y + imageHeight + 5, {
+          width: cellWidth - (imagePadding * 2),
+          height: captionHeight - 8,
+          align: "center",
+          ellipsis: true
+        })
+      doc.restore()
+    })
+  }
+}
+
 app.get("/job-cards/:id/pdf", pdfLimiter, asyncRoute(async (req, res) => {
   const card = await loadJobCard(req.params.id)
   if (!card) return res.status(404).json({ error: "Job card not found" })
@@ -14204,10 +14267,7 @@ app.get("/job-cards/:id/pdf", pdfLimiter, asyncRoute(async (req, res) => {
   } else {
     doc.font("Helvetica-Oblique").text("No technician signature saved")
   }
-  if (card.photos.length) {
-    doc.addPage().fontSize(15).font("Helvetica-Bold").fillColor("#183153").text("JOB CARD PHOTOGRAPHS", { align: "center" }).moveDown()
-    for (const photo of card.photos) { const file = resolveUploadFilePath(photo.photo_path); if (file && fs.existsSync(file)) { doc.image(file, { fit: [500, 260], align: "center" }); doc.fontSize(9).fillColor("black").text(`${photo.photo_type}: ${photo.caption || ""}`, { align: "center" }).moveDown() } }
-  }
+  drawJobCardPdfPhotoPages(doc, card)
   addJobCardPdfPageFrames(doc, card)
   doc.end()
 }))
