@@ -31,6 +31,7 @@
     "2026-07-21-technician-job-cards.sql",
     "2026-07-27-trestle-sans1854-criteria.sql",
     "2026-07-27-trestle-visual-inspection-criteria.sql",
-    "2026-07-27-inspection-criteria-snapshots.sql"
+    "2026-07-27-inspection-criteria-snapshots.sql",
+    "2026-07-29-magnetic-particle-inspection-module.sql"
   ]
 }

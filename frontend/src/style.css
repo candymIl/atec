@@ -5959,3 +5959,77 @@ tr:hover {
     font-size: 26px;
   }
 }
+.mpi-section {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  margin: 0 0 1rem;
+  padding: 1rem;
+}
+
+.mpi-section legend {
+  color: #183153;
+  font-weight: 700;
+  padding: 0 0.5rem;
+}
+
+.mpi-entry-table input,
+.mpi-entry-table select {
+  min-width: 7rem;
+  width: 100%;
+}
+
+.mpi-entry-table input[type="checkbox"] {
+  min-width: auto;
+  width: auto;
+}
+
+.mpi-indication-row {
+  margin-top: 0.75rem;
+}
+
+.mpi-report-actions {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  bottom: 0;
+  padding: 0.75rem;
+  position: sticky;
+  z-index: 4;
+}
+
+.mpi-form-readonly {
+  opacity: 0.96;
+}
+
+.link-button {
+  background: none;
+  border: 0;
+  color: #164e91;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.mpi-attachment-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin-top: 0.75rem;
+}
+
+.mpi-attachment-grid img {
+  aspect-ratio: 4 / 3;
+  display: block;
+  margin-bottom: 0.5rem;
+  object-fit: cover;
+  width: 100%;
+}
+
+.mpi-master-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  margin-top: 1rem;
+}

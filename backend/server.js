@@ -51,6 +51,7 @@ const {
   validatePassword,
   validateUploadedImages
 } = require("./middleware/security")
+const { registerMpiRoutes } = require("./routes/mpi")
 
 const defaultFrontendOrigin = process.env.NODE_ENV === "production"
   ? "https://www.atecinspections.co.za"
@@ -339,6 +340,10 @@ const storage = multer.diskStorage({
 
     if (file.fieldname === "jobCardPhotos") {
       folder = path.join(uploadsRoot, "job-cards")
+    }
+
+    if (file.fieldname === "mpiPhotos") {
+      folder = path.join(uploadsRoot, "mpi")
     }
 
     fs.mkdirSync(folder, { recursive: true })
@@ -1624,6 +1629,7 @@ function authorizeRequest(req, res, next) {
 
   if (role === "MANAGER") {
     if (routePath.startsWith("/job-cards")) return next()
+    if (routePath.startsWith("/ndt")) return next()
     if (isSetupMaintenanceRoute(method, routePath)) {
       return next()
     }
@@ -1706,6 +1712,7 @@ function authorizeRequest(req, res, next) {
         routePath.startsWith("/equipment-type-criteria") ||
         routePath.startsWith("/inspection-photos") ||
         routePath.startsWith("/inspection-visits") ||
+        routePath.startsWith("/ndt") ||
         routePath.startsWith("/she/")
       )
     ) {
@@ -1717,6 +1724,9 @@ function authorizeRequest(req, res, next) {
 
   if (role === "VIEWER") {
     if (method === "POST" && /^\/certificates\/[^/]+\/email$/.test(routePath)) {
+      return next()
+    }
+    if (method === "POST" && /^\/ndt\/mpi\/reports\/[^/]+\/email$/.test(routePath)) {
       return next()
     }
 
@@ -1733,6 +1743,7 @@ function authorizeRequest(req, res, next) {
         routePath.startsWith("/reports/customer-detailed") ||
         routePath.startsWith("/dashboard") ||
         routePath.startsWith("/inspection-photos") ||
+        routePath.startsWith("/ndt/mpi/reports") ||
         routePath === "/equipment-types" ||
         routePath.startsWith("/she/")
       )
@@ -1747,6 +1758,9 @@ function authorizeRequest(req, res, next) {
     if (method === "POST" && /^\/certificates\/[^/]+\/email$/.test(routePath)) {
       return next()
     }
+    if (method === "POST" && /^\/ndt\/mpi\/reports\/[^/]+\/email$/.test(routePath)) {
+      return next()
+    }
 
     if (
       isRead &&
@@ -1754,7 +1768,8 @@ function authorizeRequest(req, res, next) {
         routePath.startsWith("/customer-portal") ||
         routePath.startsWith("/certificates") ||
         routePath.includes("/certificate") ||
-        routePath.startsWith("/reports/customer-detailed")
+        routePath.startsWith("/reports/customer-detailed") ||
+        routePath.startsWith("/ndt/mpi/reports")
       )
     ) {
       return next()
@@ -1786,6 +1801,7 @@ function authorizeRequest(req, res, next) {
         routePath.startsWith("/inspections") ||
         routePath.startsWith("/inspection-results") ||
         routePath.startsWith("/inspection-photos") ||
+        routePath.startsWith("/ndt") ||
         routePath.startsWith("/certificates") ||
         routePath.includes("/certificate") ||
         routePath.startsWith("/reports/customer-detailed") ||
@@ -1806,6 +1822,13 @@ function authorizeRequest(req, res, next) {
         /^\/certificates\/[^/]+\/email$/.test(routePath) ||
         routePath === "/she/risk-assessments"
       )
+    ) {
+      return next()
+    }
+
+    if (
+      routePath.startsWith("/ndt") &&
+      ["POST", "PUT", "PATCH", "DELETE"].includes(method)
     ) {
       return next()
     }
@@ -1916,6 +1939,16 @@ async function authorizeUploadRequest(req, res, next) {
         ON p.assetid = a.assetid
       WHERE a.clientid = $1
         AND (p.photo_path = $2 OR p.photo_path = $3)
+
+      UNION ALL
+
+      SELECT 1
+      FROM atec.tblndtreportattachment attachment
+      JOIN atec.tblndtreport report
+        ON report.ndtreportid = attachment.ndtreportid
+      WHERE report.clientid = $1
+        AND report.status = 'ISSUED'
+        AND (attachment.file_path = $2 OR attachment.file_path = $3)
     ) AS allowed
     `,
     [req.user.clientid, normalizedPath, uploadBasename]
@@ -14272,6 +14305,24 @@ app.get("/job-cards/:id/pdf", pdfLimiter, asyncRoute(async (req, res) => {
   addJobCardPdfPageFrames(doc, card)
   doc.end()
 }))
+
+registerMpiRoutes(app, {
+  pool,
+  asyncRoute,
+  pdfLimiter,
+  runQueuedPdfJob,
+  upload,
+  uploadLimiter,
+  validateUploadedImages,
+  compressUploadedPhotos,
+  emailLimiter,
+  sendApplicationEmail,
+  getMailConfigIssues,
+  isValidEmailAddress,
+  getMailErrorMessage,
+  uploadRoot: uploadsRoot,
+  brandRoot: path.join(__dirname, "..", "frontend", "public")
+})
 
 app.use(errorHandler)
 

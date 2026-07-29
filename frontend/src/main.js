@@ -13,6 +13,7 @@ import { renderCustomerDetailedReport } from './pages/CustomerDetailedReport.js'
 import { renderCustomerPortal } from './pages/CustomerPortal.js'
 import { renderRiskAssessments, renderRiskAssessmentTable } from './pages/RiskAssessments.js'
 import { renderSystemHealthPage } from './pages/SystemHealth.js'
+import { renderMpiReportsPage } from './pages/MpiReports.js'
 import { getPaginationState, renderPaginationControls } from './pagination.js'
 import { getTableSortState, sortHeader, sortTableRows } from './tableSort.js'
 import { API_BASE, assetUrl, uploadUrl } from './api.js'
@@ -141,6 +142,7 @@ const pageAccess = {
   'job-cards': ['ADMIN', 'MANAGER', 'INSPECTOR'],
   'quick-inspection': ['ADMIN', 'MANAGER', 'INSPECTOR'],
   certificates: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER'],
+  mpi: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER'],
   'customer-report': ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER'],
   she: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER'],
   criteria: ['ADMIN'],
@@ -1343,6 +1345,7 @@ async function loadData() {
     ${menuButton('job-cards', 'Technician Job Cards', 'showJobCards()')}
     ${menuButton('quick-inspection', 'Quick Inspection/Testing', 'showQuickInspection()')}
     ${menuButton('certificates', 'Certificates', 'showCertificateSearch()')}
+    ${menuButton('mpi', 'MPI / NDT Reports', 'showMpiReports()')}
     ${menuButton('customer-report', 'Reports', 'showCustomerDetailedReport()')}
     ${menuButton('she', 'SLAMM', 'showRiskAssessments()')}
     ${menuButton('criteria', 'Equipment Type Criteria', 'showEquipmentTypeCriteria()')}
@@ -3256,6 +3259,25 @@ window.archiveRiskAssessment = async function (riskid) {
 
 window.openAssetQrLabel = function (assetid) {
   window.open(`${API_BASE}/assets/${assetid}/qr-label.pdf`, "_blank")
+}
+
+window.showMpiReports = async function () {
+  if (!ensurePageAccess('mpi')) return
+  setCurrentPage('mpi')
+  try {
+    await renderMpiReportsPage({
+      currentUser,
+      customers,
+      assets
+    })
+  } catch (error) {
+    document.querySelector('#page').innerHTML = `
+      <div class="filter-card">
+        <h2>MPI reports unavailable</h2>
+        <p>${escapeHtml(error.message || 'Unable to load MPI reports.')}</p>
+      </div>
+    `
+  }
 }
 
 async function loadAssetNfcStatus(assetid) {
@@ -10833,6 +10855,10 @@ switch (currentPage) {
     showCertificateSearch()
     break
 
+  case "mpi":
+    showMpiReports()
+    break
+
   case "customer-report":
     showCustomerDetailedReport()
     break
@@ -10883,6 +10909,7 @@ window.addEventListener('popstate', event => {
     'quick-inspection': window.showQuickInspection,
     criteria: window.showEquipmentTypeCriteria,
     certificates: window.showCertificateSearch,
+    mpi: window.showMpiReports,
     'customer-report': window.showCustomerDetailedReport,
     she: window.showRiskAssessments,
     users: window.showUserManagement,

@@ -42,7 +42,10 @@
     "test:job-cards": "node scripts/regression/technician-job-cards.test.js",
     "test:asset-deflection": "node scripts/regression/asset-permissible-deflection.test.js",
     "test:session-expiry": "node scripts/regression/session-expiry-refresh.test.js",
-    "test:inspector-report-access": "node scripts/regression/inspector-report-access.test.js"
+    "test:inspector-report-access": "node scripts/regression/inspector-report-access.test.js",
+    "test:mpi": "node scripts/regression/mpi-module.test.js",
+    "test:mpi-db": "node scripts/uat/mpi-database-uat.js",
+    "uat:mpi:apply-local": "node scripts/uat/apply-mpi-local.js"
   },
   "dependencies": {
     "multer": "^2.1.1"
