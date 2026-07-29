@@ -1008,6 +1008,37 @@ function singleCertificatePdfOptions(options = {}) {
   }
 }
 
+function chromiumPdfLaunchOptions(executablePath, userDataDir) {
+  return {
+    executablePath,
+    headless: "new",
+    userDataDir,
+    protocolTimeout: 180000,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--allow-file-access-from-files"
+    ]
+  }
+}
+
+async function closePdfBrowserResources(page, browser, userDataDir) {
+  if (page) {
+    await page.close().catch(() => {})
+  }
+
+  if (browser) {
+    await browser.close().catch(() => {})
+  }
+
+  try {
+    fs.rmSync(userDataDir, { recursive: true, force: true })
+  } catch (err) {
+    console.warn(`Could not remove temporary PDF browser profile ${userDataDir}: ${err.message}`)
+  }
+}
+
 async function createSingleCertificatePdfBuffer(certificate, options = {}) {
   const executablePath = findChromiumExecutable()
 
@@ -1022,12 +1053,7 @@ async function createSingleCertificatePdfBuffer(certificate, options = {}) {
   let page
 
   try {
-    browser = await puppeteer.launch({
-      executablePath,
-      headless: "new",
-      userDataDir,
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--allow-file-access-from-files"]
-    })
+    browser = await puppeteer.launch(chromiumPdfLaunchOptions(executablePath, userDataDir))
 
     const imageDataUrlCache = await buildCertificatePdfImageCache(certificate, options)
     page = await browser.newPage()
@@ -1042,15 +1068,7 @@ async function createSingleCertificatePdfBuffer(certificate, options = {}) {
 
     return await page.pdf(singleCertificatePdfOptions(options))
   } finally {
-    if (page) {
-      await page.close().catch(() => {})
-    }
-
-    if (browser) {
-      await browser.close()
-    }
-
-    fs.rmSync(userDataDir, { recursive: true, force: true })
+    await closePdfBrowserResources(page, browser, userDataDir)
   }
 }
 
@@ -1068,12 +1086,7 @@ async function createBulkCertificatesPdfBuffer(certificates = [], options = {}) 
   let page
 
   try {
-    browser = await puppeteer.launch({
-      executablePath,
-      headless: "new",
-      userDataDir,
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--allow-file-access-from-files"]
-    })
+    browser = await puppeteer.launch(chromiumPdfLaunchOptions(executablePath, userDataDir))
 
     const imageDataUrlCache = await buildBulkCertificatePdfImageCache(certificates, options)
     page = await browser.newPage()
@@ -1088,15 +1101,7 @@ async function createBulkCertificatesPdfBuffer(certificates = [], options = {}) 
 
     return await page.pdf(singleCertificatePdfOptions(options))
   } finally {
-    if (page) {
-      await page.close().catch(() => {})
-    }
-
-    if (browser) {
-      await browser.close()
-    }
-
-    fs.rmSync(userDataDir, { recursive: true, force: true })
+    await closePdfBrowserResources(page, browser, userDataDir)
   }
 }
 

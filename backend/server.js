@@ -114,9 +114,17 @@ function rateLimitMessage(profile) {
   return { error: `Too many ${profile} requests. Please wait a moment and try again.` }
 }
 
-function runQueuedPdfJob(job) {
+function runQueuedPdfJob(job, { priority = 0 } = {}) {
   return new Promise((resolve, reject) => {
-    pendingPdfJobs.push({ job, resolve, reject })
+    const queueEntry = { job, resolve, reject, priority }
+    const insertAt = pendingPdfJobs.findIndex(entry => entry.priority < priority)
+
+    if (insertAt === -1) {
+      pendingPdfJobs.push(queueEntry)
+    } else {
+      pendingPdfJobs.splice(insertAt, 0, queueEntry)
+    }
+
     pdfQueueMetrics.queued = pendingPdfJobs.length
     drainPdfQueue()
   })
@@ -7965,7 +7973,7 @@ app.get("/certificates/bulk-pdf", pdfLimiter, async (req, res) => {
     const pdfBuffer = await runQueuedPdfJob(() => createRenderedBulkCertificatesPdfBuffer(certificates, {
       projectRoot: path.join(__dirname, ".."),
       uploadsRoot
-    }))
+    }), { priority: -1 })
     const customerName = certificates[0]?.inspection?.clientname || "Customer"
     const filename = bulkCertificateFilename(customerName, filters.datefrom, filters.dateto)
 
@@ -9973,7 +9981,7 @@ app.get("/inspections/:testid/certificate.pdf", pdfLimiter, async (req, res) => 
     const pdfBuffer = await runQueuedPdfJob(() => createSingleCertificatePdfBuffer(certificate, {
       projectRoot: path.join(__dirname, ".."),
       uploadsRoot
-    }))
+    }), { priority: 1 })
 
     res.setHeader("Content-Type", "application/pdf")
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private")
@@ -9987,10 +9995,10 @@ app.get("/inspections/:testid/certificate.pdf", pdfLimiter, async (req, res) => 
     res.send(pdfBuffer)
 
   } catch (err) {
-    console.error(err)
-
-    res.status(500).json({
-      error: "An unexpected server error occurred"
+    const referenceId = logSafeError("Single certificate PDF", err)
+    res.status(err.statusCode || 500).json({
+      error: err.statusCode ? err.message : "An unexpected server error occurred",
+      ...(err.statusCode ? {} : { referenceId })
     })
   }
 })

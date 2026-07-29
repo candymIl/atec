@@ -40,7 +40,7 @@ assert.deepStrictEqual(pdfConfig({
   REPORT_EXPORT_MAX_ROWS: "9999999"
 }), {
   concurrency: 4,
-  bulkMaxCertificates: 500,
+  bulkMaxCertificates: 100,
   reportExportMaxRows: 100000
 })
 
@@ -48,13 +48,13 @@ assert.deepStrictEqual(pdfConfig({
   BULK_PDF_MAX_CERTIFICATES: "50"
 }), {
   concurrency: 1,
-  bulkMaxCertificates: 500,
+  bulkMaxCertificates: 50,
   reportExportMaxRows: 10000
 })
 
 assert.deepStrictEqual(pdfConfig({}), {
   concurrency: 1,
-  bulkMaxCertificates: 500,
+  bulkMaxCertificates: 50,
   reportExportMaxRows: 10000
 })
 

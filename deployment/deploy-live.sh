@@ -69,12 +69,10 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-if grep -q '^BULK_PDF_MAX_CERTIFICATES=' "$ENV_FILE"; then
-  sed -i 's/^BULK_PDF_MAX_CERTIFICATES=.*/BULK_PDF_MAX_CERTIFICATES=500/' "$ENV_FILE"
-else
-  printf '\nBULK_PDF_MAX_CERTIFICATES=500\n' >> "$ENV_FILE"
+if ! grep -q '^BULK_PDF_MAX_CERTIFICATES=' "$ENV_FILE"; then
+  printf '\nBULK_PDF_MAX_CERTIFICATES=50\n' >> "$ENV_FILE"
 fi
-echo "Bulk certificate PDF limit set to 500."
+echo "Bulk certificate PDF limit: $(grep '^BULK_PDF_MAX_CERTIFICATES=' "$ENV_FILE" | tail -n 1 | cut -d= -f2)"
 
 echo "Installing frontend packages..."
 cd "$PROJECT_DIR/frontend"
