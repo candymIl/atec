@@ -40,15 +40,31 @@ if (window.location.pathname.toLowerCase().startsWith('/atec/atec')) {
 }
 
 const originalFetch = window.fetch.bind(window)
+let sessionExpiryReloadStarted = false
 
-window.fetch = function (input, options = {}) {
+window.fetch = async function (input, options = {}) {
   const url = typeof input === 'string' ? input : input?.url || ''
   const isApiRequest = url.startsWith(API_BASE)
 
-  return originalFetch(input, {
+  const response = await originalFetch(input, {
     ...options,
     credentials: isApiRequest ? 'include' : options.credentials
   })
+
+  if (
+    isApiRequest &&
+    response.status === 401 &&
+    currentUser &&
+    !sessionExpiryReloadStarted
+  ) {
+    sessionExpiryReloadStarted = true
+    currentUser = null
+    window.currentUser = null
+    localStorage.removeItem('currentPage')
+    window.location.reload()
+  }
+
+  return response
 }
 
 async function readApiResponse(response) {
@@ -79,6 +95,8 @@ let criteria = []
 let assetSearchTimer = null
 let updateNoticeShown = false
 let updateChecksStarted = false
+let sessionChecksStarted = false
+let sessionCheckTimer = null
 let browserHistoryReady = false
 let browserHistoryRestoring = false
 let googleMapsLoader = null
@@ -123,7 +141,7 @@ const pageAccess = {
   'job-cards': ['ADMIN', 'MANAGER', 'INSPECTOR'],
   'quick-inspection': ['ADMIN', 'MANAGER', 'INSPECTOR'],
   certificates: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER'],
-  'customer-report': ['ADMIN', 'MANAGER', 'VIEWER', 'CUSTOMER'],
+  'customer-report': ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER'],
   she: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER'],
   criteria: ['ADMIN'],
   users: ['ADMIN', 'MANAGER'],
@@ -210,6 +228,37 @@ function startFrontendUpdateChecks() {
   updateChecksStarted = true
   window.setTimeout(checkForFrontendUpdate, 30000)
   window.setInterval(checkForFrontendUpdate, 60000)
+}
+
+async function checkSession() {
+  if (!currentUser || sessionExpiryReloadStarted) return
+
+  try {
+    await fetch(`${API_BASE}/auth/me`, { cache: 'no-store' })
+  } catch (err) {
+    // A connection failure is not an expired session. Try again on the next check.
+  }
+}
+
+function checkSessionWhenVisible() {
+  if (document.visibilityState === 'visible') checkSession()
+}
+
+function startSessionChecks() {
+  if (sessionChecksStarted) return
+
+  sessionChecksStarted = true
+  sessionCheckTimer = window.setInterval(checkSession, 60000)
+  window.addEventListener('focus', checkSession)
+  document.addEventListener('visibilitychange', checkSessionWhenVisible)
+}
+
+function stopSessionChecks() {
+  if (sessionCheckTimer) window.clearInterval(sessionCheckTimer)
+  sessionCheckTimer = null
+  sessionChecksStarted = false
+  window.removeEventListener('focus', checkSession)
+  document.removeEventListener('visibilitychange', checkSessionWhenVisible)
 }
 
 function installPageScrollControls() {
@@ -322,6 +371,7 @@ window.logoutUser = async function () {
   await fetch(`${API_BASE}/auth/logout`, { method: 'POST' })
   currentUser = null
   window.currentUser = null
+  stopSessionChecks()
   localStorage.removeItem('currentPage')
   renderLogin()
 }
@@ -1206,6 +1256,7 @@ async function loadData() {
   const session = await sessionResponse.json()
   currentUser = session.user
   window.currentUser = currentUser
+  startSessionChecks()
 
   assets = []
 

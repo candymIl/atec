@@ -40,7 +40,9 @@
     "test:certificate-error-access": "node scripts/regression/certificate-entered-in-error-access.test.js",
     "test:asset-archive-reason": "node scripts/regression/asset-archive-reason.test.js",
     "test:job-cards": "node scripts/regression/technician-job-cards.test.js",
-    "test:asset-deflection": "node scripts/regression/asset-permissible-deflection.test.js"
+    "test:asset-deflection": "node scripts/regression/asset-permissible-deflection.test.js",
+    "test:session-expiry": "node scripts/regression/session-expiry-refresh.test.js",
+    "test:inspector-report-access": "node scripts/regression/inspector-report-access.test.js"
   },
   "dependencies": {
     "multer": "^2.1.1"

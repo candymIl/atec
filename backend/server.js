@@ -1788,6 +1788,7 @@ function authorizeRequest(req, res, next) {
         routePath.startsWith("/inspection-photos") ||
         routePath.startsWith("/certificates") ||
         routePath.includes("/certificate") ||
+        routePath.startsWith("/reports/customer-detailed") ||
         routePath.startsWith("/dashboard") ||
         routePath === "/auth/me" ||
         routePath.startsWith("/she/")
