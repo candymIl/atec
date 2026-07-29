@@ -3399,6 +3399,23 @@ tr:hover {
   color: #1f2937;
 }
 
+.bulk-certificate-batches {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 14px;
+  padding: 10px;
+}
+
+.bulk-certificate-batches span {
+  color: #475569;
+  font-size: 0.9rem;
+}
+
 .bulk-certificate-skipped {
   margin: 10px 0 14px;
   border: 1px solid #e4b654;

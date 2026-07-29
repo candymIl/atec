@@ -54,7 +54,7 @@ assert.deepStrictEqual(pdfConfig({
 
 assert.deepStrictEqual(pdfConfig({}), {
   concurrency: 1,
-  bulkMaxCertificates: 50,
+  bulkMaxCertificates: 100,
   reportExportMaxRows: 10000
 })
 

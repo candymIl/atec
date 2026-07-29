@@ -45,7 +45,7 @@ DB_QUERY_TIMEOUT_MS=30000
 SLOW_REQUEST_MS=2000
 REQUEST_TIMEOUT_MS=900000
 PDF_CONCURRENCY=1
-BULK_PDF_MAX_CERTIFICATES=50
+BULK_PDF_MAX_CERTIFICATES=100
 REPORT_EXPORT_MAX_ROWS=10000
 UPLOAD_COMPRESSION_CONCURRENCY=2
 UPLOAD_IMAGE_MAX_WIDTH=1600
@@ -78,4 +78,4 @@ Review:
 
 ## 5. Bulk PDF Rule
 
-Bulk PDF jobs are capped by `BULK_PDF_MAX_CERTIFICATES`, with the production default set to 50 and a hard application maximum of 100. Keep `PDF_CONCURRENCY=1` so large dumps queue one at a time instead of running many Chromium/PDF jobs at once. Single-certificate jobs are prioritised over bulk jobs that are still waiting in the queue.
+Bulk PDF jobs are capped at 100 certificates. Larger result sets are divided into numbered 100-certificate downloads by the Certificates page. Keep `PDF_CONCURRENCY=1` so large PDFs queue one at a time instead of running many Chromium jobs at once. Single-certificate jobs are prioritised over bulk jobs that are still waiting in the queue.

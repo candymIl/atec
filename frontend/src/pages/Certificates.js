@@ -4,6 +4,7 @@ import { API_BASE, assetUrl } from '../api.js'
 import { escapeHtml, safeAttr } from '../utils/security.js'
 
 const certificateVoidRoles = ["ADMIN", "MANAGER", "INSPECTOR"]
+const bulkCertificateBatchSize = 100
 
 function canVoidCertificates() {
   return certificateVoidRoles.includes(window.currentUser?.role)
@@ -812,6 +813,7 @@ function renderBulkCertificateResults(certificates, summary = {}) {
   const blockedReasonCounts = summary.blockedReasonCounts || {}
   const blockedCertificates = summary.blockedCertificates || []
   const totalMatched = Number(summary.totalMatched || certificates.length)
+  const batchCount = Math.ceil(certificates.length / bulkCertificateBatchSize)
   const blockedReasons = Object.entries(blockedReasonCounts)
     .filter(([, count]) => Number(count) > 0)
     .map(([reason, count]) => `<li>${escapeHtml(count)}: ${escapeHtml(reason)}</li>`)
@@ -844,6 +846,18 @@ function renderBulkCertificateResults(certificates, summary = {}) {
       ${skippedMessage}
     </div>
 
+    ${batchCount > 1 ? `
+      <div class="bulk-certificate-batches">
+        <strong>Select a download batch:</strong>
+        ${Array.from({ length: batchCount }, (_, batchIndex) => {
+          const first = batchIndex * bulkCertificateBatchSize + 1
+          const last = Math.min(first + bulkCertificateBatchSize - 1, certificates.length)
+          return `<button type="button" onclick="selectBulkCertificateBatch(${batchIndex})">${first}-${last}</button>`
+        }).join("")}
+        <span>Only one batch (maximum ${bulkCertificateBatchSize}) can be printed or downloaded at a time.</span>
+      </div>
+    ` : ""}
+
     ${renderBlockedCertificateDetails(blockedCertificates)}
 
     <div class="table-scroll bulk-certificate-table-wrap">
@@ -852,9 +866,9 @@ function renderBulkCertificateResults(certificates, summary = {}) {
           <tr>
             <th>
               <input
-                type="checkbox"
-                id="bulkCertSelectAll"
-                checked
+                 type="checkbox"
+                 id="bulkCertSelectAll"
+                 ${certificates.length <= bulkCertificateBatchSize ? "checked" : ""}
                 aria-label="Select all certificates"
               >
             </th>
@@ -872,7 +886,7 @@ function renderBulkCertificateResults(certificates, summary = {}) {
         </thead>
 
         <tbody>
-          ${certificates.map(certificate => {
+          ${certificates.map((certificate, certificateIndex) => {
             const inspection = certificate.inspection || {}
 
             return `
@@ -882,7 +896,7 @@ function renderBulkCertificateResults(certificates, summary = {}) {
                     type="checkbox"
                     class="bulk-cert-check"
                     value="${safeAttr(inspection.testid)}"
-                    checked
+                    ${certificateIndex < bulkCertificateBatchSize ? "checked" : ""}
                     aria-label="Select certificate ${safeAttr(inspection.testid)}"
                   >
                 </td>
@@ -928,25 +942,29 @@ function renderBulkCertificateResults(certificates, summary = {}) {
 
   updateBulkPrintButtonState()
   downloadAllButton.disabled = false
+  downloadAllButton.textContent = batchCount > 1
+    ? `Download All in ${batchCount} Batches`
+    : "Download All Results as PDF"
 }
 
 function updateBulkPrintButtonState() {
   const selectedCount = document.querySelectorAll('.bulk-cert-check:checked').length
+  const selectionTooLarge = selectedCount > bulkCertificateBatchSize
   const printButton = document.querySelector('#bulkCertPrintBtn')
   const downloadSelectedButton = document.querySelector('#bulkCertDownloadSelectedBtn')
   const selectAll = document.querySelector('#bulkCertSelectAll')
 
   if (printButton) {
-    printButton.disabled = selectedCount === 0
+    printButton.disabled = selectedCount === 0 || selectionTooLarge
     printButton.textContent = selectedCount
-      ? `Print Selected Certificates (${selectedCount})`
+      ? `${selectionTooLarge ? "Maximum 100 - Selected" : "Print Selected Certificates"} (${selectedCount})`
       : "Print Selected Certificates"
   }
 
   if (downloadSelectedButton) {
-    downloadSelectedButton.disabled = selectedCount === 0
+    downloadSelectedButton.disabled = selectedCount === 0 || selectionTooLarge
     downloadSelectedButton.textContent = selectedCount
-      ? `Download Selected as PDF (${selectedCount})`
+      ? `${selectionTooLarge ? "Maximum 100 - Selected" : "Download Selected as PDF"} (${selectedCount})`
       : "Download Selected as PDF"
   }
 
@@ -957,12 +975,31 @@ function updateBulkPrintButtonState() {
   }
 }
 
+window.selectBulkCertificateBatch = function (batchIndex) {
+  const firstIndex = Number(batchIndex) * bulkCertificateBatchSize
+  const lastIndex = firstIndex + bulkCertificateBatchSize
+
+  document.querySelectorAll('.bulk-cert-check').forEach((checkbox, index) => {
+    checkbox.checked = index >= firstIndex && index < lastIndex
+  })
+
+  updateBulkPrintButtonState()
+  document.querySelector('.bulk-certificate-table-wrap')?.scrollIntoView({
+    behavior: "smooth",
+    block: "start"
+  })
+}
+
 window.printSelectedBulkCertificates = function () {
   const selectedTestIds = Array.from(document.querySelectorAll('.bulk-cert-check:checked'))
     .map(checkbox => String(checkbox.value))
 
   if (!selectedTestIds.length) {
     alert("Select at least one certificate to print.")
+    return
+  }
+  if (selectedTestIds.length > bulkCertificateBatchSize) {
+    alert(`Select no more than ${bulkCertificateBatchSize} certificates at a time.`)
     return
   }
 
@@ -1013,6 +1050,10 @@ window.downloadSelectedBulkCertificatesPdf = async function () {
     alert("Select at least one certificate to download.")
     return
   }
+  if (selectedTestIds.length > bulkCertificateBatchSize) {
+    alert(`Select no more than ${bulkCertificateBatchSize} certificates at a time.`)
+    return
+  }
 
   const params = getBulkCertificateFilterParams()
   if (!params) return
@@ -1033,15 +1074,36 @@ window.downloadAllBulkCertificatesPdf = async function () {
     return
   }
 
-  const params = getBulkCertificateFilterParams()
-  if (!params) return
+  const batches = []
+  for (let index = 0; index < loadedTestIds.length; index += bulkCertificateBatchSize) {
+    batches.push(loadedTestIds.slice(index, index + bulkCertificateBatchSize))
+  }
 
-  params.set("testids", loadedTestIds.join(","))
+  const downloadAllButton = document.querySelector('#bulkCertDownloadAllBtn')
+  downloadAllButton.disabled = true
 
-  await downloadBulkCertificatesPdf(params)
+  try {
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+      downloadAllButton.textContent = `Downloading Batch ${batchIndex + 1} of ${batches.length}...`
+      const params = getBulkCertificateFilterParams()
+      if (!params) return
+      params.set("testids", batches[batchIndex].join(","))
+
+      const downloaded = await downloadBulkCertificatesPdf(params, {
+        batchNumber: batchIndex + 1,
+        batchCount: batches.length
+      })
+      if (!downloaded) return
+    }
+  } finally {
+    downloadAllButton.disabled = false
+    downloadAllButton.textContent = batches.length > 1
+      ? `Download All in ${batches.length} Batches`
+      : "Download All Results as PDF"
+  }
 }
 
-async function downloadBulkCertificatesPdf(params) {
+async function downloadBulkCertificatesPdf(params, batch = null) {
   const response = await fetch(
     `${API_BASE}/certificates/bulk-pdf?${params.toString()}`
   )
@@ -1054,15 +1116,18 @@ async function downloadBulkCertificatesPdf(params) {
       ? `\n\nFirst blocked certificate: ${error.blocked[0].testid || "Unknown"}`
       : ""
     alert((error.error || "Unable to download bulk certificates") + details)
-    return
+    return false
   }
 
   const skippedCount = Number(response.headers.get("x-skipped-certificates") || 0)
   const blob = await response.blob()
-  const filename = getDownloadFilename(
+  let filename = getDownloadFilename(
     response.headers.get("content-disposition"),
     "FB-Certificates.pdf"
   )
+  if (batch?.batchCount > 1) {
+    filename = filename.replace(/\.pdf$/i, `-Batch-${batch.batchNumber}-of-${batch.batchCount}.pdf`)
+  }
   const url = window.URL.createObjectURL(blob)
   const link = document.createElement("a")
 
@@ -1076,6 +1141,7 @@ async function downloadBulkCertificatesPdf(params) {
   if (skippedCount > 0) {
     alert(`${skippedCount} incomplete inspection${skippedCount === 1 ? " was" : "s were"} skipped. The remaining certificates were downloaded.`)
   }
+  return true
 }
 
 function getDownloadFilename(contentDisposition, fallback) {
