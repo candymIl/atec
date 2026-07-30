@@ -79,7 +79,7 @@ export function renderCertificateSearch(customers = [], sites = [], sections = [
           <input
             id="certSearch"
             type="text"
-            placeholder="Test ID, tag, serial, client, site, asset description..."
+            placeholder="Test ID, job number, tag, serial, client, site, asset description..."
           >
         </div>
 
@@ -598,6 +598,7 @@ function renderCertificateResults(certificates) {
 
   const sortedCertificates = window.currentCertificatePageInfo ? certificates : sortTableRows(certificates, 'certificates', {
     testid: cert => cert.testid,
+    job_number: cert => cert.job_number,
     tagnumber: cert => cert.tagnumber,
     clientname: cert => cert.clientname,
     sitename: cert => cert.sitename,
@@ -627,6 +628,7 @@ function renderCertificateResults(certificates) {
       <thead>
         <tr>
           <th>${certificateSortHeader('Test ID', 'testid')}</th>
+          <th>${certificateSortHeader('Job Number', 'job_number')}</th>
           <th>${certificateSortHeader('Tag No', 'tagnumber')}</th>
           <th>${certificateSortHeader('Client', 'clientname')}</th>
           <th>${certificateSortHeader('Site', 'sitename')}</th>
@@ -648,6 +650,7 @@ function renderCertificateResults(certificates) {
           return `
           <tr data-testid="${testid}">
             <td>${escapeHtml(cert.testid)}</td>
+            <td>${escapeHtml(cert.job_number || "-")}</td>
             <td>${escapeHtml(cert.tagnumber || "-")}</td>
             <td>${escapeHtml(cert.clientname || "")}</td>
             <td>${escapeHtml(cert.sitename || "")}</td>
@@ -873,6 +876,7 @@ function renderBulkCertificateResults(certificates, summary = {}) {
               >
             </th>
             <th>Certificate No</th>
+            <th>Job Number</th>
             <th>Date</th>
             <th>Valid Date</th>
             <th>Type</th>
@@ -901,6 +905,7 @@ function renderBulkCertificateResults(certificates, summary = {}) {
                   >
                 </td>
                 <td>${escapeHtml(inspection.testid || "")}</td>
+                <td>${escapeHtml(inspection.job_number || "-")}</td>
                 <td>${escapeHtml(formatDate(inspection.testdate))}</td>
                 <td>${escapeHtml(formatDate(inspection.validdate))}</td>
                 <td>${escapeHtml(inspection.inspectiontype || "")}</td>

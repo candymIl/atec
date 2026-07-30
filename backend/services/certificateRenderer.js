@@ -453,6 +453,7 @@ function renderCertificateBodyHtml(certificate, imageDataUrlCache = null, option
           <p><strong>Client:</strong> ${htmlEscape(inspection.clientname || "-")}</p>
           <p><strong>Site:</strong> ${htmlEscape(inspection.sitename || "-")}</p>
           <p><strong>Section:</strong> ${htmlEscape(inspection.sectionname || "-")}</p>
+          <p><strong>Job Number:</strong> ${htmlEscape(inspection.job_number || "-")}</p>
         </div>
       </section>
 

@@ -7548,6 +7548,10 @@ function renderHarnessWizard(asset, assetCriteria, inspectiontype, quickDetails,
               <input id="inspectionTagNo" class="inspection-tag-input" type="text" placeholder="Not issued yet" autocomplete="off">
             </div>
             <div class="form-group">
+              <label>Job Number <span class="optional-label">(Accelo reference)</span></label>
+              <input id="inspectionJobNumber" type="text" maxlength="200" placeholder="Enter Accelo job number" autocomplete="off">
+            </div>
+            <div class="form-group">
               <label>Certificate Expiry Date</label>
               <input id="inspectionValidDate" type="date" value="${calculateValidDateFromTestDate(dateInputValue(), inspectiontype, defaultInspectionFrequencyForAsset(asset, inspectiontype))}">
             </div>
@@ -7643,6 +7647,10 @@ function renderSlingWizard(asset, assetCriteria, inspectiontype, quickDetails, r
             <div class="form-group">
               <label>Inspection Tag No <span class="optional-label">(Optional)</span></label>
               <input id="inspectionTagNo" class="inspection-tag-input" type="text" placeholder="Not issued yet" autocomplete="off">
+            </div>
+            <div class="form-group">
+              <label>Job Number <span class="optional-label">(Accelo reference)</span></label>
+              <input id="inspectionJobNumber" type="text" maxlength="200" placeholder="Enter Accelo job number" autocomplete="off">
             </div>
             <div class="form-group">
               <label>Certificate Expiry Date</label>
@@ -7749,6 +7757,10 @@ function renderCraneWizard(asset, assetCriteria, inspectiontype, quickDetails, r
             <div class="form-group">
               <label>Inspection Tag No <span class="optional-label">(Optional)</span></label>
               <input id="inspectionTagNo" class="inspection-tag-input" type="text" placeholder="Not issued yet" autocomplete="off">
+            </div>
+            <div class="form-group">
+              <label>Job Number <span class="optional-label">(Accelo reference)</span></label>
+              <input id="inspectionJobNumber" type="text" maxlength="200" placeholder="Enter Accelo job number" autocomplete="off">
             </div>
             <div class="form-group">
               <label>Certificate Expiry Date</label>
@@ -8161,6 +8173,7 @@ function renderCraneWizardReview() {
       <div><span>Test Date</span><strong>${escapeHtml(document.querySelector("#inspectionTestDate")?.value || "-")}</strong></div>
       <div><span>Valid Date</span><strong>${escapeHtml(document.querySelector("#inspectionValidDate")?.value || "-")}</strong></div>
       <div><span>Inspection Tag Number</span><strong>${escapeHtml(inspectionTagDisplay(document.querySelector("#inspectionTagNo")?.value))}</strong></div>
+      <div><span>Job Number</span><strong>${escapeHtml(document.querySelector("#inspectionJobNumber")?.value || "-")}</strong></div>
       <div><span>Inspector</span><strong>${escapeHtml(currentUser?.full_name || "-")}</strong></div>
       <div><span>Signature</span><strong>${currentUser?.signature_image ? "Saved" : "Not uploaded"}</strong></div>
       <div><span>Photos</span><strong>${photoCount}</strong></div>
@@ -8514,6 +8527,17 @@ if (formMode !== "generic" && inspectionWizardKey === "SLING") {
         type="text"
         autocomplete="off"
         placeholder="ENTER TAG NUMBER"
+      >
+    </div>
+
+    <div class="form-group">
+      <label>Job Number <span class="optional-label">(Accelo reference)</span></label>
+      <input
+        id="inspectionJobNumber"
+        type="text"
+        maxlength="200"
+        autocomplete="off"
+        placeholder="Enter Accelo job number"
       >
     </div>
 
@@ -10417,6 +10441,7 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
   }
   formData.append("inspectionfrequency", document.querySelector("#inspectionFrequency")?.value || "")
   formData.append("tagnumber", tagnumber)
+  formData.append("job_number", document.querySelector("#inspectionJobNumber")?.value.trim() || "")
   formData.append("results", JSON.stringify(results))
 
   const replacementPhoto1 = document.querySelector("#inspectionAssetPhoto1")?.files?.[0] || null

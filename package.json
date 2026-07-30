@@ -44,7 +44,9 @@
     "test:session-expiry": "node scripts/regression/session-expiry-refresh.test.js",
     "test:inspector-report-access": "node scripts/regression/inspector-report-access.test.js",
     "test:mpi": "node scripts/regression/mpi-module.test.js",
+    "test:inspection-job-number": "node scripts/regression/inspection-job-number.test.js",
     "test:mpi-db": "node scripts/uat/mpi-database-uat.js",
+    "uat:inspection-job-number:apply-local": "node scripts/uat/apply-inspection-job-number-local.js",
     "uat:mpi:apply-local": "node scripts/uat/apply-mpi-local.js"
   },
   "dependencies": {

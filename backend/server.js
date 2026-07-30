@@ -6554,6 +6554,7 @@ app.post("/inspections",
         inspectiontype,
         inspectionfrequency,
         tagnumber,
+        job_number,
         visitid,
         results,
         updateassetphotos,
@@ -6775,6 +6776,7 @@ app.post("/inspections",
           "inspector_signature_image",
           "inspectionfrequency",
           "tagnumber",
+          "job_number",
           "photo1",
           "photo2",
           "updateassetphotos"
@@ -6795,6 +6797,7 @@ app.post("/inspections",
       ]
 
       pushAvailableColumn(inspectionColumns, availableInspectionColumns, "tagnumber", inspectionTagNumber)
+      pushAvailableColumn(inspectionColumns, availableInspectionColumns, "job_number", truncateDbText(job_number || "", 200))
       pushAvailableColumn(inspectionColumns, availableInspectionColumns, "photo1", photo1)
       pushAvailableColumn(inspectionColumns, availableInspectionColumns, "photo2", photo2)
       pushAvailableColumn(inspectionColumns, availableInspectionColumns, "updateassetphotos", updatePhotos)
@@ -7577,6 +7580,7 @@ const effectiveInspectionStatusSql = `
 
 const certificateSearchSortColumns = {
   testid: "i.testid",
+  job_number: "i.job_number",
   tagnumber: "i.tagnumber",
   clientname: "c.clientname",
   sitename: "s.sitename",
@@ -7620,6 +7624,7 @@ app.get("/certificates/search", searchLimiter, async (req, res) => {
       where += `
         AND (
           CAST(i.testid AS TEXT) ILIKE $${values.length}
+          OR i.job_number ILIKE $${values.length}
           OR i.tagnumber ILIKE $${values.length}
           OR a.assettagno ILIKE $${values.length}
           OR a.serialno ILIKE $${values.length}
@@ -7726,6 +7731,7 @@ app.get("/certificates/search", searchLimiter, async (req, res) => {
         COALESCE(i.inspector_name, i.inspector) AS inspector,
         i.inspector_lmi_number,
         i.tagnumber,
+        i.job_number,
         a.assetid,
         a.assettagno,
         a.serialno,
