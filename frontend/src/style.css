@@ -215,8 +215,71 @@ img {
 }
 
 .mobile-menu-actions {
-  display: contents;
+  display: block;
 }
+
+.sidebar-search {
+  color: #cbd5e1;
+  display: grid;
+  font-size: 11px;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.sidebar-search input {
+  background: #111827;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  color: #fff;
+  min-width: 0;
+  padding: 8px 9px;
+  width: 100%;
+}
+
+.sidebar-menu-group {
+  border-bottom: 1px solid #334155;
+  margin-bottom: 5px;
+  padding-bottom: 5px;
+}
+
+.sidebar-menu-group summary {
+  align-items: center;
+  color: #e2e8f0;
+  cursor: pointer;
+  display: flex;
+  font-size: 12px;
+  font-weight: 700;
+  justify-content: space-between;
+  letter-spacing: .04em;
+  list-style: none;
+  padding: 8px 4px;
+  text-transform: uppercase;
+}
+
+.sidebar-menu-group summary::-webkit-details-marker { display: none; }
+.sidebar-menu-group summary span { font-size: 20px; transition: transform .15s ease; }
+.sidebar-menu-group[open] summary span { transform: rotate(90deg); }
+.sidebar-menu-items { display: grid; gap: 4px; padding-bottom: 4px; }
+
+.sidebar .sidebar-nav-button {
+  border-color: transparent;
+  margin: 0;
+  min-height: 34px;
+  padding: 7px 9px;
+}
+
+.sidebar .sidebar-nav-button.active {
+  background: #2563eb;
+  border-color: #60a5fa;
+  font-weight: 700;
+}
+
+.sidebar .sidebar-logout {
+  border-color: #64748b;
+  margin-top: 8px;
+}
+
+.sidebar [hidden] { display: none !important; }
 
 /* =======================================================
    4. BUTTONS AND ACTIONS
@@ -5316,13 +5379,11 @@ tr:hover {
 
   .mobile-menu-actions {
     display: none;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
     margin-top: 8px;
   }
 
   .sidebar.mobile-menu-open .mobile-menu-actions {
-    display: grid;
+    display: block;
   }
 
   .logo-container,
@@ -5428,6 +5489,14 @@ tr:hover {
   .quick-detail-grid,
   .quick-result-bottom {
     grid-template-columns: 1fr !important;
+  }
+
+  .sidebar-menu-items {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sidebar-menu-group summary {
+    min-height: 38px;
   }
 
   .customer-portal-heading,

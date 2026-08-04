@@ -33,6 +33,8 @@
     "2026-07-27-trestle-visual-inspection-criteria.sql",
     "2026-07-27-inspection-criteria-snapshots.sql",
     "2026-07-29-magnetic-particle-inspection-module.sql",
-    "2026-07-30-inspection-job-number.sql"
+    "2026-07-30-inspection-job-number.sql",
+    "2026-07-30-lean-workforce-timesheets.sql",
+    "2026-07-30-inspection-snapshot-runtime-permissions.sql"
   ]
 }

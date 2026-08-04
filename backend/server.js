@@ -52,6 +52,7 @@ const {
   validateUploadedImages
 } = require("./middleware/security")
 const { registerMpiRoutes } = require("./routes/mpi")
+const { registerWorkforceRoutes } = require("./routes/workforce")
 
 const defaultFrontendOrigin = process.env.NODE_ENV === "production"
   ? "https://www.atecinspections.co.za"
@@ -501,12 +502,14 @@ function roleToUserLevel(role) {
     MANAGER: 2,
     INSPECTOR: 3,
     VIEWER: 4,
-    CUSTOMER: 5
+    CUSTOMER: 5,
+    HR: 6,
+    ASSISTANT: 7
   }[role] || 5
 }
 
 function validRoles() {
-  return ["ADMIN", "MANAGER", "INSPECTOR", "VIEWER", "CUSTOMER"]
+  return ["ADMIN", "MANAGER", "INSPECTOR", "ASSISTANT", "HR", "VIEWER", "CUSTOMER"]
 }
 
 function canManageAllUsers(user) {
@@ -1635,6 +1638,13 @@ function authorizeRequest(req, res, next) {
 
   if (routePath.startsWith("/users/me/signature")) return next()
 
+  if (
+    routePath.startsWith("/workforce") &&
+    ["MANAGER", "INSPECTOR", "ASSISTANT", "HR"].includes(role)
+  ) {
+    return next()
+  }
+
   if (role === "MANAGER") {
     if (routePath.startsWith("/job-cards")) return next()
     if (routePath.startsWith("/ndt")) return next()
@@ -2114,6 +2124,8 @@ app.get("/users", asyncRoute(async (req, res) => {
       clientid,
       siteid,
       sectionid,
+      manager_user_id,
+      employee_number,
       is_active,
       created_at,
       last_login_at
@@ -2221,6 +2233,8 @@ app.post("/users", asyncRoute(async (req, res) => {
     full_name,
     role,
     lmi_number,
+    manager_user_id,
+    employee_number,
     clientid,
     siteid,
     sectionid,
@@ -2268,9 +2282,9 @@ app.post("/users", asyncRoute(async (req, res) => {
   const result = await pool.query(
     `
     INSERT INTO atec.tblusers
-      (userid, username, email, password, fullname, userlevel, role, lmi_no, clientid, siteid, sectionid, is_active)
+      (userid, username, email, password, fullname, userlevel, role, lmi_no, clientid, siteid, sectionid, is_active, manager_user_id, employee_number)
     VALUES
-      ((SELECT COALESCE(MAX(userid), 0) + 1 FROM atec.tblusers), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, true))
+      ((SELECT COALESCE(MAX(userid), 0) + 1 FROM atec.tblusers), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, true), $12, $13)
     RETURNING
       userid AS user_id,
       username,
@@ -2282,6 +2296,8 @@ app.post("/users", asyncRoute(async (req, res) => {
       clientid,
       siteid,
       sectionid,
+      manager_user_id,
+      employee_number,
       is_active
     `,
     [
@@ -2295,7 +2311,9 @@ app.post("/users", asyncRoute(async (req, res) => {
       role === "CUSTOMER" ? clientid || null : null,
       role === "CUSTOMER" ? siteid || null : null,
       null,
-      is_active
+      is_active,
+      role === "CUSTOMER" ? null : manager_user_id || null,
+      role === "CUSTOMER" ? "" : String(employee_number || "").trim()
     ]
   )
 
@@ -2310,6 +2328,8 @@ app.put("/users/:id", asyncRoute(async (req, res) => {
     full_name,
     role,
     lmi_number,
+    manager_user_id,
+    employee_number,
     clientid,
     siteid,
     sectionid,
@@ -2381,6 +2401,8 @@ app.put("/users/:id", asyncRoute(async (req, res) => {
     role === "CUSTOMER" ? siteid || null : null,
     null,
     is_active === false ? false : true,
+    role === "CUSTOMER" ? null : manager_user_id || null,
+    role === "CUSTOMER" ? "" : String(employee_number || "").trim(),
     req.params.id
   ]
 
@@ -2409,9 +2431,11 @@ app.put("/users/:id", asyncRoute(async (req, res) => {
       siteid = $7,
       sectionid = $8,
       is_active = $9,
+      manager_user_id = $10,
+      employee_number = $11,
       updated_at = now()
       ${passwordSql}
-    WHERE userid = $10
+    WHERE userid = $12
     RETURNING
       userid AS user_id,
       username,
@@ -2423,6 +2447,8 @@ app.put("/users/:id", asyncRoute(async (req, res) => {
       clientid,
       siteid,
       sectionid,
+      manager_user_id,
+      employee_number,
       is_active
     `,
     params
@@ -6560,6 +6586,12 @@ app.post("/inspections",
         updateassetphotos,
         force_duplicate
       } = req.body
+      const acceloJobNumber = String(job_number || "").trim()
+      if (!/^[0-9]+$/.test(acceloJobNumber)) {
+        await client.query("ROLLBACK")
+        removeUploadedFiles(Object.values(req.files || {}).flat())
+        return res.status(400).json({ error: "Accelo Job Number is required and may contain numeric digits only" })
+      }
 
       const parsedResults = JSON.parse(results || "[]")
 
@@ -6777,6 +6809,7 @@ app.post("/inspections",
           "inspectionfrequency",
           "tagnumber",
           "job_number",
+          "jobcardid",
           "photo1",
           "photo2",
           "updateassetphotos"
@@ -6796,8 +6829,13 @@ app.post("/inspections",
         ["inspector", inspectorProfile.full_name || req.user.full_name || ""]
       ]
 
+      const linkedJobCard = await client.query(`
+        SELECT jobcardid FROM atec.tbljobcard
+        WHERE clientid=$1 AND customer_reference=$2
+        ORDER BY updated_at DESC,jobcardid DESC LIMIT 1`, [criteriaAvailability.clientid, acceloJobNumber])
       pushAvailableColumn(inspectionColumns, availableInspectionColumns, "tagnumber", inspectionTagNumber)
-      pushAvailableColumn(inspectionColumns, availableInspectionColumns, "job_number", truncateDbText(job_number || "", 200))
+      pushAvailableColumn(inspectionColumns, availableInspectionColumns, "job_number", truncateDbText(acceloJobNumber, 200))
+      pushAvailableColumn(inspectionColumns, availableInspectionColumns, "jobcardid", linkedJobCard.rows[0]?.jobcardid || null)
       pushAvailableColumn(inspectionColumns, availableInspectionColumns, "photo1", photo1)
       pushAvailableColumn(inspectionColumns, availableInspectionColumns, "photo2", photo2)
       pushAvailableColumn(inspectionColumns, availableInspectionColumns, "updateassetphotos", updatePhotos)
@@ -7099,7 +7137,11 @@ app.post("/inspections",
           referenceId
         })
       }
-      res.status(500).json({ error: "An unexpected server error occurred", referenceId })
+      res.status(500).json({
+        error: "An unexpected server error occurred",
+        referenceId,
+        ...(process.env.NODE_ENV === "production" ? {} : { diagnostic: err.message })
+      })
     } finally {
       client.release()
     }
@@ -13845,15 +13887,19 @@ async function loadJobCard(jobcardid) {
     WHERE j.jobcardid = $1
   `, [jobcardid])
   if (!header.rows[0]) return null
-  const [assets, materials, deviations, photos] = await Promise.all([
+  const [assets, materials, deviations, photos, crew] = await Promise.all([
     pool.query(`SELECT ja.*, a.serialno, a.assettagno, a.description, a.manufacturer, a.wll,
       et.description AS equipmenttype FROM atec.tbljobcardasset ja LEFT JOIN atec.tblasset a ON a.assetid = ja.assetid
       LEFT JOIN atec.tblequiptype et ON et.equiptypeid = a.equiptypeid WHERE ja.jobcardid = $1 ORDER BY ja.jobcardassetid`, [jobcardid]),
     pool.query("SELECT * FROM atec.tbljobcardmaterial WHERE jobcardid = $1 ORDER BY materialid", [jobcardid]),
     pool.query("SELECT * FROM atec.tbljobcarddeviation WHERE jobcardid = $1 ORDER BY deviationid", [jobcardid]),
-    pool.query("SELECT * FROM atec.tbljobcardphoto WHERE jobcardid = $1 ORDER BY photoid", [jobcardid])
+    pool.query("SELECT * FROM atec.tbljobcardphoto WHERE jobcardid = $1 ORDER BY photoid", [jobcardid]),
+    pool.query(`SELECT crew.*,COALESCE(NULLIF(u.fullname,''),u.username) AS full_name,u.role
+      FROM atec.tbljobcardcrew crew JOIN atec.tblusers u ON u.userid=crew.user_id
+      WHERE crew.jobcardid=$1
+      ORDER BY CASE crew.crew_role WHEN 'LEAD_TECHNICIAN' THEN 0 ELSE 1 END,full_name`, [jobcardid])
   ])
-  return { ...header.rows[0], assets: assets.rows, materials: materials.rows, deviations: deviations.rows, photos: photos.rows }
+  return { ...header.rows[0], assets: assets.rows, materials: materials.rows, deviations: deviations.rows, photos: photos.rows, crew: crew.rows }
 }
 
 app.get("/job-cards", asyncRoute(async (req, res) => {
@@ -13883,7 +13929,7 @@ app.get("/job-cards", asyncRoute(async (req, res) => {
 app.get("/job-cards-technicians", asyncRoute(async (req, res) => {
   const result = await pool.query(`SELECT userid AS user_id, COALESCE(NULLIF(fullname,''),username) AS full_name, role
     FROM atec.tblusers WHERE COALESCE(is_active,true)=true AND COALESCE(role, CASE WHEN userlevel=3 THEN 'INSPECTOR' ELSE 'VIEWER' END)
-    IN ('ADMIN','MANAGER','INSPECTOR') ORDER BY COALESCE(NULLIF(fullname,''),username)`)
+    IN ('ADMIN','MANAGER','INSPECTOR','ASSISTANT') ORDER BY COALESCE(NULLIF(fullname,''),username)`)
   res.json(result.rows)
 }))
 
@@ -13964,7 +14010,11 @@ async function saveJobCard(req, res) {
   const body = req.body || {}
   const requestedStatus = String(body.status || "DRAFT").toUpperCase()
   const equipmentStatus = String(body.equipment_status || "NOT_TESTED").toUpperCase()
+  const acceloJobNumber = String(body.customer_reference || "").trim()
   if (!body.clientid || !body.siteid) return res.status(400).json({ error: "Customer and site are required" })
+  if (!/^[0-9]+$/.test(acceloJobNumber)) {
+    return res.status(400).json({ error: "Accelo Job Number is required and may contain numeric digits only" })
+  }
   if (req.user.role === "INSPECTOR" && ["APPROVED", "INVOICED", "CANCELLED"].includes(requestedStatus)) {
     return res.status(403).json({ error: "Only an Admin or Manager can approve, invoice or cancel a job card" })
   }
@@ -14038,7 +14088,7 @@ async function saveJobCard(req, res) {
       invoice_reference=$37, updated_at=now() WHERE jobcardid=$38`, [reference, body.clientid, body.siteid, body.sectionid || null,
       body.visitid || null, body.assigned_to_user_id || (req.user.role === "INSPECTOR" ? req.user.user_id : null),
       String(body.job_type || "REPAIR").toUpperCase(), String(body.priority || "NORMAL").toUpperCase(), requestedStatus,
-      body.customer_reference || "", body.customer_contact_name || "", body.customer_contact_phone || "", body.reported_fault || "",
+      acceloJobNumber, body.customer_contact_name || "", body.customer_contact_phone || "", body.reported_fault || "",
       body.findings || "", body.root_cause || "", body.work_performed || "", body.test_performed || "", body.test_result || "",
       body.recommendations || "", equipmentStatus, body.equipment_status_reason || "", body.planned_at || null, body.departed_at || null,
       body.arrived_at || null, body.work_started_at || null, body.work_completed_at || null, body.travel_completed_at || null,
@@ -14069,6 +14119,21 @@ async function saveJobCard(req, res) {
       else await client.query(`INSERT INTO atec.tbljobcarddeviation (jobcardid,assetid,category,severity,description,immediate_action,further_work_required,target_date,deviation_status,created_by_user_id)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [jobcardid, row.assetid || null, row.category || "OTHER", row.severity || "OBSERVATION",
         row.description, row.immediate_action || "", row.further_work_required || "", row.target_date || null, row.deviation_status || "OPEN", req.user.user_id])
+    }
+    const crewByUser = new Map()
+    for (const row of (Array.isArray(body.crew) ? body.crew : [])) {
+      const userId = Number(row.user_id)
+      const crewRole = String(row.crew_role || "ASSISTANT").toUpperCase()
+      if (userId && ["ASSISTANT", "ADDITIONAL_TECHNICIAN"].includes(crewRole)) {
+        crewByUser.set(userId, { user_id: userId, crew_role: crewRole })
+      }
+    }
+    const leadUserId = Number(body.assigned_to_user_id || (req.user.role === "INSPECTOR" ? req.user.user_id : 0))
+    if (leadUserId) crewByUser.set(leadUserId, { user_id: leadUserId, crew_role: "LEAD_TECHNICIAN" })
+    await client.query("DELETE FROM atec.tbljobcardcrew WHERE jobcardid=$1", [jobcardid])
+    for (const row of crewByUser.values()) {
+      await client.query(`INSERT INTO atec.tbljobcardcrew(jobcardid,user_id,crew_role,included_in_time,added_by_user_id)
+        VALUES($1,$2,$3,true,$4)`, [jobcardid,row.user_id,row.crew_role,req.user.user_id])
     }
     await client.query("COMMIT")
     await req.logAudit(req.params.id ? "UPDATE" : "CREATE", "job_cards", jobcardid, { status: requestedStatus, equipment_status: equipmentStatus })
@@ -14283,15 +14348,13 @@ function drawJobCardPdfPhotoPages(doc, card) {
   }
 }
 
-app.get("/job-cards/:id/pdf", pdfLimiter, asyncRoute(async (req, res) => {
-  const card = await loadJobCard(req.params.id)
-  if (!card) return res.status(404).json({ error: "Job card not found" })
-  if (req.user.role === "INSPECTOR" && ![card.assigned_to_user_id, card.created_by_user_id].map(String).includes(String(req.user.user_id))) {
-    return res.status(403).json({ error: "This job card is not assigned to you" })
-  }
+function createJobCardPdfBuffer(card) {
+  return runQueuedPdfJob(() => new Promise((resolve, reject) => {
   const doc = new PDFDocument({ size: "A4", margins: { top: 108, right: 42, bottom: 92, left: 42 }, bufferPages: true })
-  res.type("application/pdf").setHeader("Content-Disposition", `inline; filename=${card.jobcard_reference}.pdf`)
-  doc.pipe(res)
+  const chunks = []
+  doc.on("data", chunk => chunks.push(chunk))
+  doc.on("error", reject)
+  doc.on("end", () => resolve(Buffer.concat(chunks)))
   const line = (label, value) => { doc.font("Helvetica-Bold").text(`${label}: `, { continued: true }).font("Helvetica").text(String(value || "-")) }
   doc.fontSize(15).font("Helvetica-Bold").fillColor("#183153").text("TECHNICIAN JOB CARD", { align: "center" }).moveDown(.6)
   drawJobCardPdfSummary(doc, card)
@@ -14318,6 +14381,18 @@ app.get("/job-cards/:id/pdf", pdfLimiter, asyncRoute(async (req, res) => {
   drawJobCardPdfPhotoPages(doc, card)
   addJobCardPdfPageFrames(doc, card)
   doc.end()
+  }))
+}
+
+app.get("/job-cards/:id/pdf", pdfLimiter, asyncRoute(async (req, res) => {
+  const card = await loadJobCard(req.params.id)
+  if (!card) return res.status(404).json({ error: "Job card not found" })
+  if (req.user.role === "INSPECTOR" && ![card.assigned_to_user_id, card.created_by_user_id].map(String).includes(String(req.user.user_id))) {
+    return res.status(403).json({ error: "This job card is not assigned to you" })
+  }
+  const buffer = await createJobCardPdfBuffer(card)
+  res.type("application/pdf").setHeader("Content-Disposition", `inline; filename=${card.jobcard_reference}.pdf`)
+  res.send(buffer)
 }))
 
 registerMpiRoutes(app, {
@@ -14336,6 +14411,22 @@ registerMpiRoutes(app, {
   getMailErrorMessage,
   uploadRoot: uploadsRoot,
   brandRoot: path.join(__dirname, "..", "frontend", "public")
+})
+
+registerWorkforceRoutes(app, {
+  pool,
+  asyncRoute,
+  pdfLimiter,
+  emailLimiter,
+  brandRoot: path.join(__dirname, "..", "frontend", "public"),
+  loadJobCard,
+  createJobCardPdfBuffer,
+  createCertificatePdfBuffer,
+  getCertificateData,
+  sendApplicationEmail,
+  getMailConfigIssues,
+  getMailErrorMessage,
+  ExcelJS
 })
 
 app.use(errorHandler)

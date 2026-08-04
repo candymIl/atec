@@ -14,6 +14,23 @@ import { renderCustomerPortal } from './pages/CustomerPortal.js'
 import { renderRiskAssessments, renderRiskAssessmentTable } from './pages/RiskAssessments.js'
 import { renderSystemHealthPage } from './pages/SystemHealth.js'
 import { renderMpiReportsPage } from './pages/MpiReports.js'
+import {
+  addWorkforceTime,
+  exportTimesheetHistoryCsv,
+  exportPayrollExcel,
+  loadTimesheetHistory,
+  loadWorkSchedule,
+  setAllPayrollEmployees,
+  setPayrollPeriod,
+  renderHrTimesheets,
+  renderMyDay,
+  renderTimesheetApprovals,
+  renderTimesheetHistory,
+  renderWorkSchedules,
+  saveWorkSchedule,
+  submitMyDay,
+  workforceAction
+} from './pages/Workforce.js'
 import { getPaginationState, renderPaginationControls } from './pagination.js'
 import { getTableSortState, sortHeader, sortTableRows } from './tableSort.js'
 import { API_BASE, assetUrl, uploadUrl } from './api.js'
@@ -109,6 +126,7 @@ const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || ''
 
 function setCurrentPage(pageKey) {
   localStorage.setItem('currentPage', pageKey)
+  updateSidebarActivePage(pageKey)
 
   if (!browserHistoryReady || browserHistoryRestoring) return
   if (window.history.state?.atecPage === pageKey) return
@@ -140,6 +158,11 @@ const pageAccess = {
   inspections: ['ADMIN', 'MANAGER', 'INSPECTOR'],
   visits: ['ADMIN', 'MANAGER', 'INSPECTOR'],
   'job-cards': ['ADMIN', 'MANAGER', 'INSPECTOR'],
+  'my-day': ['ADMIN', 'MANAGER', 'INSPECTOR', 'ASSISTANT'],
+  'timesheet-approvals': ['ADMIN', 'MANAGER', 'HR'],
+  'timesheet-history': ['ADMIN', 'MANAGER', 'HR'],
+  'hr-timesheets': ['ADMIN', 'HR'],
+  'work-schedules': ['ADMIN', 'HR'],
   'quick-inspection': ['ADMIN', 'MANAGER', 'INSPECTOR'],
   certificates: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER'],
   mpi: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER'],
@@ -148,7 +171,7 @@ const pageAccess = {
   criteria: ['ADMIN'],
   users: ['ADMIN', 'MANAGER'],
   'system-health': ['ADMIN'],
-  profile: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER']
+  profile: ['ADMIN', 'MANAGER', 'INSPECTOR', 'ASSISTANT', 'HR', 'VIEWER', 'CUSTOMER']
 }
 
 function hasAccess(pageKey) {
@@ -175,8 +198,69 @@ function ensurePageAccess(pageKey) {
 
 function menuButton(pageKey, label, action) {
   return hasAccess(pageKey)
-    ? `<button onclick="closeMobileMenu(); ${action}">${label}</button>`
+    ? `<button class="sidebar-nav-button" data-page="${safeAttr(pageKey)}" data-menu-label="${safeAttr(label.toLowerCase())}" onclick="closeMobileMenu(); ${action}">${escapeHtml(label)}</button>`
     : ''
+}
+
+function menuGroup(groupKey, label, items) {
+  const content = items.filter(Boolean).join('')
+  if (!content) return ''
+  const activePage = localStorage.getItem('currentPage') || 'dashboard'
+  const containsActive = items.some(item => item && item.includes(`data-page="${activePage}"`))
+  const storedGroup = localStorage.getItem(`sidebarGroup:${currentUser?.role || ''}`)
+  const open = containsActive || storedGroup === groupKey
+  return `<details class="sidebar-menu-group" data-menu-group="${safeAttr(groupKey)}" ${open ? 'open' : ''} ontoggle="rememberSidebarGroup(this)">
+    <summary>${escapeHtml(label)}<span aria-hidden="true">›</span></summary><div class="sidebar-menu-items">${content}</div>
+  </details>`
+}
+
+function renderRoleMenu() {
+  if (currentUser?.role === 'CUSTOMER') return menuGroup('portal','Portal',[
+    menuButton('portal', 'Customer Portal', 'showCustomerPortal()'),
+    menuButton('certificates','Certificates','showCertificateSearch()'),
+    menuButton('mpi','MPI / NDT Reports','showMpiReports()'),
+    menuButton('customer-report','Reports','showCustomerDetailedReport()')
+  ])
+  return [
+    menuGroup('home','Home',[menuButton('dashboard','Dashboard','showDashboard()')]),
+    menuGroup('inspections','Inspections',[
+      menuButton('quick-inspection','Quick Inspection/Testing','showQuickInspection()'),
+      menuButton('mpi','MPI / NDT Reports','showMpiReports()'),
+      menuButton('certificates','Certificates','showCertificateSearch()'),
+      menuButton('customer-report','Reports','showCustomerDetailedReport()')
+    ]),
+    menuGroup('jobs-time','Jobs & Time',[
+      menuButton('visits','On-Site Visits','showInspectionVisits()'),
+      menuButton('job-cards','Technician Job Cards','showJobCards()'),
+      menuButton('my-day','My Day / Timesheet','showMyDay()'),
+      menuButton('timesheet-approvals','Timesheet Approvals','showTimesheetApprovals()'),
+      menuButton('timesheet-history','Timesheet History & Reports','showTimesheetHistory()'),
+      menuButton('hr-timesheets','HR Time Dashboard','showHrTimesheets()')
+    ]),
+    menuGroup('customers-assets','Customers & Assets',[
+      menuButton('customers','Customer Setup','showCustomerSetup()'),menuButton('sites','Sites','showSites()'),
+      menuButton('responsible','Responsible Persons','showResponsiblePersons()'),menuButton('sections','Sections','showSections()'),
+      menuButton('assets','Assets','showAssetSetup()')
+    ]),
+    menuGroup('people','People & Access',[
+      canManageInternalUsers() ? menuButton('users', 'ATEC Users', 'showInternalUserManagement()') : '',
+      canManageCustomerPortalUsers() ? menuButton('users', 'Customer Portal Users', 'showCustomerUserManagement()') : '',
+      menuButton('work-schedules','Work Schedules','showWorkSchedules()')
+    ]),
+    menuGroup('system','System Setup',[
+      menuButton('criteria','Equipment Type Criteria','showEquipmentTypeCriteria()'),
+      menuButton('she','SLAMM','showRiskAssessments()'),menuButton('system-health','System Health','showSystemHealth()')
+    ]),
+    menuGroup('account','Account',[menuButton('profile','My Profile','showMyProfile()')])
+  ].join('')
+}
+
+function updateSidebarActivePage(pageKey) {
+  document.querySelectorAll('.sidebar-nav-button').forEach(button => {
+    const active = button.dataset.page === pageKey
+    button.classList.toggle('active',active)
+    if (active) button.closest('.sidebar-menu-group')?.setAttribute('open','')
+  })
 }
 
 function canManageAssetRecords() {
@@ -496,7 +580,7 @@ function sortUserManagementRows(users) {
   })
 }
 
-const internalUserRoles = ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER']
+const internalUserRoles = ['ADMIN', 'MANAGER', 'INSPECTOR', 'ASSISTANT', 'HR', 'VIEWER']
 const customerUserRoles = ['CUSTOMER']
 
 function canManageInternalUsers() {
@@ -742,6 +826,14 @@ window.showUserManagement = async function () {
             <label>LMI Number</label>
             <input id="newUserLmi" type="text">
           </div>
+          <div class="form-group">
+            <label>Employee Number</label>
+            <input id="newUserEmployeeNumber" type="text">
+          </div>
+          <div class="form-group">
+            <label>Approving Manager</label>
+            <select id="newUserManager"><option value="">Not assigned</option>${users.filter(user => ['ADMIN','MANAGER'].includes(user.role)).map(user => `<option value="${safeAttr(user.user_id)}">${escapeHtml(user.full_name)}</option>`).join('')}</select>
+          </div>
         ` : ''}
         ${managementMode === 'customers' ? `
           <div class="form-group">
@@ -798,7 +890,7 @@ window.showUserManagement = async function () {
           <th>${userSortHeader('Email', 'email')}</th>
           <th>${userSortHeader('Full Name', 'full_name')}</th>
           <th>${userSortHeader('Role', 'role')}</th>
-          ${managementMode === 'internal' ? `<th>${userSortHeader('LMI Number', 'lmi_number')}</th>` : ''}
+          ${managementMode === 'internal' ? `<th>${userSortHeader('LMI Number', 'lmi_number')}</th><th>Employee No.</th><th>Manager</th>` : ''}
           ${managementMode === 'customers' ? `
             <th>${userSortHeader('Customer Name', 'clientid')}</th>
             <th>${userSortHeader('Site Name', 'siteid')}</th>
@@ -821,7 +913,7 @@ window.showUserManagement = async function () {
                 `).join('')}
               </select>
             </td>
-            ${managementMode === 'internal' ? `<td><input id="user-lmi-${safeAttr(user.user_id)}" value="${safeAttr(user.lmi_number || '')}"></td>` : ''}
+            ${managementMode === 'internal' ? `<td><input id="user-lmi-${safeAttr(user.user_id)}" value="${safeAttr(user.lmi_number || '')}"></td><td><input id="user-employee-${safeAttr(user.user_id)}" value="${safeAttr(user.employee_number || '')}"></td><td><select id="user-manager-${safeAttr(user.user_id)}"><option value="">Not assigned</option>${users.filter(manager => ['ADMIN','MANAGER'].includes(manager.role) && String(manager.user_id) !== String(user.user_id)).map(manager => `<option value="${safeAttr(manager.user_id)}" ${String(manager.user_id) === String(user.manager_user_id || '') ? 'selected' : ''}>${escapeHtml(manager.full_name)}</option>`).join('')}</select></td>` : ''}
             ${managementMode === 'customers' ? `
               <td>
                 <select id="user-client-${user.user_id}" onchange="filterCustomerUserSites(${user.user_id})">
@@ -910,6 +1002,12 @@ window.createUser = async function () {
         lmi_number: managementMode === 'internal'
           ? document.querySelector('#newUserLmi')?.value || null
           : null,
+        employee_number: managementMode === 'internal'
+          ? document.querySelector('#newUserEmployeeNumber')?.value || ''
+          : '',
+        manager_user_id: managementMode === 'internal'
+          ? document.querySelector('#newUserManager')?.value || null
+          : null,
         clientid,
         siteid: managementMode === 'customers'
           ? document.querySelector('#newUserSiteId').value
@@ -954,6 +1052,12 @@ window.saveUser = async function (userId) {
       role: document.querySelector(`#user-role-${userId}`).value,
       lmi_number: managementMode === 'internal'
         ? document.querySelector(`#user-lmi-${userId}`)?.value || null
+        : null,
+      employee_number: managementMode === 'internal'
+        ? document.querySelector(`#user-employee-${userId}`)?.value || ''
+        : '',
+      manager_user_id: managementMode === 'internal'
+        ? document.querySelector(`#user-manager-${userId}`)?.value || null
         : null,
       clientid: managementMode === 'customers'
         ? document.querySelector(`#user-client-${userId}`).value
@@ -1334,27 +1438,9 @@ async function loadData() {
     </button>
 
     <div class="mobile-menu-actions">
-    ${menuButton('portal', 'Customer Portal', 'showCustomerPortal()')}
-    ${menuButton('dashboard', 'Dashboard', 'showDashboard()')}
-    ${menuButton('customers', 'Customer Setup', 'showCustomerSetup()')}
-    ${menuButton('sites', 'Sites', 'showSites()')}
-    ${menuButton('responsible', 'Responsible Persons', 'showResponsiblePersons()')}
-    ${menuButton('sections', 'Sections', 'showSections()')}
-    ${menuButton('assets', 'Assets', 'showAssetSetup()')}
-    ${menuButton('visits', 'On-Site Visits', 'showInspectionVisits()')}
-    ${menuButton('job-cards', 'Technician Job Cards', 'showJobCards()')}
-    ${menuButton('quick-inspection', 'Quick Inspection/Testing', 'showQuickInspection()')}
-    ${menuButton('certificates', 'Certificates', 'showCertificateSearch()')}
-    ${menuButton('mpi', 'MPI / NDT Reports', 'showMpiReports()')}
-    ${menuButton('customer-report', 'Reports', 'showCustomerDetailedReport()')}
-    ${menuButton('she', 'SLAMM', 'showRiskAssessments()')}
-    ${menuButton('criteria', 'Equipment Type Criteria', 'showEquipmentTypeCriteria()')}
-    ${canManageInternalUsers() ? menuButton('users', 'ATEC Users', 'showInternalUserManagement()') : ''}
-    ${canManageCustomerPortalUsers() ? menuButton('users', 'Customer Portal Users', 'showCustomerUserManagement()') : ''}
-    ${menuButton('system-health', 'System Health', 'showSystemHealth()')}
-    ${menuButton('profile', 'My Profile', 'showMyProfile()')}
-
-    <button onclick="logoutUser()">Logout</button>
+    ${currentUser.role === 'ADMIN' ? '<label class="sidebar-search"><span>Find a page</span><input type="search" placeholder="Search menu..." oninput="filterSidebarMenu(this.value)"></label>' : ''}
+    ${renderRoleMenu()}
+    <button class="sidebar-logout" onclick="logoutUser()">Logout</button>
     </div>
 
   </div>
@@ -1400,6 +1486,46 @@ window.showDashboard = function () {
 
   loadDashboardSummary()
 }
+
+window.rememberSidebarGroup = function (details) {
+  if (!details.open) return
+  localStorage.setItem(`sidebarGroup:${currentUser?.role || ''}`,details.dataset.menuGroup || '')
+  document.querySelectorAll('.sidebar-menu-group[open]').forEach(group => {
+    if (group !== details) group.removeAttribute('open')
+  })
+}
+
+window.filterSidebarMenu = function (value) {
+  const query = String(value || '').trim().toLowerCase()
+  let firstMatchingGroup = null
+  document.querySelectorAll('.sidebar-menu-group').forEach(group => {
+    let matches = 0
+    group.querySelectorAll('.sidebar-nav-button').forEach(button => {
+      const visible = !query || button.dataset.menuLabel.includes(query)
+      button.hidden = !visible
+      if (visible) matches += 1
+    })
+    group.hidden = matches === 0
+    if (query && matches && !firstMatchingGroup) firstMatchingGroup = group
+  })
+  if (query && firstMatchingGroup) firstMatchingGroup.setAttribute('open','')
+}
+
+window.showMyDay = function () { setCurrentPage('my-day'); return renderMyDay() }
+window.addWorkforceTime = addWorkforceTime
+window.submitMyDay = submitMyDay
+window.showTimesheetApprovals = function () { setCurrentPage('timesheet-approvals'); return renderTimesheetApprovals() }
+window.workforceAction = workforceAction
+window.showTimesheetHistory = function () { setCurrentPage('timesheet-history'); return renderTimesheetHistory() }
+window.loadTimesheetHistory = loadTimesheetHistory
+window.exportTimesheetHistoryCsv = exportTimesheetHistoryCsv
+window.exportPayrollExcel = exportPayrollExcel
+window.setAllPayrollEmployees = setAllPayrollEmployees
+window.setPayrollPeriod = setPayrollPeriod
+window.showHrTimesheets = function () { setCurrentPage('hr-timesheets'); return renderHrTimesheets() }
+window.showWorkSchedules = function () { setCurrentPage('work-schedules'); return renderWorkSchedules() }
+window.loadWorkSchedule = loadWorkSchedule
+window.saveWorkSchedule = saveWorkSchedule
 
 window.showCustomerPortal = function () {
   if (!ensurePageAccess('portal')) return
@@ -10441,7 +10567,13 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
   }
   formData.append("inspectionfrequency", document.querySelector("#inspectionFrequency")?.value || "")
   formData.append("tagnumber", tagnumber)
-  formData.append("job_number", document.querySelector("#inspectionJobNumber")?.value.trim() || "")
+  const inspectionJobNumber = document.querySelector("#inspectionJobNumber")?.value.trim() || ""
+  if (!/^[0-9]+$/.test(inspectionJobNumber)) {
+    alert("Enter the Accelo Job Number using numeric digits only.")
+    document.querySelector("#inspectionJobNumber")?.focus()
+    return
+  }
+  formData.append("job_number", inspectionJobNumber)
   formData.append("results", JSON.stringify(results))
 
   const replacementPhoto1 = document.querySelector("#inspectionAssetPhoto1")?.files?.[0] || null
@@ -10513,11 +10645,13 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
   if (!response.ok) {
     const errorMessage = savedInspection.error || "An unexpected server error occurred"
     const referenceMessage = savedInspection.referenceId ? `\nReference: ${savedInspection.referenceId}` : ""
+    const diagnosticMessage = savedInspection.diagnostic ? `\nLocal diagnostic: ${savedInspection.diagnostic}` : ""
     const userMessage = response.status >= 500
-      ? `The inspection was not saved because the server encountered a problem. Please keep this page open and contact the system administrator.${referenceMessage}`
+      ? `The inspection was not saved because the server encountered a problem. Please keep this page open and contact the system administrator.${referenceMessage}${diagnosticMessage}`
       : response.status === 401
         ? "Your session has expired. Please sign in again before saving this inspection."
         : `Error saving inspection: ${errorMessage}${referenceMessage}`
+    if (savedInspection.diagnostic) console.error("Inspection save diagnostic:", savedInspection.diagnostic)
     alert(userMessage)
     window.inspectionSaveInProgress = false
     document.querySelectorAll(".crane-wizard-nav button, .filter-card button").forEach(button => {
@@ -10601,15 +10735,21 @@ function renderJobCardForm() {
         <label>Customer *<select id="jcClient" onchange="jobCardCustomerChanged()"><option value="">Select customer</option>${customers.map(row => jobCardOption(row.clientid,row.clientname,card.clientid)).join('')}</select></label>
         <label>Site *<select id="jcSite" onchange="jobCardSiteChanged()"><option value="">Select site</option>${relevantSites.map(row => jobCardOption(row.siteid,row.sitename,card.siteid)).join('')}</select></label>
         <label>Section<select id="jcSection"><option value="">All / not specified</option>${relevantSections.map(row => jobCardOption(row.sectionid,row.sectionname,card.sectionid)).join('')}</select></label>
-        <label>Assigned technician<select id="jcAssigned"><option value="">Unassigned</option>${jobCardTechnicians.map(row => jobCardOption(row.user_id,row.full_name,card.assigned_to_user_id)).join('')}</select></label>
+        <label>Assigned technician<select id="jcAssigned"><option value="">Unassigned</option>${jobCardTechnicians.filter(row => row.role !== 'ASSISTANT').map(row => jobCardOption(row.user_id,row.full_name,card.assigned_to_user_id)).join('')}</select></label>
         ${['ADMIN','MANAGER'].includes(currentUser.role) ? `<label class="job-card-email-option"><span><input id="jcEmailTechnician" type="checkbox" checked> Email technician when assigned</span><small>The assignment still saves if email delivery fails.</small></label>` : ''}
         <label>Job type<select id="jcType">${['BREAKDOWN','REPAIR','LOAD_TEST','SERVICES','INSPECTIONS','INSTALLATION','INVESTIGATION','OTHER'].map(value => jobCardOption(value,value.replaceAll('_',' '),card.job_type)).join('')}</select></label>
         <label>Priority<select id="jcPriority">${['LOW','NORMAL','HIGH','URGENT'].map(value => jobCardOption(value,value,card.priority)).join('')}</select></label>
-        <label>Job Number<input id="jcReference" value="${safeAttr(card.customer_reference || '')}"></label>
+        <label>Accelo Job Number *<input id="jcReference" inputmode="numeric" pattern="[0-9]+" required value="${safeAttr(card.customer_reference || '')}" placeholder="e.g. 11927"><small>Email: job+number@fb-cranes.accelo.com</small></label>
         <label>Contact person<input id="jcContact" value="${safeAttr(card.customer_contact_name || '')}"></label>
         <label>Contact number<input id="jcPhone" value="${safeAttr(card.customer_contact_phone || '')}"></label>
         <label>Planned date/time<input id="jcPlanned" type="datetime-local" value="${safeAttr(dateTimeLocalValue(card.planned_at))}"></label>
       </div></section>
+      <section class="filter-card"><h3>Job Crew</h3><p class="muted-text">Select everyone working on this job. The job-card timeline will be copied to each person for individual confirmation and hours calculation.</p>
+        <div class="job-card-asset-choices">${jobCardTechnicians.filter(row => String(row.user_id) !== String(card.assigned_to_user_id)).map(row => {
+          const existing = (card.crew || []).find(member => String(member.user_id) === String(row.user_id))
+          return `<label><input type="checkbox" name="jcCrew" value="${safeAttr(row.user_id)}" data-role="${safeAttr(row.role === 'ASSISTANT' ? 'ASSISTANT' : 'ADDITIONAL_TECHNICIAN')}" ${existing ? 'checked' : ''}><span><strong>${escapeHtml(row.full_name)}</strong><small>${escapeHtml(row.role === 'ASSISTANT' ? 'Assistant' : 'Additional technician')}</small></span></label>`
+        }).join('') || '<p>No additional active crew members are available.</p>'}</div>
+      </section>
       <section class="filter-card"><h3>Equipment</h3><p class="muted-text">Filter by equipment group or search by tag/serial number, then select the filtered results in one step. For Inspection jobs, matching inspected assets are also added automatically when saved.</p>
         <div class="job-card-asset-toolbar">
           <label>Equipment group<select id="jcAssetGroup" onchange="jobCardAssetGroupChanged()"><option value="">All equipment groups</option>${equipmentGroups.map(group => jobCardOption(group.id, group.name, '')).join('')}</select></label>
@@ -10634,6 +10774,7 @@ function renderJobCardForm() {
       <section class="filter-card"><h3>Final Equipment Status</h3><div class="job-card-grid"><label>Status *<select id="jcEquipmentStatus">${[['SAFE','Safe and returned to service'],['RESTRICTED','Temporarily operational with restrictions'],['FURTHER_WORK','Further work required'],['OUT_OF_SERVICE','Isolated / out of service'],['NOT_TESTED','Not tested']].map(row => jobCardOption(row[0],row[1],card.equipment_status)).join('')}</select></label><label class="job-card-wide">Reason / restrictions<textarea id="jcEquipmentReason">${escapeHtml(card.equipment_status_reason || '')}</textarea></label></div></section>
       <section class="filter-card"><h3>Customer Acknowledgement</h3><div class="job-card-grid"><label>Name<input id="jcSignatory" value="${safeAttr(card.customer_signatory_name || '')}"></label><label>Designation<input id="jcDesignation" value="${safeAttr(card.customer_signatory_designation || '')}"></label><label>Unavailable / refused reason<input id="jcSignatureReason" value="${safeAttr(card.signature_unavailable_reason || '')}"></label></div>${card.customer_signature_path ? `<p>Customer signature already captured.</p><img class="job-card-signature-image" src="${uploadUrl(card.customer_signature_path)}" alt="Customer signature">` : `<div class="signature-pad-wrap"><canvas id="jcSignatureCanvas" width="700" height="180"></canvas><button type="button" onclick="clearJobCardSignature()">Clear Signature</button></div>`}</section>
       <section class="filter-card"><h3>Photographs</h3><div class="job-card-photo-grid">${(card.photos || []).map(photo => `<figure><img src="${uploadUrl(photo.photo_path)}" alt="Job card photograph"><figcaption>${escapeHtml(photo.photo_type)}: ${escapeHtml(photo.caption || '')}</figcaption></figure>`).join('')}</div><div class="job-card-grid"><label>Attach to deviation<select id="jcPhotoDeviation" ${card.jobcardid ? '' : 'disabled'}><option value="">General job card</option>${(card.deviations || []).map(row => jobCardOption(row.deviationid,`${row.severity}: ${row.description}`,null)).join('')}</select></label><label>Photo type<select id="jcPhotoType">${['GENERAL','BEFORE','AFTER','DEFECT','NAMEPLATE','TEST'].map(value => jobCardOption(value,value,null)).join('')}</select></label><label>Caption<input id="jcPhotoCaption"></label><label>Take / choose photos<input id="jcPhotos" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple></label></div>${card.jobcardid ? '<button type="button" onclick="uploadJobCardPhotos()">Upload Photos</button>' : '<p class="muted-text">Selected photos will upload automatically when the on-site job is submitted.</p>'}</section>
+      ${card.jobcardid && ['ADMIN','MANAGER'].includes(currentUser.role) ? `<section class="filter-card"><div class="section-heading"><div><h3>Accelo Completion Package</h3><p class="muted-text">Controlled package containing the approved Job Card, crew timesheets and linked certificates.</p></div><button type="button" onclick="checkAcceloPackage(${card.jobcardid})">Check readiness</button></div><div id="acceloPackageStatus">${card.accelo_email_sent_at ? `<p><strong>Sent:</strong> ${escapeHtml(new Date(card.accelo_email_sent_at).toLocaleString('en-ZA'))} to ${escapeHtml(card.accelo_email_to || '')}</p>` : '<p>Run the readiness check after the Job Card and crew timesheets are approved.</p>'}</div></section>` : ''}
       ${renderJobCardWorkflow(card)}
     </form>`
   if (!card.customer_signature_path) initialiseJobCardSignature()
@@ -10723,7 +10864,7 @@ function jobCardCanvasHasInk(canvas) { if (!canvas) return false; return canvas.
 
 function collectJobCardPayload(forcedStatus) {
   const value=id=>document.querySelector(id)?.value || ''
-  return { clientid:value('#jcClient'),siteid:value('#jcSite'),sectionid:value('#jcSection')||null,assigned_to_user_id:value('#jcAssigned')||null,email_assigned_technician:document.querySelector('#jcEmailTechnician')?.checked===true,job_type:value('#jcType'),priority:value('#jcPriority'),status:forcedStatus||jobCardEditing?.status||'DRAFT',customer_reference:value('#jcReference'),customer_contact_name:value('#jcContact'),customer_contact_phone:value('#jcPhone'),planned_at:value('#jcPlanned')||null,assetids:[...document.querySelectorAll('[name="jcAsset"]:checked')].map(node=>Number(node.value)),reported_fault:value('#jcFault'),findings:value('#jcFindings'),root_cause:value('#jcRootCause'),work_performed:value('#jcWork'),test_performed:value('#jcTest'),test_result:value('#jcTestResult'),recommendations:value('#jcRecommendations'),materials:[...document.querySelectorAll('.jc-material')].map(row=>({quantity:row.querySelector('.jc-mat-qty').value,description:row.querySelector('.jc-mat-desc').value,part_number:row.querySelector('.jc-mat-part').value,supplied_by:row.querySelector('.jc-mat-supplier').value,material_status:row.querySelector('.jc-mat-status').value})),deviations:[...document.querySelectorAll('.jc-deviation')].map(row=>({deviationid:row.dataset.id||null,category:row.querySelector('.jc-dev-category').value,severity:row.querySelector('.jc-dev-severity').value,deviation_status:row.querySelector('.jc-dev-status').value,target_date:row.querySelector('.jc-dev-date').value||null,description:row.querySelector('.jc-dev-desc').value,immediate_action:row.querySelector('.jc-dev-action').value,further_work_required:row.querySelector('.jc-dev-further').value})),departed_at:value('#jcDeparted')||null,arrived_at:value('#jcArrived')||null,work_started_at:value('#jcStarted')||null,work_completed_at:value('#jcCompleted')||null,travel_completed_at:value('#jcTravelDone')||null,kilometres:value('#jcKm'),normal_hours:value('#jcNormalHours'),overtime_hours:value('#jcOvertimeHours'),standby_hours:value('#jcStandbyHours'),equipment_status:value('#jcEquipmentStatus'),equipment_status_reason:value('#jcEquipmentReason'),customer_signatory_name:value('#jcSignatory'),customer_signatory_designation:value('#jcDesignation'),signature_unavailable_reason:value('#jcSignatureReason'),customer_signature_data:jobCardCanvasHasInk(document.querySelector('#jcSignatureCanvas'))?document.querySelector('#jcSignatureCanvas').toDataURL('image/png'):null }
+  return { clientid:value('#jcClient'),siteid:value('#jcSite'),sectionid:value('#jcSection')||null,assigned_to_user_id:value('#jcAssigned')||null,crew:[...document.querySelectorAll('[name="jcCrew"]:checked')].map(node=>({user_id:Number(node.value),crew_role:node.dataset.role})),email_assigned_technician:document.querySelector('#jcEmailTechnician')?.checked===true,job_type:value('#jcType'),priority:value('#jcPriority'),status:forcedStatus||jobCardEditing?.status||'DRAFT',customer_reference:value('#jcReference').trim(),customer_contact_name:value('#jcContact'),customer_contact_phone:value('#jcPhone'),planned_at:value('#jcPlanned')||null,assetids:[...document.querySelectorAll('[name="jcAsset"]:checked')].map(node=>Number(node.value)),reported_fault:value('#jcFault'),findings:value('#jcFindings'),root_cause:value('#jcRootCause'),work_performed:value('#jcWork'),test_performed:value('#jcTest'),test_result:value('#jcTestResult'),recommendations:value('#jcRecommendations'),materials:[...document.querySelectorAll('.jc-material')].map(row=>({quantity:row.querySelector('.jc-mat-qty').value,description:row.querySelector('.jc-mat-desc').value,part_number:row.querySelector('.jc-mat-part').value,supplied_by:row.querySelector('.jc-mat-supplier').value,material_status:row.querySelector('.jc-mat-status').value})),deviations:[...document.querySelectorAll('.jc-deviation')].map(row=>({deviationid:row.dataset.id||null,category:row.querySelector('.jc-dev-category').value,severity:row.querySelector('.jc-dev-severity').value,deviation_status:row.querySelector('.jc-dev-status').value,target_date:row.querySelector('.jc-dev-date').value||null,description:row.querySelector('.jc-dev-desc').value,immediate_action:row.querySelector('.jc-dev-action').value,further_work_required:row.querySelector('.jc-dev-further').value})),departed_at:value('#jcDeparted')||null,arrived_at:value('#jcArrived')||null,work_started_at:value('#jcStarted')||null,work_completed_at:value('#jcCompleted')||null,travel_completed_at:value('#jcTravelDone')||null,kilometres:value('#jcKm'),normal_hours:value('#jcNormalHours'),overtime_hours:value('#jcOvertimeHours'),standby_hours:value('#jcStandbyHours'),equipment_status:value('#jcEquipmentStatus'),equipment_status_reason:value('#jcEquipmentReason'),customer_signatory_name:value('#jcSignatory'),customer_signatory_designation:value('#jcDesignation'),signature_unavailable_reason:value('#jcSignatureReason'),customer_signature_data:jobCardCanvasHasInk(document.querySelector('#jcSignatureCanvas'))?document.querySelector('#jcSignatureCanvas').toDataURL('image/png'):null }
 }
 
 async function uploadJobCardPhotoFiles(jobcardid, files, { caption = '', photoType = 'GENERAL', deviationid = '' } = {}) {
@@ -10743,6 +10884,11 @@ async function uploadJobCardPhotoFiles(jobcardid, files, { caption = '', photoTy
 
 window.saveJobCard = async function (forcedStatus = null) {
   const payload = collectJobCardPayload(forcedStatus)
+  if (!/^[0-9]+$/.test(payload.customer_reference)) {
+    alert('Enter the Accelo Job Number using numeric digits only.')
+    document.querySelector('#jcReference')?.focus()
+    return
+  }
   const id = jobCardEditing?.jobcardid
   const pendingFiles = !id ? [...(document.querySelector('#jcPhotos')?.files || [])] : []
   const pendingPhotoDetails = {
@@ -10762,13 +10908,18 @@ window.saveJobCard = async function (forcedStatus = null) {
   }
   jobCardEditing = result
   try {
+    if (forcedStatus === 'SUBMITTED') {
+      const timeResponse = await fetch(`${API_BASE}/workforce/job-cards/${result.jobcardid}/copy-timeline`, { method: 'POST' })
+      const timeResult = await readApiResponse(timeResponse)
+      if (!timeResponse.ok) throw new Error(timeResult.error || 'Crew time could not be prepared')
+    }
     if (pendingFiles.length) {
       await uploadJobCardPhotoFiles(result.jobcardid, pendingFiles, pendingPhotoDetails)
       const refreshed = await fetch(`${API_BASE}/job-cards/${result.jobcardid}`)
       if (refreshed.ok) jobCardEditing = await refreshed.json()
     }
   } catch (photoError) {
-    alert(`Job card ${result.jobcard_reference} was saved, but the photographs were not uploaded: ${photoError.message}`)
+    alert(`Job card ${result.jobcard_reference} was saved, but follow-up processing was not completed: ${photoError.message}`)
     renderJobCardForm()
     return
   }
@@ -10808,6 +10959,43 @@ window.uploadJobCardPhotos = async function () {
   }
 }
 
+window.checkAcceloPackage = async function (jobcardid) {
+  const box = document.querySelector('#acceloPackageStatus')
+  if (box) box.innerHTML = '<p>Checking package readiness...</p>'
+  const response = await fetch(`${API_BASE}/workforce/job-cards/${jobcardid}/accelo-readiness`)
+  const result = await readApiResponse(response)
+  if (!response.ok) {
+    if (box) box.innerHTML = `<p class="login-error">${escapeHtml(result.error || 'Could not check the Accelo package')}</p>`
+    return
+  }
+  if (box) box.innerHTML = `
+    <div class="job-card-grid">
+      <p><strong>Recipient</strong><br>${escapeHtml(result.recipient || '-')}</p>
+      <p><strong>Crew</strong><br>${result.crew.length}</p>
+      <p><strong>Timesheets</strong><br>${result.timesheets.length}</p>
+      <p><strong>Certificates</strong><br>${result.certificates.length}</p>
+    </div>
+    ${result.issues.length ? `<div class="login-error"><strong>Not ready:</strong><ul>${result.issues.map(issue => `<li>${escapeHtml(issue)}</li>`).join('')}</ul></div>` : `<p><strong>Ready to send.</strong> All workflow checks passed.</p><button type="button" class="load-test-btn" onclick="sendAcceloPackage(${jobcardid},${result.card.accelo_email_sent_at ? 'true' : 'false'})">${result.card.accelo_email_sent_at ? 'Resend package' : 'Send package to Accelo'}</button>`}`
+}
+
+window.sendAcceloPackage = async function (jobcardid, resend = false) {
+  const destination = document.querySelector('#acceloPackageStatus strong')?.textContent || 'the derived Accelo job address'
+  if (!window.confirm(`Send the completed Job Card package to ${destination}?`)) return
+  const response = await fetch(`${API_BASE}/workforce/job-cards/${jobcardid}/accelo-send`, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({resend})
+  })
+  const result = await readApiResponse(response)
+  if (!response.ok) {
+    const issues = Array.isArray(result.issues) ? `\n${result.issues.join('\n')}` : ''
+    alert(`${result.error || 'Could not send the Accelo package'}${issues}`)
+    return
+  }
+  alert(`Accelo package sent to ${result.recipient} with ${result.attachments.length} attachment(s).`)
+  await openJobCard(jobcardid)
+}
+
 const startupTap = getStartupAssetTap()
 if (startupTap) {
   setCurrentPage("quick-inspection")
@@ -10821,7 +11009,13 @@ let currentPage =
   localStorage.getItem("currentPage") || "dashboard"
 
 if (!hasAccess(currentPage)) {
-  currentPage = currentUser.role === "CUSTOMER" ? "portal" : "dashboard"
+  currentPage = currentUser.role === "CUSTOMER"
+    ? "portal"
+    : currentUser.role === "ASSISTANT"
+      ? "my-day"
+      : currentUser.role === "HR"
+        ? "hr-timesheets"
+        : "dashboard"
   setCurrentPage(currentPage)
 }
 
@@ -10866,6 +11060,26 @@ switch (currentPage) {
 
   case "job-cards":
     showJobCards()
+    break
+
+  case "my-day":
+    showMyDay()
+    break
+
+  case "timesheet-approvals":
+    showTimesheetApprovals()
+    break
+
+  case "timesheet-history":
+    showTimesheetHistory()
+    break
+
+  case "hr-timesheets":
+    showHrTimesheets()
+    break
+
+  case "work-schedules":
+    showWorkSchedules()
     break
 
   case "quick-inspection":
@@ -10915,7 +11129,13 @@ window.addEventListener('popstate', event => {
   if (!currentUser) return
 
   const requestedPage = event.state?.atecPage
-  const fallbackPage = currentUser.role === 'CUSTOMER' ? 'portal' : 'dashboard'
+  const fallbackPage = currentUser.role === 'CUSTOMER'
+    ? 'portal'
+    : currentUser.role === 'ASSISTANT'
+      ? 'my-day'
+      : currentUser.role === 'HR'
+        ? 'hr-timesheets'
+        : 'dashboard'
   const pageKey = requestedPage && hasAccess(requestedPage)
     ? requestedPage
     : fallbackPage
@@ -10931,6 +11151,11 @@ window.addEventListener('popstate', event => {
     inspections: window.showInspections,
     visits: window.showInspectionVisits,
     'job-cards': window.showJobCards,
+    'my-day': window.showMyDay,
+    'timesheet-approvals': window.showTimesheetApprovals,
+    'timesheet-history': window.showTimesheetHistory,
+    'hr-timesheets': window.showHrTimesheets,
+    'work-schedules': window.showWorkSchedules,
     'quick-inspection': window.showQuickInspection,
     criteria: window.showEquipmentTypeCriteria,
     certificates: window.showCertificateSearch,
