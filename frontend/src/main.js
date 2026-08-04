@@ -222,7 +222,7 @@ function renderRoleMenu() {
     menuButton('customer-report','Reports','showCustomerDetailedReport()')
   ])
   return [
-    menuGroup('home','Home',[menuButton('dashboard','Dashboard','showDashboard()')]),
+    menuButton('dashboard','Dashboard','showDashboard()'),
     menuGroup('inspections','Inspections',[
       menuButton('quick-inspection','Quick Inspection/Testing','showQuickInspection()'),
       menuButton('mpi','MPI / NDT Reports','showMpiReports()'),

@@ -73,6 +73,7 @@ assert.ok(routes.includes("Enter the numeric Accelo Job Number for job-related t
 assert.ok(routes.includes("job_number_snapshot"))
 assert.ok(routes.includes('"EMPLOYEE_SUBMITTED","MANAGER_APPROVED","HR_ACCEPTED","EXPORTED"'))
 assert.ok(routes.includes('router.put("/schedules/:id"'),"Existing work schedules must be editable")
+assert.ok(routes.includes("s.effective_from::text AS effective_from"),"Schedule dates must not shift through UTC serialization")
 assert.ok(frontend.includes("Schedule history"),"Work Schedules must display saved history")
 assert.ok(frontend.includes("scheduleFridayStart"),"Friday rules must be editable separately")
 assert.ok(routes.includes('/job-cards/:id/accelo-readiness'))

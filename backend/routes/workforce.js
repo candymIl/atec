@@ -657,7 +657,8 @@ function registerWorkforceRoutes(app, {
 
   router.get("/schedules/:userId", asyncRoute(async (req, res) => {
     if (!canAdminWorkforce(req.user) && Number(req.params.userId) !== Number(req.user.user_id)) return res.status(403).json({ error:"Access denied" })
-    const result = await pool.query(`SELECT s.*,COALESCE(json_agg(d ORDER BY d.weekday) FILTER (WHERE d.scheduledayid IS NOT NULL),'[]') AS days
+    const result = await pool.query(`SELECT s.*,s.effective_from::text AS effective_from,s.effective_to::text AS effective_to,
+      COALESCE(json_agg(d ORDER BY d.weekday) FILTER (WHERE d.scheduledayid IS NOT NULL),'[]') AS days
       FROM atec.tblworkschedule s LEFT JOIN atec.tblworkscheduleday d ON d.scheduleid=s.scheduleid
       WHERE s.employee_user_id=$1 GROUP BY s.scheduleid ORDER BY s.effective_from DESC`, [req.params.userId])
     res.json(result.rows)

@@ -11,7 +11,9 @@ async function api(path, options = {}) {
 }
 
 function today() {
-  return new Date().toISOString().slice(0, 10)
+  const now = new Date()
+  const offset = now.getTimezoneOffset() * 60000
+  return new Date(now.getTime() - offset).toISOString().slice(0, 10)
 }
 
 function hours(value) {
