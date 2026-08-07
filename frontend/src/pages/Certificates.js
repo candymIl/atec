@@ -624,6 +624,10 @@ function renderCertificateResults(certificates) {
       onPageSize: "setCertificateRowsPerPage"
     })}
 
+    <div class="certificate-table-scrollbar-top" aria-label="Scroll certificate table left and right" tabindex="0">
+      <div class="certificate-table-scrollbar-spacer"></div>
+    </div>
+    <div class="certificate-table-scroll-region">
     <table class="certificate-search-table">
       <colgroup>
         <col class="certificate-col-test-id">
@@ -716,9 +720,31 @@ function renderCertificateResults(certificates) {
         `}).join("")}
       </tbody>
     </table>
+    </div>
   `
 
+  bindCertificateTableScrollbars()
   bindCertificateResultEvents()
+}
+
+function bindCertificateTableScrollbars() {
+  const topScrollbar = document.querySelector('#certificateResults .certificate-table-scrollbar-top')
+  const topSpacer = document.querySelector('#certificateResults .certificate-table-scrollbar-spacer')
+  const tableRegion = document.querySelector('#certificateResults .certificate-table-scroll-region')
+  const table = tableRegion?.querySelector('.certificate-search-table')
+  if (!topScrollbar || !topSpacer || !tableRegion || !table) return
+
+  topSpacer.style.width = `${table.scrollWidth}px`
+  let synchronizing = false
+  const synchronize = (source, target) => {
+    if (synchronizing) return
+    synchronizing = true
+    target.scrollLeft = source.scrollLeft
+    window.requestAnimationFrame(() => { synchronizing = false })
+  }
+
+  topScrollbar.addEventListener('scroll', () => synchronize(topScrollbar, tableRegion))
+  tableRegion.addEventListener('scroll', () => synchronize(tableRegion, topScrollbar))
 }
 
 window.searchBulkCertificates = async function () {

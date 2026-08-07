@@ -5038,7 +5038,31 @@ tr:hover {
 
 #certificateResults {
   width: 100% !important;
-  overflow-x: auto !important;
+  min-width: 0;
+  overflow-x: visible !important;
+}
+
+.certificate-table-scrollbar-top,
+.certificate-table-scroll-region {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  width: 100%;
+}
+
+.certificate-table-scrollbar-top {
+  height: 18px;
+  margin: 8px 0 5px;
+  scrollbar-gutter: stable;
+}
+
+.certificate-table-scrollbar-spacer {
+  height: 1px;
+  min-width: 1380px;
+}
+
+.certificate-table-scroll-region {
+  padding-bottom: 3px;
 }
 
 #certificateResults table {
