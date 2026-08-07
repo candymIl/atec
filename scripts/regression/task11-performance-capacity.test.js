@@ -158,6 +158,7 @@ const assetPageSource = fs.readFileSync(path.join(__dirname, "..", "..", "fronte
 const mainSource = fs.readFileSync(path.join(__dirname, "..", "..", "frontend", "src", "main.js"), "utf8")
 const certificateRendererSource = fs.readFileSync(path.join(__dirname, "..", "..", "backend", "services", "certificateRenderer.js"), "utf8")
 const certificatePageSource = fs.readFileSync(path.join(__dirname, "..", "..", "frontend", "src", "pages", "Certificates.js"), "utf8")
+const frontendStyleSource = fs.readFileSync(path.join(__dirname, "..", "..", "frontend", "src", "style.css"), "utf8")
 const customerReportSource = fs.readFileSync(path.join(__dirname, "..", "..", "frontend", "src", "pages", "CustomerDetailedReport.js"), "utf8")
 const indexSource = fs.readFileSync(path.join(__dirname, "..", "..", "database", "2026-07-14-task11-performance-capacity-indexes.sql"), "utf8")
 
@@ -191,9 +192,15 @@ assert(serverSource.includes("Promise.all(batch.map(file => compressUploadedPhot
 assert(assetPageSource.includes("serverPaged"))
 assert(mainSource.includes("filterAssetsDebounced"))
 assert(mainSource.includes("assetSearchTimer = setTimeout"))
+assert(mainSource.includes('class="certificate-asset-cell"'))
+assert(mainSource.includes('class="certificate-serial-cell"'))
+assert(frontendStyleSource.includes("#certificateResults .certificate-asset-cell"))
+assert(frontendStyleSource.includes("white-space: normal !important;"))
 assert(customerReportSource.includes("currentReportPage = 1"))
 assert(certificateRendererSource.includes('return inspection.inspectiontype !== "LOADTEST" &&\n    String(inspection.equipgroupid || "") === "400"'))
 assert(certificatePageSource.includes('return inspection.inspectiontype !== "LOADTEST" &&\n    String(inspection.equipgroupid || "") === "400"'))
+assert(certificateRendererSource.includes("margin: 3mm 0 1px;"))
+assert(frontendStyleSource.includes("margin: 12px 0 2px;"))
 
 assert(serverSource.indexOf('app.use(requireAuth)') < serverSource.indexOf('app.get("/admin/system-info"'))
 assert(serverSource.includes('if (req.user.role !== "ADMIN")'))

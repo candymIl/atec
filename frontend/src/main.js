@@ -6382,8 +6382,8 @@ function renderCertificateResultRows(certificates) {
             <td>${escapeHtml(cert.tagnumber || "-")}</td>
             <td>${escapeHtml(cert.clientname || "")}</td>
             <td>${escapeHtml(cert.sitename || "")}</td>
-            <td>${escapeHtml(cert.description || "")}</td>
-            <td>${escapeHtml(cert.serialno || "")}</td>
+            <td class="certificate-asset-cell">${escapeHtml(cert.description || "")}</td>
+            <td class="certificate-serial-cell">${escapeHtml(cert.serialno || "")}</td>
             <td>${escapeHtml(cert.inspectiontype || "")}</td>
             <td>${escapeHtml(cert.testdate ? cert.testdate.split("T")[0] : "")}</td>
             <td>

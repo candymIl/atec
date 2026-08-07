@@ -848,7 +848,7 @@ function renderSingleCertificateHtmlDocument(certificate, imageDataUrlCache = nu
             max-width: 80mm;
           }
           .fb-cert-force-one-page .fb-cert-signature-section {
-            margin: 2px 0 1px;
+            margin: 3mm 0 1px;
             min-height: 18mm;
           }
           .fb-cert-signature-manual {

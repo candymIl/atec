@@ -4571,7 +4571,7 @@ tr:hover {
 }
 
 .fb-cert-force-one-page .fb-cert-signature-section {
-  margin: 4px 0 2px;
+  margin: 12px 0 2px;
   min-height: 72px;
 }
 
@@ -4994,12 +4994,12 @@ tr:hover {
 
 #certificateResults th:nth-child(5),
 #certificateResults td:nth-child(5) {
-  width: 95px;
+  width: 150px;
 }
 
 #certificateResults th:nth-child(6),
 #certificateResults td:nth-child(6) {
-  width: 80px;
+  width: 90px;
 }
 
 #certificateResults th:nth-child(7),
@@ -5143,6 +5143,19 @@ tr:hover {
 
 #certificateResults td {
   word-break: break-word !important;
+}
+
+#certificateResults .certificate-asset-cell {
+  line-height: 1.35;
+  overflow-wrap: break-word !important;
+  padding-right: 10px !important;
+  white-space: normal !important;
+  word-break: normal !important;
+}
+
+#certificateResults .certificate-serial-cell {
+  overflow-wrap: anywhere;
+  padding-left: 10px !important;
 }
 
 #certificateResults td:last-child {
