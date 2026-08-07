@@ -624,7 +624,21 @@ function renderCertificateResults(certificates) {
       onPageSize: "setCertificateRowsPerPage"
     })}
 
-    <table>
+    <table class="certificate-search-table">
+      <colgroup>
+        <col class="certificate-col-test-id">
+        <col class="certificate-col-job-number">
+        <col class="certificate-col-tag-number">
+        <col class="certificate-col-client">
+        <col class="certificate-col-site">
+        <col class="certificate-col-asset">
+        <col class="certificate-col-serial">
+        <col class="certificate-col-type">
+        <col class="certificate-col-date">
+        <col class="certificate-col-status">
+        <col class="certificate-col-inspector">
+        <col class="certificate-col-actions">
+      </colgroup>
       <thead>
         <tr>
           <th>${certificateSortHeader('Test ID', 'testid')}</th>
@@ -654,9 +668,9 @@ function renderCertificateResults(certificates) {
             <td>${escapeHtml(cert.tagnumber || "-")}</td>
             <td>${escapeHtml(cert.clientname || "")}</td>
             <td>${escapeHtml(cert.sitename || "")}</td>
-            <td>${escapeHtml(cert.description || "")}</td>
-            <td>${escapeHtml(cert.serialno || "")}</td>
-            <td>${escapeHtml(cert.inspectiontype || "")}</td>
+            <td class="certificate-asset-cell">${escapeHtml(cert.description || "")}</td>
+            <td class="certificate-serial-cell">${escapeHtml(cert.serialno || "")}</td>
+            <td class="certificate-type-cell">${escapeHtml(cert.inspectiontype || "")}</td>
             <td>${escapeHtml(formatDate(cert.testdate))}</td>
             <td>
               <strong class="${cert.status === "SAFE" ? "status-safe" : "status-unsafe"}">

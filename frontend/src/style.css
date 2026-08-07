@@ -5158,6 +5158,38 @@ tr:hover {
   padding-left: 10px !important;
 }
 
+#certificateResults table.certificate-search-table {
+  min-width: 1380px !important;
+}
+
+.certificate-search-table .certificate-col-test-id { width: 70px; }
+.certificate-search-table .certificate-col-job-number { width: 80px; }
+.certificate-search-table .certificate-col-tag-number { width: 90px; }
+.certificate-search-table .certificate-col-client { width: 130px; }
+.certificate-search-table .certificate-col-site { width: 120px; }
+.certificate-search-table .certificate-col-asset { width: 160px; }
+.certificate-search-table .certificate-col-serial { width: 150px; }
+.certificate-search-table .certificate-col-type { width: 95px; }
+.certificate-search-table .certificate-col-date { width: 90px; }
+.certificate-search-table .certificate-col-status { width: 85px; }
+.certificate-search-table .certificate-col-inspector { width: 120px; }
+.certificate-search-table .certificate-col-actions { width: 190px; }
+
+#certificateResults .certificate-search-table th,
+#certificateResults .certificate-search-table td {
+  line-height: 1.35;
+  vertical-align: top;
+}
+
+#certificateResults .certificate-search-table .certificate-asset-cell,
+#certificateResults .certificate-search-table .certificate-serial-cell {
+  white-space: normal !important;
+}
+
+#certificateResults .certificate-search-table .certificate-type-cell {
+  white-space: nowrap !important;
+}
+
 #certificateResults td:last-child {
   min-width: 120px !important;
   width: 120px !important;
