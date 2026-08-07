@@ -316,7 +316,8 @@ function getCertificateLayoutDensity(results = [], assetDetails = [], photos = [
 }
 
 function allowsTwoPageCertificate(inspection = {}) {
-  return String(inspection.equipgroupid || "") === "400"
+  return inspection.inspectiontype !== "LOADTEST" &&
+    String(inspection.equipgroupid || "") === "400"
 }
 
 function collectCertificatePhotoFilePaths(certificate, options = {}) {
