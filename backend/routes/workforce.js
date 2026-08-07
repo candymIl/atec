@@ -170,10 +170,10 @@ async function calculateDay(client, userId, date) {
   }
 }
 
-async function rebuildTimesheet(client, userId, date) {
+async function rebuildTimesheet(client, userId, date, options = {}) {
   const existing = await client.query(`SELECT * FROM atec.tbldailytimesheet
     WHERE user_id=$1 AND timesheet_date=$2::date`, [userId,date])
-  if (existing.rows[0] && ["EMPLOYEE_SUBMITTED","MANAGER_APPROVED","HR_ACCEPTED","EXPORTED"].includes(existing.rows[0].status)) {
+  if (!options.force && existing.rows[0] && ["EMPLOYEE_SUBMITTED","MANAGER_APPROVED","HR_ACCEPTED","EXPORTED"].includes(existing.rows[0].status)) {
     const lines = await client.query(`SELECT line.*,
       COALESCE(entry.customer_name_snapshot,line.customer_name) AS customer_name_snapshot,
       COALESCE(entry.job_number_snapshot,line.job_number) AS job_number_snapshot,
@@ -488,6 +488,97 @@ function registerWorkforceRoutes(app, {
       FROM atec.tbldailytimesheet t JOIN atec.tblusers u ON u.userid=t.user_id ${where}
       ORDER BY t.timesheet_date DESC,employee_name`, values)
     res.json(result.rows)
+  }))
+
+  router.get("/timesheets/:id/manager-edit", asyncRoute(async (req, res) => {
+    if (!["ADMIN","MANAGER"].includes(req.user.role)) return res.status(403).json({ error:"Access denied" })
+    const values = [req.params.id]
+    let managerScope = ""
+    if (req.user.role === "MANAGER") {
+      values.push(req.user.user_id)
+      managerScope = ` AND u.manager_user_id=$${values.length} AND t.manager_user_id=$${values.length}`
+    }
+    const sheetResult = await pool.query(`SELECT t.timesheetid,t.user_id,t.timesheet_date,t.status,
+      COALESCE(NULLIF(u.fullname,''),u.username) AS employee_name
+      FROM atec.tbldailytimesheet t JOIN atec.tblusers u ON u.userid=t.user_id
+      WHERE t.timesheetid=$1${managerScope}`, values)
+    const sheet = sheetResult.rows[0]
+    if (!sheet) return res.status(404).json({ error:"Timesheet not found or not assigned to you" })
+    if (sheet.status !== "EMPLOYEE_SUBMITTED") {
+      return res.status(409).json({ error:"Only employee-submitted timesheets awaiting Manager approval can be edited" })
+    }
+    const entries = await pool.query(`SELECT timeentryid,activity_type,started_at,ended_at,
+      customer_name_snapshot,job_number_snapshot,brief_details,adjustment_reason
+      FROM atec.tbltimeentry WHERE user_id=$1 AND activity_date=$2::date ORDER BY started_at,timeentryid`,
+    [sheet.user_id,sheet.timesheet_date])
+    const audits = await pool.query(`SELECT audit.created_at,audit.details,
+      COALESCE(NULLIF(actor.fullname,''),actor.username) AS actor_name
+      FROM atec.tbltimesheetaudit audit LEFT JOIN atec.tblusers actor ON actor.userid=audit.actor_user_id
+      WHERE audit.timesheetid=$1 AND audit.action='MANAGER_TIME_EDIT'
+      ORDER BY audit.created_at DESC`, [sheet.timesheetid])
+    res.json({ timesheet:sheet, entries:entries.rows, audits:audits.rows })
+  }))
+
+  router.put("/timesheets/:id/time-entries/:entryId", asyncRoute(async (req, res) => {
+    if (!["ADMIN","MANAGER"].includes(req.user.role)) return res.status(403).json({ error:"Access denied" })
+    const reason = String(req.body.reason || "").trim()
+    if (reason.length < 5) throw badRequest("Enter a clear reason of at least 5 characters for changing the employee's time.")
+    const startedAt = new Date(req.body.started_at)
+    const endedAt = new Date(req.body.ended_at)
+    if (Number.isNaN(startedAt.getTime()) || Number.isNaN(endedAt.getTime()) || endedAt <= startedAt) {
+      throw badRequest("Enter valid start and end times; end time must be after start time.")
+    }
+    if (endedAt - startedAt > 24 * 60 * 60 * 1000) throw badRequest("A time entry cannot exceed 24 hours.")
+
+    const client = await pool.connect()
+    try {
+      await client.query("BEGIN")
+      const values = [req.params.id,req.params.entryId]
+      let managerScope = ""
+      if (req.user.role === "MANAGER") {
+        values.push(req.user.user_id)
+        managerScope = ` AND u.manager_user_id=$${values.length} AND t.manager_user_id=$${values.length}`
+      }
+      const result = await client.query(`SELECT t.timesheetid,t.user_id,t.timesheet_date,t.status,
+        entry.timeentryid,entry.started_at,entry.ended_at
+        FROM atec.tbldailytimesheet t
+        JOIN atec.tblusers u ON u.userid=t.user_id
+        JOIN atec.tbltimeentry entry ON entry.user_id=t.user_id AND entry.activity_date=t.timesheet_date
+        WHERE t.timesheetid=$1 AND entry.timeentryid=$2${managerScope} FOR UPDATE`, values)
+      const current = result.rows[0]
+      if (!current) {
+        const error = new Error("Time entry not found or not assigned to you")
+        error.statusCode = 404
+        throw error
+      }
+      if (current.status !== "EMPLOYEE_SUBMITTED") {
+        const error = new Error("Only employee-submitted timesheets awaiting Manager approval can be edited")
+        error.statusCode = 409
+        throw error
+      }
+      if (new Date(current.started_at).getTime() === startedAt.getTime() &&
+          new Date(current.ended_at).getTime() === endedAt.getTime()) {
+        throw badRequest("Change the start or end time before saving.")
+      }
+
+      const before = { started_at:current.started_at, ended_at:current.ended_at }
+      await client.query(`UPDATE atec.tbltimeentry SET started_at=$1,ended_at=$2,
+        adjustment_reason=$3,updated_at=now() WHERE timeentryid=$4`,
+      [req.body.started_at,req.body.ended_at,reason,current.timeentryid])
+      await rebuildTimesheet(client,current.user_id,current.timesheet_date,{ force:true })
+      await client.query(`INSERT INTO atec.tbltimesheetaudit(timesheetid,actor_user_id,action,details)
+        VALUES($1,$2,'MANAGER_TIME_EDIT',$3::jsonb)`, [current.timesheetid,req.user.user_id,JSON.stringify({
+        timeentryid:current.timeentryid,
+        reason,
+        before,
+        after:{ started_at:req.body.started_at, ended_at:req.body.ended_at }
+      })])
+      await client.query("COMMIT")
+      res.json({ success:true, timesheetid:current.timesheetid, timeentryid:current.timeentryid })
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {})
+      throw error
+    } finally { client.release() }
   }))
 
   router.get("/timesheets/history", asyncRoute(async (req, res) => {

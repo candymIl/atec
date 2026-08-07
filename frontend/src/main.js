@@ -16,6 +16,8 @@ import { renderSystemHealthPage } from './pages/SystemHealth.js'
 import { renderMpiReportsPage } from './pages/MpiReports.js'
 import {
   addWorkforceTime,
+  closeEmployeeTimeEditor,
+  editEmployeeTimes,
   exportTimesheetHistoryCsv,
   exportPayrollExcel,
   loadTimesheetHistory,
@@ -28,6 +30,7 @@ import {
   renderTimesheetHistory,
   renderWorkSchedules,
   saveWorkSchedule,
+  saveEmployeeTimeEdit,
   submitMyDay,
   workforceAction
 } from './pages/Workforce.js'
@@ -1516,6 +1519,9 @@ window.addWorkforceTime = addWorkforceTime
 window.submitMyDay = submitMyDay
 window.showTimesheetApprovals = function () { setCurrentPage('timesheet-approvals'); return renderTimesheetApprovals() }
 window.workforceAction = workforceAction
+window.editEmployeeTimes = editEmployeeTimes
+window.saveEmployeeTimeEdit = saveEmployeeTimeEdit
+window.closeEmployeeTimeEditor = closeEmployeeTimeEditor
 window.showTimesheetHistory = function () { setCurrentPage('timesheet-history'); return renderTimesheetHistory() }
 window.loadTimesheetHistory = loadTimesheetHistory
 window.exportTimesheetHistoryCsv = exportTimesheetHistoryCsv

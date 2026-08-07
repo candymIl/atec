@@ -5329,6 +5329,23 @@ tr:hover {
   white-space: nowrap;
 }
 
+.manager-time-edit-table {
+  min-width: 1100px;
+}
+
+.manager-time-edit-table input[type="datetime-local"] {
+  min-width: 180px;
+}
+
+.manager-time-edit-table input[id^="managerReason-"] {
+  min-width: 240px;
+}
+
+.manager-time-edit-table td:last-child {
+  min-width: 120px;
+  white-space: nowrap;
+}
+
 .voided-certificates-table .restore-certificate-btn:hover { background: #166534; }
 
 .voided-bulk-actions {
