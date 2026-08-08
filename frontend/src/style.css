@@ -1347,6 +1347,24 @@ tr:hover {
   margin: 18px 0 22px 0;
 }
 
+.work-schedule-total {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 420px;
+  margin: 22px 0 18px;
+  padding: 18px 20px;
+  background: #f6f8ff;
+  border: 1px solid #ccd6f6;
+  border-left: 4px solid #4c3cff;
+  border-radius: 10px;
+}
+
+.work-schedule-total span { color: #44506a; font-size: 14px; font-weight: 700; }
+.work-schedule-total strong { color: #152a52; font-size: 28px; line-height: 1.1; }
+.work-schedule-total small { color: #667085; font-size: 13px; line-height: 1.4; }
+
 .stat-card {
   background: #ffffff;
   border: 1px solid #d9e1ec;

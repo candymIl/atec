@@ -52,7 +52,7 @@ const {
   validateUploadedImages
 } = require("./middleware/security")
 const { registerMpiRoutes } = require("./routes/mpi")
-const { registerWorkforceRoutes } = require("./routes/workforce")
+const { registerWorkforceRoutes, copyJobCardTimeline } = require("./routes/workforce")
 
 const defaultFrontendOrigin = process.env.NODE_ENV === "production"
   ? "https://www.atecinspections.co.za"
@@ -6831,8 +6831,13 @@ app.post("/inspections",
 
       const linkedJobCard = await client.query(`
         SELECT jobcardid FROM atec.tbljobcard
-        WHERE clientid=$1 AND customer_reference=$2
-        ORDER BY updated_at DESC,jobcardid DESC LIMIT 1`, [criteriaAvailability.clientid, acceloJobNumber])
+        WHERE clientid=$1 AND customer_reference=$2 AND status <> 'CANCELLED'
+        ORDER BY updated_at DESC,jobcardid DESC LIMIT 2`, [criteriaAvailability.clientid, acceloJobNumber])
+      if (linkedJobCard.rowCount > 1) {
+        const error = new Error("More than one active Job Card uses this Accelo Job Number for the customer. Ask the office to correct the duplicate before saving the inspection.")
+        error.statusCode = 409
+        throw error
+      }
       pushAvailableColumn(inspectionColumns, availableInspectionColumns, "tagnumber", inspectionTagNumber)
       pushAvailableColumn(inspectionColumns, availableInspectionColumns, "job_number", truncateDbText(acceloJobNumber, 200))
       pushAvailableColumn(inspectionColumns, availableInspectionColumns, "jobcardid", linkedJobCard.rows[0]?.jobcardid || null)
@@ -14040,6 +14045,7 @@ async function saveJobCard(req, res) {
   try {
     await client.query("BEGIN")
     let jobcardid = req.params.id ? Number(req.params.id) : null
+    let previousStatus = null
     let existingSignaturePath = null
     if (jobcardid) {
       const owner = await client.query("SELECT assigned_to_user_id, created_by_user_id, status, customer_signature_path FROM atec.tbljobcard WHERE jobcardid = $1 FOR UPDATE", [jobcardid])
@@ -14048,6 +14054,7 @@ async function saveJobCard(req, res) {
         await client.query("ROLLBACK"); return res.status(403).json({ error: "This job card is not assigned to you" })
       }
       existingSignaturePath = owner.rows[0].customer_signature_path
+      previousStatus = owner.rows[0].status
       const allowedTransitions = {
         DRAFT: ["DRAFT", "ASSIGNED", "IN_PROGRESS", "CANCELLED"],
         ASSIGNED: ["ASSIGNED", "IN_PROGRESS", "CANCELLED"],
@@ -14134,6 +14141,9 @@ async function saveJobCard(req, res) {
     for (const row of crewByUser.values()) {
       await client.query(`INSERT INTO atec.tbljobcardcrew(jobcardid,user_id,crew_role,included_in_time,added_by_user_id)
         VALUES($1,$2,$3,true,$4)`, [jobcardid,row.user_id,row.crew_role,req.user.user_id])
+    }
+    if (requestedStatus === "SUBMITTED" && previousStatus !== "SUBMITTED") {
+      await copyJobCardTimeline(client, jobcardid, req.user.user_id)
     }
     await client.query("COMMIT")
     await req.logAudit(req.params.id ? "UPDATE" : "CREATE", "job_cards", jobcardid, { status: requestedStatus, equipment_status: equipmentStatus })

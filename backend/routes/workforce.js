@@ -20,6 +20,28 @@ function canApproveTimesheets(user) {
   return ["ADMIN", "MANAGER"].includes(user?.role)
 }
 
+function canManageWorkSchedules(user) {
+  return ["ADMIN", "MANAGER", "HR"].includes(user?.role)
+}
+
+async function assertWorkScheduleEmployeeAccess(pool, user, employeeUserId) {
+  if (["ADMIN", "HR"].includes(user?.role)) return
+  if (user?.role !== "MANAGER") {
+    const error = new Error("Access denied")
+    error.statusCode = 403
+    throw error
+  }
+  const assigned = await pool.query(
+    "SELECT 1 FROM atec.tblusers WHERE userid=$1 AND manager_user_id=$2 AND COALESCE(is_active,true)=true",
+    [employeeUserId, user.user_id]
+  )
+  if (!assigned.rows[0]) {
+    const error = new Error("This employee is not assigned to you")
+    error.statusCode = 403
+    throw error
+  }
+}
+
 function isoDate(value = new Date()) {
   return new Date(value).toISOString().slice(0, 10)
 }
@@ -233,6 +255,73 @@ async function rebuildTimesheet(client, userId, date, options = {}) {
   return { timesheet, ...calculation, schedule }
 }
 
+async function assertJobCardAccess(client, user, jobcardid, { forUpdate = false } = {}) {
+  if (!["ADMIN","MANAGER","INSPECTOR"].includes(user?.role)) {
+    const error = new Error("Access denied")
+    error.statusCode = 403
+    throw error
+  }
+  const result = await client.query(`SELECT jobcardid,assigned_to_user_id,created_by_user_id
+    FROM atec.tbljobcard WHERE jobcardid=$1${forUpdate ? " FOR UPDATE" : ""}`, [jobcardid])
+  const card = result.rows[0]
+  if (!card) {
+    const error = new Error("Job card not found")
+    error.statusCode = 404
+    throw error
+  }
+  if (user.role === "INSPECTOR" && ![card.assigned_to_user_id,card.created_by_user_id].map(Number).includes(Number(user.user_id))) {
+    const error = new Error("This job card is not assigned to you")
+    error.statusCode = 403
+    throw error
+  }
+  return card
+}
+
+async function copyJobCardTimeline(client, jobcardid, actorUserId) {
+  const cardResult = await client.query(`
+    SELECT j.*,c.clientname FROM atec.tbljobcard j JOIN atec.tblclients c ON c.clientid=j.clientid
+    WHERE j.jobcardid=$1 FOR UPDATE`, [jobcardid])
+  const card = cardResult.rows[0]
+  if (!card) {
+    const error = new Error("Job card not found")
+    error.statusCode = 404
+    throw error
+  }
+  if (!/^[0-9]+$/.test(String(card.customer_reference || ""))) throw badRequest("Enter the numeric Accelo Job Number before copying crew time.")
+  const crewResult = await client.query(`
+    SELECT user_id FROM atec.tbljobcardcrew WHERE jobcardid=$1 AND included_in_time=true
+    UNION SELECT assigned_to_user_id FROM atec.tbljobcard WHERE jobcardid=$1 AND assigned_to_user_id IS NOT NULL`, [jobcardid])
+  const segments = [
+    ["TRAVEL",card.departed_at,card.arrived_at],
+    ["STANDBY",card.arrived_at,card.work_started_at],
+    ["WORK",card.work_started_at,card.work_completed_at],
+    ["TRAVEL",card.work_completed_at,card.travel_completed_at]
+  ].filter(([,start,end]) => start && end && new Date(end) > new Date(start))
+  for (const member of crewResult.rows) {
+    await client.query(`DELETE FROM atec.tbltimeentry WHERE jobcardid=$1 AND user_id=$2
+      AND source IN ('JOB_CARD','COPIED_FROM_LEAD') AND employee_confirmed_at IS NULL`, [card.jobcardid,member.user_id])
+    const affectedDates = new Set()
+    for (const [type,start,end] of segments) {
+      const activityDate = isoDate(start)
+      affectedDates.add(activityDate)
+      await client.query(`INSERT INTO atec.tbltimeentry
+        (user_id,jobcardid,activity_date,activity_type,started_at,ended_at,customer_name_snapshot,
+         job_number_snapshot,jobcard_reference_snapshot,brief_details,source,source_user_id)
+        VALUES($1,$2,$3::date,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, [
+        member.user_id,card.jobcardid,activityDate,type,start,end,card.clientname,
+        card.customer_reference,card.jobcard_reference,card.work_performed || card.reported_fault || card.job_type,
+        Number(member.user_id) === Number(card.assigned_to_user_id) ? "JOB_CARD" : "COPIED_FROM_LEAD",actorUserId
+      ])
+    }
+    for (const activityDate of affectedDates) {
+      const rebuilt = await rebuildTimesheet(client,member.user_id,activityDate)
+      await client.query(`UPDATE atec.tbldailytimesheet SET status='AWAITING_EMPLOYEE',returned_reason='',updated_at=now()
+        WHERE timesheetid=$1 AND status IN ('DRAFT','RETURNED','AWAITING_EMPLOYEE')`, [rebuilt.timesheet.timesheetid])
+    }
+  }
+  return { success:true, crew:crewResult.rowCount, segments:segments.length }
+}
+
 async function loadTimesheetPdfData(pool, timesheetId) {
   const result = await pool.query(`SELECT t.*,COALESCE(NULLIF(u.fullname,''),u.username) AS employee_name,
     u.employee_number,COALESCE(NULLIF(m.fullname,''),m.username) AS manager_name,
@@ -247,7 +336,7 @@ async function loadTimesheetPdfData(pool, timesheetId) {
 }
 
 async function loadAcceloReadiness(pool, jobcardid) {
-  const cardResult = await pool.query(`SELECT j.jobcardid,j.jobcard_reference,j.customer_reference,j.status,
+  const cardResult = await pool.query(`SELECT j.jobcardid,j.jobcard_reference,j.customer_reference,j.job_type,j.status,
     j.accelo_email_sent_at,c.clientname
     FROM atec.tbljobcard j JOIN atec.tblclients c ON c.clientid=j.clientid
     WHERE j.jobcardid=$1`, [jobcardid])
@@ -264,7 +353,10 @@ async function loadAcceloReadiness(pool, jobcardid) {
     JOIN atec.tblusers u ON u.userid=t.user_id
     WHERE entry.jobcardid=$1
     ORDER BY t.timesheet_date,t.user_id`, [jobcardid])
-  const certificates = await pool.query(`SELECT testid,status,inspectiontype
+  const assets = await pool.query(`SELECT ja.assetid,COALESCE(NULLIF(a.assettagno,''),NULLIF(a.serialno,''),'Asset ' || ja.assetid::text) AS asset_name
+    FROM atec.tbljobcardasset ja LEFT JOIN atec.tblasset a ON a.assetid=ja.assetid
+    WHERE ja.jobcardid=$1 ORDER BY asset_name`, [jobcardid])
+  const certificates = await pool.query(`SELECT testid,assetid,status,inspectiontype
     FROM atec.tblinspection WHERE jobcardid=$1 AND COALESCE(record_status,'ACTIVE')='ACTIVE'
     ORDER BY testid`, [jobcardid])
   const approvedStatuses = new Set(["MANAGER_APPROVED","HR_ACCEPTED","EXPORTED"])
@@ -276,12 +368,19 @@ async function loadAcceloReadiness(pool, jobcardid) {
   if (!crew.rows.length) issues.push("No Job Card crew has been recorded.")
   if (missingCrew.length) issues.push(`Missing timesheets: ${missingCrew.map(row => row.employee_name).join(", ")}.`)
   if (unapproved.length) issues.push(`Timesheets awaiting approval: ${unapproved.map(row => `${row.employee_name} (${row.status.replaceAll("_"," ")})`).join(", ")}.`)
+  if (card.job_type === "INSPECTIONS") {
+    if (!certificates.rows.length) issues.push("An Inspection Job Card must have at least one linked certificate.")
+    const certifiedAssetIds = new Set(certificates.rows.map(row => Number(row.assetid)))
+    const missingCertificates = assets.rows.filter(row => row.assetid && !certifiedAssetIds.has(Number(row.assetid)))
+    if (missingCertificates.length) issues.push(`Missing certificates for Job Card equipment: ${missingCertificates.map(row => row.asset_name).join(", ")}.`)
+  }
   return {
     card,
     recipient: /^[0-9]+$/.test(String(card.customer_reference || ""))
       ? `job+${card.customer_reference}@fb-cranes.accelo.com`
       : "",
     crew: crew.rows,
+    assets: assets.rows,
     timesheets: timesheets.rows,
     certificates: certificates.rows,
     issues,
@@ -309,15 +408,23 @@ function registerWorkforceRoutes(app, {
   router.get("/employees", asyncRoute(async (req, res) => {
     if (!["ADMIN","MANAGER","INSPECTOR","HR"].includes(req.user.role)) return res.status(403).json({ error: "Access denied" })
     const includeHr = req.query.include_hr === "true" && ["ADMIN","HR"].includes(req.user.role)
+    const scheduleScope = req.query.work_schedule_scope === "true"
+    const values = []
+    let managerScope = ""
+    if (scheduleScope && req.user.role === "MANAGER") {
+      values.push(req.user.user_id)
+      managerScope = ` AND manager_user_id=$${values.length}`
+    }
     const result = await pool.query(`
       SELECT userid AS user_id,COALESCE(NULLIF(fullname,''),username) AS full_name,role,manager_user_id,employee_number
       FROM atec.tblusers
-      WHERE COALESCE(is_active,true)=true AND (role IN ('ADMIN','MANAGER','INSPECTOR','ASSISTANT')${includeHr ? " OR role='HR'" : ""})
-      ORDER BY COALESCE(NULLIF(fullname,''),username)`)
+      WHERE COALESCE(is_active,true)=true AND (role IN ('ADMIN','MANAGER','INSPECTOR','ASSISTANT')${includeHr ? " OR role='HR'" : ""})${managerScope}
+      ORDER BY COALESCE(NULLIF(fullname,''),username)`, values)
     res.json(result.rows)
   }))
 
   router.get("/job-cards/:id/crew", asyncRoute(async (req, res) => {
+    await assertJobCardAccess(pool, req.user, req.params.id)
     const result = await pool.query(`
       SELECT crew.*,COALESCE(NULLIF(u.fullname,''),u.username) AS full_name,u.role
       FROM atec.tbljobcardcrew crew JOIN atec.tblusers u ON u.userid=crew.user_id
@@ -326,7 +433,7 @@ function registerWorkforceRoutes(app, {
   }))
 
   router.put("/job-cards/:id/crew", asyncRoute(async (req, res) => {
-    if (!["ADMIN","MANAGER","INSPECTOR"].includes(req.user.role)) return res.status(403).json({ error: "Access denied" })
+    await assertJobCardAccess(pool, req.user, req.params.id)
     const crew = Array.isArray(req.body?.crew) ? req.body.crew : []
     if (crew.some(row => !Number(row.user_id) || !CREW_ROLES.has(String(row.crew_role)))) throw badRequest("Select valid crew members and roles.")
     const client = await pool.connect()
@@ -348,50 +455,13 @@ function registerWorkforceRoutes(app, {
   }))
 
   router.post("/job-cards/:id/copy-timeline", asyncRoute(async (req, res) => {
-    if (!["ADMIN","MANAGER","INSPECTOR"].includes(req.user.role)) return res.status(403).json({ error: "Access denied" })
     const client = await pool.connect()
     try {
       await client.query("BEGIN")
-      const cardResult = await client.query(`
-        SELECT j.*,c.clientname FROM atec.tbljobcard j JOIN atec.tblclients c ON c.clientid=j.clientid
-        WHERE j.jobcardid=$1 FOR UPDATE`, [req.params.id])
-      const card = cardResult.rows[0]
-      if (!card) {
-        const error = new Error("Job card not found")
-        error.statusCode = 404
-        throw error
-      }
-      if (!/^[0-9]+$/.test(String(card.customer_reference || ""))) throw badRequest("Enter the numeric Accelo Job Number before copying crew time.")
-      const crewResult = await client.query(`
-        SELECT user_id FROM atec.tbljobcardcrew WHERE jobcardid=$1 AND included_in_time=true
-        UNION SELECT assigned_to_user_id FROM atec.tbljobcard WHERE jobcardid=$1 AND assigned_to_user_id IS NOT NULL`, [req.params.id])
-      const segments = [
-        ["TRAVEL",card.departed_at,card.arrived_at],
-        ["STANDBY",card.arrived_at,card.work_started_at],
-        ["WORK",card.work_started_at,card.work_completed_at],
-        ["TRAVEL",card.work_completed_at,card.travel_completed_at]
-      ].filter(([,start,end]) => start && end && new Date(end) > new Date(start))
-      for (const member of crewResult.rows) {
-        await client.query(`DELETE FROM atec.tbltimeentry WHERE jobcardid=$1 AND user_id=$2
-          AND source IN ('JOB_CARD','COPIED_FROM_LEAD') AND employee_confirmed_at IS NULL`, [card.jobcardid,member.user_id])
-        for (const [type,start,end] of segments) {
-          await client.query(`INSERT INTO atec.tbltimeentry
-            (user_id,jobcardid,activity_date,activity_type,started_at,ended_at,customer_name_snapshot,
-             job_number_snapshot,jobcard_reference_snapshot,brief_details,source,source_user_id)
-            VALUES($1,$2,$3::date,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, [
-            member.user_id,card.jobcardid,isoDate(start),type,start,end,card.clientname,
-            card.customer_reference,card.jobcard_reference,card.work_performed || card.reported_fault || card.job_type,
-            Number(member.user_id) === Number(card.assigned_to_user_id) ? "JOB_CARD" : "COPIED_FROM_LEAD",req.user.user_id
-          ])
-        }
-        if (segments.length) {
-          const rebuilt = await rebuildTimesheet(client,member.user_id,isoDate(segments[0][1]))
-          await client.query(`UPDATE atec.tbldailytimesheet SET status='AWAITING_EMPLOYEE',updated_at=now()
-            WHERE timesheetid=$1 AND status IN ('DRAFT','RETURNED')`, [rebuilt.timesheet.timesheetid])
-        }
-      }
+      await assertJobCardAccess(client, req.user, req.params.id, { forUpdate:true })
+      const result = await copyJobCardTimeline(client, req.params.id, req.user.user_id)
       await client.query("COMMIT")
-      res.json({ success:true, crew:crewResult.rowCount, segments:segments.length })
+      res.json(result)
     } catch (error) {
       await client.query("ROLLBACK").catch(() => {})
       throw error
@@ -456,6 +526,86 @@ function registerWorkforceRoutes(app, {
     const client = await pool.connect()
     try { await rebuildTimesheet(client,userId,result.rows[0].activity_date) } finally { client.release() }
     res.status(201).json(result.rows[0])
+  }))
+
+  router.put("/time-entries/:entryId", asyncRoute(async (req, res) => {
+    const reason = String(req.body.reason || "").trim()
+    if (reason.length < 5) throw badRequest("Enter a clear reason of at least 5 characters for changing your time.")
+    const startedAt = new Date(req.body.started_at)
+    const endedAt = new Date(req.body.ended_at)
+    if (Number.isNaN(startedAt.getTime()) || Number.isNaN(endedAt.getTime()) || endedAt <= startedAt) {
+      throw badRequest("Enter valid start and end times; end time must be after start time.")
+    }
+    if (endedAt - startedAt > 24 * 60 * 60 * 1000) throw badRequest("A time entry cannot exceed 24 hours.")
+    const client = await pool.connect()
+    try {
+      await client.query("BEGIN")
+      const entryResult = await client.query(`SELECT entry.*,sheet.timesheetid,sheet.status
+        FROM atec.tbltimeentry entry LEFT JOIN atec.tbldailytimesheet sheet
+          ON sheet.user_id=entry.user_id AND sheet.timesheet_date=entry.activity_date
+        WHERE entry.timeentryid=$1 AND entry.user_id=$2 FOR UPDATE`, [req.params.entryId,req.user.user_id])
+      const entry = entryResult.rows[0]
+      if (!entry) {
+        const error = new Error("Time entry not found")
+        error.statusCode = 404
+        throw error
+      }
+      if (entry.status && !["DRAFT","AWAITING_EMPLOYEE","RETURNED"].includes(entry.status)) {
+        const error = new Error("Submitted or approved time cannot be changed by the employee.")
+        error.statusCode = 409
+        throw error
+      }
+      const activityDate = isoDate(startedAt)
+      await client.query(`UPDATE atec.tbltimeentry SET activity_date=$1::date,started_at=$2,ended_at=$3,
+        adjustment_reason=$4,source='EMPLOYEE',source_user_id=$5,updated_at=now()
+        WHERE timeentryid=$6`, [activityDate,req.body.started_at,req.body.ended_at,reason,req.user.user_id,entry.timeentryid])
+      await rebuildTimesheet(client,req.user.user_id,entry.activity_date)
+      if (activityDate !== String(entry.activity_date).slice(0,10)) await rebuildTimesheet(client,req.user.user_id,activityDate)
+      if (entry.timesheetid) await client.query(`INSERT INTO atec.tbltimesheetaudit(timesheetid,actor_user_id,action,details)
+        VALUES($1,$2,'EMPLOYEE_TIME_EDIT',$3)`, [entry.timesheetid,req.user.user_id,JSON.stringify({
+          timeentryid:entry.timeentryid,reason,before:{started_at:entry.started_at,ended_at:entry.ended_at},after:{started_at:req.body.started_at,ended_at:req.body.ended_at}
+        })])
+      await client.query("COMMIT")
+      res.json({ success:true })
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {})
+      throw error
+    } finally { client.release() }
+  }))
+
+  router.delete("/time-entries/:entryId", asyncRoute(async (req, res) => {
+    const reason = String(req.body?.reason || "").trim()
+    if (reason.length < 5) throw badRequest("Enter a clear reason of at least 5 characters for deleting your time entry.")
+    const client = await pool.connect()
+    try {
+      await client.query("BEGIN")
+      const entryResult = await client.query(`SELECT entry.*,sheet.timesheetid,sheet.status
+        FROM atec.tbltimeentry entry LEFT JOIN atec.tbldailytimesheet sheet
+          ON sheet.user_id=entry.user_id AND sheet.timesheet_date=entry.activity_date
+        WHERE entry.timeentryid=$1 AND entry.user_id=$2 FOR UPDATE`, [req.params.entryId,req.user.user_id])
+      const entry = entryResult.rows[0]
+      if (!entry) {
+        const error = new Error("Time entry not found")
+        error.statusCode = 404
+        throw error
+      }
+      if (entry.status && !["DRAFT","AWAITING_EMPLOYEE","RETURNED"].includes(entry.status)) {
+        const error = new Error("Submitted or approved time cannot be deleted by the employee.")
+        error.statusCode = 409
+        throw error
+      }
+      await client.query("DELETE FROM atec.tbltimeentry WHERE timeentryid=$1", [entry.timeentryid])
+      await rebuildTimesheet(client,req.user.user_id,entry.activity_date)
+      if (entry.timesheetid) await client.query(`INSERT INTO atec.tbltimesheetaudit(timesheetid,actor_user_id,action,details)
+        VALUES($1,$2,'EMPLOYEE_TIME_DELETE',$3)`, [entry.timesheetid,req.user.user_id,JSON.stringify({
+          timeentryid:entry.timeentryid,reason,deleted:{activity_type:entry.activity_type,started_at:entry.started_at,ended_at:entry.ended_at,job_number:entry.job_number_snapshot}
+        })])
+      await client.query("COMMIT")
+      res.json({ success:true })
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {})
+      throw error
+    } finally { client.release() }
   }))
 
   router.post("/timesheets/:date/submit", asyncRoute(async (req, res) => {
@@ -747,7 +897,8 @@ function registerWorkforceRoutes(app, {
   }))
 
   router.get("/schedules/:userId", asyncRoute(async (req, res) => {
-    if (!canAdminWorkforce(req.user) && Number(req.params.userId) !== Number(req.user.user_id)) return res.status(403).json({ error:"Access denied" })
+    if (!canManageWorkSchedules(req.user) && Number(req.params.userId) !== Number(req.user.user_id)) return res.status(403).json({ error:"Access denied" })
+    if (req.user.role === "MANAGER") await assertWorkScheduleEmployeeAccess(pool,req.user,req.params.userId)
     const result = await pool.query(`SELECT s.*,s.effective_from::text AS effective_from,s.effective_to::text AS effective_to,
       COALESCE(json_agg(d ORDER BY d.weekday) FILTER (WHERE d.scheduledayid IS NOT NULL),'[]') AS days
       FROM atec.tblworkschedule s LEFT JOIN atec.tblworkscheduleday d ON d.scheduleid=s.scheduleid
@@ -756,7 +907,8 @@ function registerWorkforceRoutes(app, {
   }))
 
   router.post("/schedules", asyncRoute(async (req, res) => {
-    if (!canAdminWorkforce(req.user)) return res.status(403).json({ error:"Access denied" })
+    if (!canManageWorkSchedules(req.user)) return res.status(403).json({ error:"Access denied" })
+    await assertWorkScheduleEmployeeAccess(pool,req.user,req.body.employee_user_id)
     const days = Array.isArray(req.body.days) ? req.body.days : []
     const client = await pool.connect()
     try {
@@ -782,7 +934,10 @@ function registerWorkforceRoutes(app, {
   }))
 
   router.put("/schedules/:id", asyncRoute(async (req, res) => {
-    if (!canAdminWorkforce(req.user)) return res.status(403).json({ error:"Access denied" })
+    if (!canManageWorkSchedules(req.user)) return res.status(403).json({ error:"Access denied" })
+    const owner = await pool.query("SELECT employee_user_id FROM atec.tblworkschedule WHERE scheduleid=$1",[req.params.id])
+    if (!owner.rows[0]) return res.status(404).json({ error:"Work schedule not found" })
+    await assertWorkScheduleEmployeeAccess(pool,req.user,owner.rows[0].employee_user_id)
     const days = Array.isArray(req.body.days) ? req.body.days : []
     if (!req.body.schedule_name || !req.body.effective_from || days.some(day => !Number.isInteger(Number(day.weekday)))) {
       throw badRequest("Enter a schedule name, effective date and valid working days.")
@@ -920,4 +1075,4 @@ function registerWorkforceRoutes(app, {
   app.use("/workforce", router)
 }
 
-module.exports = { registerWorkforceRoutes, rebuildTimesheet, loadAcceloReadiness, createPayrollWorkbook }
+module.exports = { registerWorkforceRoutes, rebuildTimesheet, copyJobCardTimeline, loadAcceloReadiness, createPayrollWorkbook }

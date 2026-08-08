@@ -17,6 +17,8 @@ import { renderMpiReportsPage } from './pages/MpiReports.js'
 import {
   addWorkforceTime,
   closeEmployeeTimeEditor,
+  deleteMyTimeEntry,
+  editMyTimeEntry,
   editEmployeeTimes,
   exportTimesheetHistoryCsv,
   exportPayrollExcel,
@@ -29,6 +31,7 @@ import {
   renderTimesheetApprovals,
   renderTimesheetHistory,
   renderWorkSchedules,
+  updateScheduleHours,
   saveWorkSchedule,
   saveEmployeeTimeEdit,
   submitMyDay,
@@ -165,7 +168,7 @@ const pageAccess = {
   'timesheet-approvals': ['ADMIN', 'MANAGER', 'HR'],
   'timesheet-history': ['ADMIN', 'MANAGER', 'HR'],
   'hr-timesheets': ['ADMIN', 'HR'],
-  'work-schedules': ['ADMIN', 'HR'],
+  'work-schedules': ['ADMIN', 'MANAGER', 'HR'],
   'quick-inspection': ['ADMIN', 'MANAGER', 'INSPECTOR'],
   certificates: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER'],
   mpi: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER'],
@@ -1516,6 +1519,8 @@ window.filterSidebarMenu = function (value) {
 
 window.showMyDay = function () { setCurrentPage('my-day'); return renderMyDay() }
 window.addWorkforceTime = addWorkforceTime
+window.editMyTimeEntry = editMyTimeEntry
+window.deleteMyTimeEntry = deleteMyTimeEntry
 window.submitMyDay = submitMyDay
 window.showTimesheetApprovals = function () { setCurrentPage('timesheet-approvals'); return renderTimesheetApprovals() }
 window.workforceAction = workforceAction
@@ -1530,6 +1535,7 @@ window.setAllPayrollEmployees = setAllPayrollEmployees
 window.setPayrollPeriod = setPayrollPeriod
 window.showHrTimesheets = function () { setCurrentPage('hr-timesheets'); return renderHrTimesheets() }
 window.showWorkSchedules = function () { setCurrentPage('work-schedules'); return renderWorkSchedules() }
+window.updateScheduleHours = updateScheduleHours
 window.loadWorkSchedule = loadWorkSchedule
 window.saveWorkSchedule = saveWorkSchedule
 
@@ -10776,7 +10782,7 @@ function renderJobCardForm() {
       </div></section>
       <section class="filter-card"><div class="section-heading"><div><h3>Materials and Parts</h3><p class="muted-text">“Required” items can be used for follow-up quotations.</p></div><button type="button" onclick="addJobCardMaterialRow()">Add Material</button></div><div id="jcMaterials">${(card.materials || []).map(renderJobCardMaterialRow).join('')}</div></section>
       <section class="filter-card"><div class="section-heading"><div><h3>Deviations</h3><p class="muted-text">Record each defect separately. Critical deviations enforce a safe equipment decision.</p></div><button type="button" onclick="addJobCardDeviationRow()">Add Deviation</button></div><div id="jcDeviations">${(card.deviations || []).map(renderJobCardDeviationRow).join('')}</div></section>
-      <section class="filter-card"><h3>Time and Travel</h3><div class="job-card-grid">${jobCardDateField('jcDeparted','Departed workshop',card.departed_at)}${jobCardDateField('jcArrived','Arrived on site',card.arrived_at)}${jobCardDateField('jcStarted','Work started',card.work_started_at)}${jobCardDateField('jcCompleted','Work completed',card.work_completed_at)}${jobCardDateField('jcTravelDone','Travel completed',card.travel_completed_at)}<label>Kilometres<input id="jcKm" type="number" min="0" step="0.1" value="${safeAttr(card.kilometres || '')}"></label><label>Normal hours<input id="jcNormalHours" type="number" min="0" step="0.25" value="${safeAttr(card.normal_hours || '')}"></label><label>Overtime hours<input id="jcOvertimeHours" type="number" min="0" step="0.25" value="${safeAttr(card.overtime_hours || '')}"></label><label>Standby hours<input id="jcStandbyHours" type="number" min="0" step="0.25" value="${safeAttr(card.standby_hours || '')}"></label></div></section>
+      <section class="filter-card"><h3>Time and Travel</h3><p class="muted-text">The timestamped timeline creates crew timesheets and is the payroll source. The summary-hour fields below are job-card information only and are not added to payroll.</p><div class="job-card-grid">${jobCardDateField('jcDeparted','Departed workshop',card.departed_at)}${jobCardDateField('jcArrived','Arrived on site',card.arrived_at)}${jobCardDateField('jcStarted','Work started',card.work_started_at)}${jobCardDateField('jcCompleted','Work completed',card.work_completed_at)}${jobCardDateField('jcTravelDone','Travel completed',card.travel_completed_at)}<label>Kilometres<input id="jcKm" type="number" min="0" step="0.1" value="${safeAttr(card.kilometres || '')}"></label><label>Job-card normal hours (not payroll)<input id="jcNormalHours" type="number" min="0" step="0.25" value="${safeAttr(card.normal_hours || '')}"></label><label>Job-card overtime hours (not payroll)<input id="jcOvertimeHours" type="number" min="0" step="0.25" value="${safeAttr(card.overtime_hours || '')}"></label><label>Job-card standby hours (not payroll)<input id="jcStandbyHours" type="number" min="0" step="0.25" value="${safeAttr(card.standby_hours || '')}"></label></div></section>
       <section class="filter-card"><h3>Final Equipment Status</h3><div class="job-card-grid"><label>Status *<select id="jcEquipmentStatus">${[['SAFE','Safe and returned to service'],['RESTRICTED','Temporarily operational with restrictions'],['FURTHER_WORK','Further work required'],['OUT_OF_SERVICE','Isolated / out of service'],['NOT_TESTED','Not tested']].map(row => jobCardOption(row[0],row[1],card.equipment_status)).join('')}</select></label><label class="job-card-wide">Reason / restrictions<textarea id="jcEquipmentReason">${escapeHtml(card.equipment_status_reason || '')}</textarea></label></div></section>
       <section class="filter-card"><h3>Customer Acknowledgement</h3><div class="job-card-grid"><label>Name<input id="jcSignatory" value="${safeAttr(card.customer_signatory_name || '')}"></label><label>Designation<input id="jcDesignation" value="${safeAttr(card.customer_signatory_designation || '')}"></label><label>Unavailable / refused reason<input id="jcSignatureReason" value="${safeAttr(card.signature_unavailable_reason || '')}"></label></div>${card.customer_signature_path ? `<p>Customer signature already captured.</p><img class="job-card-signature-image" src="${uploadUrl(card.customer_signature_path)}" alt="Customer signature">` : `<div class="signature-pad-wrap"><canvas id="jcSignatureCanvas" width="700" height="180"></canvas><button type="button" onclick="clearJobCardSignature()">Clear Signature</button></div>`}</section>
       <section class="filter-card"><h3>Photographs</h3><div class="job-card-photo-grid">${(card.photos || []).map(photo => `<figure><img src="${uploadUrl(photo.photo_path)}" alt="Job card photograph"><figcaption>${escapeHtml(photo.photo_type)}: ${escapeHtml(photo.caption || '')}</figcaption></figure>`).join('')}</div><div class="job-card-grid"><label>Attach to deviation<select id="jcPhotoDeviation" ${card.jobcardid ? '' : 'disabled'}><option value="">General job card</option>${(card.deviations || []).map(row => jobCardOption(row.deviationid,`${row.severity}: ${row.description}`,null)).join('')}</select></label><label>Photo type<select id="jcPhotoType">${['GENERAL','BEFORE','AFTER','DEFECT','NAMEPLATE','TEST'].map(value => jobCardOption(value,value,null)).join('')}</select></label><label>Caption<input id="jcPhotoCaption"></label><label>Take / choose photos<input id="jcPhotos" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple></label></div>${card.jobcardid ? '<button type="button" onclick="uploadJobCardPhotos()">Upload Photos</button>' : '<p class="muted-text">Selected photos will upload automatically when the on-site job is submitted.</p>'}</section>
@@ -10914,11 +10920,6 @@ window.saveJobCard = async function (forcedStatus = null) {
   }
   jobCardEditing = result
   try {
-    if (forcedStatus === 'SUBMITTED') {
-      const timeResponse = await fetch(`${API_BASE}/workforce/job-cards/${result.jobcardid}/copy-timeline`, { method: 'POST' })
-      const timeResult = await readApiResponse(timeResponse)
-      if (!timeResponse.ok) throw new Error(timeResult.error || 'Crew time could not be prepared')
-    }
     if (pendingFiles.length) {
       await uploadJobCardPhotoFiles(result.jobcardid, pendingFiles, pendingPhotoDetails)
       const refreshed = await fetch(`${API_BASE}/job-cards/${result.jobcardid}`)

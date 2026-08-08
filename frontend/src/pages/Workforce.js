@@ -34,8 +34,9 @@ export async function renderMyDay() {
     document.querySelector('#workforceDay').innerHTML = `
       <div class="section-heading"><div><h3>${escapeHtml(date)}</h3><p class="muted-text">${escapeHtml(data.schedule?.schedule_name || 'No assigned schedule')} · Status: <strong>${escapeHtml(status.replaceAll('_',' '))}</strong></p></div>
         <div><strong>Normal ${hours(data.normal_hours)}</strong> &nbsp; <strong>Overtime ${hours(data.overtime_hours)}</strong></div></div>
-      <div class="table-scroll"><table><thead><tr><th>Activity</th><th>From</th><th>To</th><th>Customer / Job</th><th>Normal</th><th>Overtime</th></tr></thead><tbody>
-        ${lines.map(line => `<tr><td>${escapeHtml(line.activity_type)}</td><td>${escapeHtml(new Date(line.started_at).toLocaleTimeString('en-ZA',{hour:'2-digit',minute:'2-digit'}))}</td><td>${escapeHtml(new Date(line.ended_at).toLocaleTimeString('en-ZA',{hour:'2-digit',minute:'2-digit'}))}</td><td>${escapeHtml([line.customer_name_snapshot,line.job_number_snapshot].filter(Boolean).join(' / ') || line.brief_details || '-')}</td><td>${hours(line.normal_hours)}</td><td>${hours(line.overtime_hours)}</td></tr>`).join('') || '<tr><td colspan="6">No time recorded for this date.</td></tr>'}
+      ${status === 'RETURNED' && data.timesheet?.returned_reason ? `<p class="login-error"><strong>Returned by reviewer:</strong> ${escapeHtml(data.timesheet.returned_reason)}</p>` : ''}
+      <div class="table-scroll"><table><thead><tr><th>Activity</th><th>From</th><th>To</th><th>Customer / Job</th><th>Normal</th><th>Overtime</th>${locked ? '' : '<th>Correction</th>'}</tr></thead><tbody>
+        ${lines.map(line => `<tr><td>${escapeHtml(line.activity_type)}</td><td>${escapeHtml(new Date(line.started_at).toLocaleTimeString('en-ZA',{hour:'2-digit',minute:'2-digit'}))}</td><td>${escapeHtml(new Date(line.ended_at).toLocaleTimeString('en-ZA',{hour:'2-digit',minute:'2-digit'}))}</td><td>${escapeHtml([line.customer_name_snapshot,line.job_number_snapshot].filter(Boolean).join(' / ') || line.brief_details || '-')}</td><td>${hours(line.normal_hours)}</td><td>${hours(line.overtime_hours)}</td>${locked ? '' : `<td><button type="button" onclick="editMyTimeEntry(${safeAttr(line.timeentryid)},'${safeAttr(datetimeLocalValue(line.started_at))}','${safeAttr(datetimeLocalValue(line.ended_at))}')">Edit</button><button type="button" class="danger-btn" onclick="deleteMyTimeEntry(${safeAttr(line.timeentryid)})">Delete</button></td>`}</tr>`).join('') || `<tr><td colspan="${locked ? 6 : 7}">No time recorded for this date.</td></tr>`}
       </tbody></table></div>
       ${locked ? '<p class="muted-text">This timesheet has been submitted and is read-only. It remains available here and in your history below.</p>' : `<details><summary>Add an exception or non-job activity</summary><div class="job-card-grid">
         <label>Activity<select id="timeActivity">${['WORK','TRAVEL','STANDBY','BREAK','WORKSHOP','TRAINING','MEETING','ADMIN','WAITING','LEAVE','SICK_LEAVE','UNPAID','OTHER'].map(value => `<option>${value}</option>`).join('')}</select></label>
@@ -66,6 +67,33 @@ export async function addWorkforceTime() {
         brief_details: document.querySelector('#timeDetails').value,
         underground: document.querySelector('#timeUnderground').checked
       })
+    })
+    await renderMyDay()
+  } catch (error) { alert(error.message) }
+}
+
+export async function editMyTimeEntry(timeentryId, currentStart, currentEnd) {
+  const startedAt = window.prompt('Correct start date and time (YYYY-MM-DDTHH:MM):', currentStart)
+  if (startedAt === null) return
+  const endedAt = window.prompt('Correct end date and time (YYYY-MM-DDTHH:MM):', currentEnd)
+  if (endedAt === null) return
+  const reason = window.prompt('Reason for correcting this time entry (minimum 5 characters):')
+  if (reason === null) return
+  try {
+    await api(`/workforce/time-entries/${encodeURIComponent(timeentryId)}`, {
+      method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({started_at:startedAt,ended_at:endedAt,reason})
+    })
+    await renderMyDay()
+  } catch (error) { alert(error.message) }
+}
+
+export async function deleteMyTimeEntry(timeentryId) {
+  const reason = window.prompt('Reason for deleting this time entry (minimum 5 characters):')
+  if (reason === null) return
+  if (!window.confirm('Delete this time entry? This action will be retained in the timesheet audit history.')) return
+  try {
+    await api(`/workforce/time-entries/${encodeURIComponent(timeentryId)}`, {
+      method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason})
     })
     await renderMyDay()
   } catch (error) { alert(error.message) }
@@ -316,7 +344,11 @@ export async function renderWorkSchedules() {
   const page = document.querySelector('#page')
   page.innerHTML = `<div class="page-heading"><div><h2>Work Schedules</h2><p>View and edit each employee's normal working rules. Submitted timesheets retain their original schedule snapshot.</p></div></div><section id="scheduleForm" class="filter-card">Loading employees...</section>`
   try {
-    const employees = await api('/workforce/employees?include_hr=true')
+    const employees = await api('/workforce/employees?include_hr=true&work_schedule_scope=true')
+    if (!employees.length) {
+      document.querySelector('#scheduleForm').innerHTML = '<p class="muted-text">No employees are currently assigned to you. Ask HR or an Administrator to update employee assignments.</p>'
+      return
+    }
     document.querySelector('#scheduleForm').innerHTML = `<label>Employee<select id="scheduleEmployee" onchange="loadWorkSchedule()">${employees.map(row => `<option value="${safeAttr(row.user_id)}">${escapeHtml(row.full_name)} (${escapeHtml(row.role)})</option>`).join('')}</select></label>
       <div id="scheduleDetails"><p>Loading current schedule...</p></div>`
     await loadWorkSchedule()
@@ -333,6 +365,28 @@ function paidHours(start, end, lunchMinutes) {
   const [startHour,startMinute] = String(start).split(':').map(Number)
   const [endHour,endMinute] = String(end).split(':').map(Number)
   return Math.max(0,((endHour * 60 + endMinute) - (startHour * 60 + startMinute) - Number(lunchMinutes || 0)) / 60).toFixed(2)
+}
+
+export function updateScheduleHours() {
+  const weekdayHours = Number(paidHours(
+    document.querySelector('#scheduleWeekStart')?.value,
+    document.querySelector('#scheduleWeekEnd')?.value,
+    document.querySelector('#scheduleWeekLunch')?.value
+  ))
+  const fridayHours = Number(paidHours(
+    document.querySelector('#scheduleFridayStart')?.value,
+    document.querySelector('#scheduleFridayEnd')?.value,
+    document.querySelector('#scheduleFridayLunch')?.value
+  ))
+  const values = {
+    scheduleWeekHours:weekdayHours,
+    scheduleFridayHours:fridayHours,
+    scheduleTotalHours:weekdayHours * 4 + fridayHours
+  }
+  Object.entries(values).forEach(([id,value]) => {
+    const element = document.querySelector(`#${id}`)
+    if (element) element.textContent = value.toFixed(2)
+  })
 }
 
 function scheduleSummary(schedule) {
@@ -370,17 +424,18 @@ export async function loadWorkSchedule() {
         <label>Rounding<select id="scheduleRounding">${[1,5,10,15,30].map(value => `<option value="${value}" ${Number(current?.rounding_minutes || 1) === value ? 'selected' : ''}>${value} minute${value === 1 ? '' : 's'}</option>`).join('')}</select></label>
       </div>
       <h4>Monday to Thursday</h4><div class="job-card-grid">
-        <label>Start<input id="scheduleWeekStart" type="time" value="${safeAttr(weekdayStart)}"></label>
-        <label>End<input id="scheduleWeekEnd" type="time" value="${safeAttr(weekdayEnd)}"></label>
-        <label>Unpaid lunch (minutes)<input id="scheduleWeekLunch" type="number" min="0" max="180" step="5" value="${weekdayLunch}"></label>
+        <label>Start<input id="scheduleWeekStart" type="time" value="${safeAttr(weekdayStart)}" oninput="updateScheduleHours()"></label>
+        <label>End<input id="scheduleWeekEnd" type="time" value="${safeAttr(weekdayEnd)}" oninput="updateScheduleHours()"></label>
+        <label>Unpaid lunch (minutes)<input id="scheduleWeekLunch" type="number" min="0" max="180" step="5" value="${weekdayLunch}" oninput="updateScheduleHours()"></label>
         <div><span class="muted-text">Normal paid hours</span><br><strong id="scheduleWeekHours">${paidHours(weekdayStart,weekdayEnd,weekdayLunch)}</strong></div>
       </div>
       <h4>Friday</h4><div class="job-card-grid">
-        <label>Start<input id="scheduleFridayStart" type="time" value="${safeAttr(fridayStart)}"></label>
-        <label>End<input id="scheduleFridayEnd" type="time" value="${safeAttr(fridayEnd)}"></label>
-        <label>Unpaid lunch (minutes)<input id="scheduleFridayLunch" type="number" min="0" max="180" step="5" value="${fridayLunch}"></label>
+        <label>Start<input id="scheduleFridayStart" type="time" value="${safeAttr(fridayStart)}" oninput="updateScheduleHours()"></label>
+        <label>End<input id="scheduleFridayEnd" type="time" value="${safeAttr(fridayEnd)}" oninput="updateScheduleHours()"></label>
+        <label>Unpaid lunch (minutes)<input id="scheduleFridayLunch" type="number" min="0" max="180" step="5" value="${fridayLunch}" oninput="updateScheduleHours()"></label>
         <div><span class="muted-text">Normal paid hours</span><br><strong id="scheduleFridayHours">${paidHours(fridayStart,fridayEnd,fridayLunch)}</strong></div>
       </div>
+      <div class="work-schedule-total"><span>Weekly normal paid hours</span><strong id="scheduleTotalHours">${(Number(paidHours(weekdayStart,weekdayEnd,weekdayLunch)) * 4 + Number(paidHours(fridayStart,fridayEnd,fridayLunch))).toFixed(2)}</strong><small>Monday to Thursday × 4, plus Friday</small></div>
       <div class="form-actions"><button type="button" class="load-test-btn" onclick="saveWorkSchedule()">${current ? 'Update current schedule' : 'Create schedule'}</button></div>
       <hr><h3>Schedule history</h3><div class="table-scroll"><table><thead><tr><th>Name</th><th>Effective from</th><th>Effective to</th><th>Rules</th></tr></thead><tbody>
         ${schedules.map(schedule => `<tr><td>${escapeHtml(schedule.schedule_name)}</td><td>${escapeHtml(String(schedule.effective_from).slice(0,10))}</td><td>${escapeHtml(schedule.effective_to ? String(schedule.effective_to).slice(0,10) : 'Current')}</td><td>${escapeHtml(scheduleSummary(schedule))}</td></tr>`).join('') || '<tr><td colspan="4">No schedule history.</td></tr>'}
