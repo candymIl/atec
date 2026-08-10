@@ -10732,6 +10732,7 @@ window.openJobCard = async function (jobcardid = null) {
 
 function renderJobCardForm() {
   const card = jobCardEditing
+  const crewLocked = ['SUBMITTED', 'APPROVED', 'INVOICED', 'CANCELLED'].includes(String(card.status || '').toUpperCase())
   const selectedAssets = new Set((card.assets || []).map(row => String(row.assetid)))
   const relevantSites = sites.filter(site => !card.clientid || String(site.clientid) === String(card.clientid))
   const relevantSections = sections.filter(section => !card.siteid || String(section.siteid) === String(card.siteid))
@@ -10756,10 +10757,12 @@ function renderJobCardForm() {
         <label>Contact number<input id="jcPhone" value="${safeAttr(card.customer_contact_phone || '')}"></label>
         <label>Planned date/time<input id="jcPlanned" type="datetime-local" value="${safeAttr(dateTimeLocalValue(card.planned_at))}"></label>
       </div></section>
-      <section class="filter-card"><h3>Job Crew</h3><p class="muted-text">Select everyone working on this job. The job-card timeline will be copied to each person for individual confirmation and hours calculation.</p>
+      <section class="filter-card"><h3>Job Crew</h3><p class="muted-text">${crewLocked
+        ? 'Crew selection is read-only after submission. Return the job for changes before correcting the crew; adding someone after submission does not automatically backfill their time.'
+        : 'Select everyone working on this job before submission. The job-card timeline will be copied to each person for individual confirmation and hours calculation when the job is submitted.'}</p>
         <div class="job-card-asset-choices">${jobCardTechnicians.filter(row => String(row.user_id) !== String(card.assigned_to_user_id)).map(row => {
           const existing = (card.crew || []).find(member => String(member.user_id) === String(row.user_id))
-          return `<label><input type="checkbox" name="jcCrew" value="${safeAttr(row.user_id)}" data-role="${safeAttr(row.role === 'ASSISTANT' ? 'ASSISTANT' : 'ADDITIONAL_TECHNICIAN')}" ${existing ? 'checked' : ''}><span><strong>${escapeHtml(row.full_name)}</strong><small>${escapeHtml(row.role === 'ASSISTANT' ? 'Assistant' : 'Additional technician')}</small></span></label>`
+          return `<label><input type="checkbox" name="jcCrew" value="${safeAttr(row.user_id)}" data-role="${safeAttr(row.role === 'ASSISTANT' ? 'ASSISTANT' : 'ADDITIONAL_TECHNICIAN')}" ${existing ? 'checked' : ''} ${crewLocked ? 'disabled' : ''}><span><strong>${escapeHtml(row.full_name)}</strong><small>${escapeHtml(row.role === 'ASSISTANT' ? 'Assistant' : 'Additional technician')}</small></span></label>`
         }).join('') || '<p>No additional active crew members are available.</p>'}</div>
       </section>
       <section class="filter-card"><h3>Equipment</h3><p class="muted-text">Filter by equipment group or search by tag/serial number, then select the filtered results in one step. For Inspection jobs, matching inspected assets are also added automatically when saved.</p>
