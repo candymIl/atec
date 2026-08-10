@@ -233,7 +233,9 @@ async function rebuildTimesheet(client, userId, date, options = {}) {
       final_overtime_hours=CASE WHEN atec.tbldailytimesheet.adjustment_reason='' THEN EXCLUDED.final_overtime_hours ELSE atec.tbldailytimesheet.final_overtime_hours END,
       final_travel_hours=CASE WHEN atec.tbldailytimesheet.adjustment_reason='' THEN EXCLUDED.final_travel_hours ELSE atec.tbldailytimesheet.final_travel_hours END,
       final_standby_hours=CASE WHEN atec.tbldailytimesheet.adjustment_reason='' THEN EXCLUDED.final_standby_hours ELSE atec.tbldailytimesheet.final_standby_hours END,
-      underground_allowance=EXCLUDED.underground_allowance,updated_at=now()
+      underground_allowance=EXCLUDED.underground_allowance,
+      manager_user_id=EXCLUDED.manager_user_id,
+      updated_at=now()
     RETURNING *`, [
     userId, date, JSON.stringify(schedule), calculation.normal_hours, calculation.overtime_hours,
     calculation.travel_hours, calculation.standby_hours, calculation.underground_allowance
@@ -634,7 +636,8 @@ function registerWorkforceRoutes(app, {
       values.push(req.user.user_id)
       where += ` AND u.manager_user_id=$${values.length}`
     }
-    const result = await pool.query(`SELECT t.*,COALESCE(NULLIF(u.fullname,''),u.username) AS employee_name,u.employee_number
+    const result = await pool.query(`SELECT t.*,t.timesheet_date::text AS timesheet_date,
+      COALESCE(NULLIF(u.fullname,''),u.username) AS employee_name,u.employee_number
       FROM atec.tbldailytimesheet t JOIN atec.tblusers u ON u.userid=t.user_id ${where}
       ORDER BY t.timesheet_date DESC,employee_name`, values)
     res.json(result.rows)
@@ -766,7 +769,8 @@ function registerWorkforceRoutes(app, {
     }
     values.push(Math.min(500,Math.max(1,Number(req.query.limit || 100))))
     const limitParam = `$${values.length}`
-    const result = await pool.query(`SELECT t.*,COALESCE(NULLIF(u.fullname,''),u.username) AS employee_name,
+    const result = await pool.query(`SELECT t.*,t.timesheet_date::text AS timesheet_date,
+      COALESCE(NULLIF(u.fullname,''),u.username) AS employee_name,
       u.employee_number,COALESCE(NULLIF(m.fullname,''),m.username) AS manager_name,
       COALESCE((SELECT string_agg(DISTINCT NULLIF(line.job_number,''),', ' ORDER BY NULLIF(line.job_number,''))
         FROM atec.tbldailytimesheetline line WHERE line.timesheetid=t.timesheetid),'') AS job_numbers,

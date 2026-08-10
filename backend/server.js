@@ -2458,6 +2458,16 @@ app.put("/users/:id", asyncRoute(async (req, res) => {
     return res.status(404).json({ error: "User not found" })
   }
 
+  // Keep open approval work aligned when an employee's approving Manager changes.
+  // Completed/payroll-stage timesheets retain their historical Manager snapshot.
+  await pool.query(
+    `UPDATE atec.tbldailytimesheet
+     SET manager_user_id = $1, updated_at = now()
+     WHERE user_id = $2
+       AND status IN ('DRAFT','AWAITING_EMPLOYEE','EMPLOYEE_SUBMITTED','RETURNED')`,
+    [result.rows[0].manager_user_id, result.rows[0].user_id]
+  )
+
   await req.logAudit("UPDATE", "users", req.params.id)
   res.json(result.rows[0])
 }))
