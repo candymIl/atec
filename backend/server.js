@@ -30,7 +30,9 @@ const {
 } = require("./services/inspectionIntegrity")
 const { buildSystemInfo } = require("./services/systemInfo")
 const {
+  isValidPublicAssetToken,
   isValidPublicCertificateToken,
+  publicAssetCertificatesUrl,
   publicCertificateUrl
 } = require("./services/publicCertificateAccess")
 const {
@@ -2014,6 +2016,50 @@ app.get("/public/certificates/:testid.pdf", pdfLimiter, asyncRoute(async (req, r
   res.send(pdfBuffer)
 }))
 
+app.get("/public/assets/:assetid/certificates", pdfLimiter, asyncRoute(async (req, res) => {
+  const { assetid } = req.params
+
+  if (!/^\d+$/.test(String(assetid)) || !isValidPublicAssetToken(assetid, req.query.token)) {
+    await req.logAudit("PUBLIC_ASSET_CERTIFICATES_DENIED", "assets", /^\d+$/.test(String(assetid)) ? assetid : null)
+    return res.status(404).send("Certificate page not found")
+  }
+
+  const result = await pool.query(
+    `
+    SELECT DISTINCT ON (inspectiontype) inspectiontype, testid, testdate, status
+    FROM atec.tblinspection
+    WHERE assetid = $1
+      AND inspectiontype IN ('VISUAL', 'LOADTEST')
+    ORDER BY inspectiontype, testdate DESC, testid DESC
+    `,
+    [assetid]
+  )
+
+  const links = []
+  for (const row of result.rows) {
+    const certificate = await getCertificateData(row.testid)
+    if (certificate && certificateIsEligible(certificate)) {
+      links.push({
+        label: row.inspectiontype === "LOADTEST" ? "Load Test Certificate" : "Inspection Certificate",
+        url: publicCertificateUrl(process.env.PUBLIC_APP_URL || "https://www.atecinspections.co.za", row.testid),
+        date: formatPdfDate(row.testdate),
+        status: String(row.status || "-")
+      })
+    }
+  }
+
+  await req.logAudit("PUBLIC_ASSET_CERTIFICATES_VIEWED", "assets", assetid)
+  res.setHeader("Content-Type", "text/html; charset=utf-8")
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private")
+  res.send(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ATEC Asset Certificates</title>
+<style>body{font-family:Arial,sans-serif;background:#f4f7fb;color:#102a43;margin:0;padding:24px}.card{max-width:560px;margin:24px auto;background:#fff;border-radius:14px;padding:24px;box-shadow:0 8px 30px rgba(15,39,66,.12)}h1{font-size:24px;margin:0 0 8px}.sub{color:#627d98;margin-bottom:24px}.cert{display:block;text-decoration:none;color:#fff;background:#123a63;border-radius:10px;padding:16px;margin:14px 0;font-size:18px;font-weight:700}.meta{display:block;font-size:13px;font-weight:400;margin-top:6px;color:#d9e8f5}.empty{padding:16px;background:#fff4e5;border-radius:10px;color:#7c4a03}.foot{font-size:13px;color:#829ab1;margin-top:24px}</style>
+</head><body><main class="card"><h1>ATEC Asset Certificates</h1><div class="sub">Asset ${String(assetid)}</div>
+${links.length ? links.map(link => `<a class="cert" href="${link.url}">${link.label}<span class="meta">${link.date || "Date unavailable"} | ${link.status}</span></a>`).join("") : '<div class="empty">No eligible certificates are currently available.</div>'}
+<div class="foot">FB Cranes Inspection Platform | 011 902 3271</div></main></body></html>`)
+}))
+
 app.use("/uploads", requireAuth, trackActiveUser, asyncRoute(authorizeUploadRequest), express.static(uploadsRoot));
 app.use(requireAuth)
 app.use(trackActiveUser)
@@ -3794,7 +3840,9 @@ app.get("/assets/:id/qr-label.pdf", pdfLimiter, async (req, res) => {
       ? publicCertificateUrl(appUrl, loadTest.testid)
       : ""
     const lookupUrl = `${appUrl}/?qr=${encodeURIComponent(asset.qrcode)}`
-    const qrPayload = visualPdfUrl || loadPdfUrl || lookupUrl
+    const qrPayload = (visualPdfUrl || loadPdfUrl)
+      ? publicAssetCertificatesUrl(appUrl, asset.assetid)
+      : lookupUrl
 
     const qrDataUrl = await QRCode.toDataURL(qrPayload, {
       errorCorrectionLevel: "M",
