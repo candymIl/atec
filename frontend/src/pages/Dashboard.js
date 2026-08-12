@@ -29,7 +29,10 @@ export function showDashboard(
 
         <button onclick="dashboardFindAsset()">Search</button>
         <button type="button" class="secondary-btn" onclick="startDashboardCameraScan()">Scan QR / Barcode</button>
+        <button type="button" class="secondary-btn" onclick="startDashboardNfcScan()">Scan NFC Tag</button>
       </div>
+
+      <p id="dashboardNfcStatus" class="nfc-writing-note" hidden></p>
 
       <div id="dashboardCameraScanner" class="quick-camera-scanner dashboard-camera-scanner" hidden>
         <video id="dashboardCameraVideo" playsinline></video>

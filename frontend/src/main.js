@@ -6665,8 +6665,12 @@ function quickNfcRecordValue(record) {
   }
 }
 
-window.startQuickNfcScan = async function () {
-  const status = document.querySelector('#quickNfcStatus')
+window.startQuickNfcScan = async function ({
+  statusSelector = '#quickNfcStatus',
+  inputSelector = '#quickAssetSearch',
+  findAsset = quickFindAsset
+} = {}) {
+  const status = document.querySelector(statusSelector)
 
   if (!('NDEFReader' in window)) {
     if (status) {
@@ -6705,12 +6709,12 @@ window.startQuickNfcScan = async function () {
         return
       }
 
-      const searchInput = document.querySelector('#quickAssetSearch')
+      const searchInput = document.querySelector(inputSelector)
       if (searchInput) searchInput.value = scannedValue
       if (status) status.textContent = 'NFC tag read. Opening the asset…'
       quickNfcAbortController?.abort()
       quickNfcAbortController = null
-      quickFindAsset()
+      findAsset()
     })
   } catch (err) {
     if (err?.name === 'AbortError') return
@@ -6722,6 +6726,14 @@ window.startQuickNfcScan = async function () {
         : 'NFC scanning could not start. Confirm NFC is enabled and use Chrome on Android.'
     }
   }
+}
+
+window.startDashboardNfcScan = function () {
+  return window.startQuickNfcScan({
+    statusSelector: '#dashboardNfcStatus',
+    inputSelector: '#dashboardAssetSearch',
+    findAsset: dashboardFindAsset
+  })
 }
 
 window.startQuickCameraScan = async function () {
