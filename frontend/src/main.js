@@ -6474,6 +6474,9 @@ function normalizeQuickAssetScan(value = '') {
   const raw = String(value || '').trim()
   const lower = raw.toLowerCase()
 
+  const publicAssetCertificatesMatch = raw.match(/\/public\/assets\/(\d+)\/certificates(?:[/?#]|$)/i)
+  if (publicAssetCertificatesMatch) return publicAssetCertificatesMatch[1]
+
   const qrParamMatch = raw.match(/[?&]qr=([^&\s]+)/i)
   if (qrParamMatch) return decodeURIComponent(qrParamMatch[1]).trim()
 

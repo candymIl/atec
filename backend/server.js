@@ -3869,7 +3869,7 @@ app.get("/assets/:id/qr-label.pdf", pdfLimiter, async (req, res) => {
     }
 
     const asset = await ensureAssetQrCode(result.rows[0])
-    const appUrl = (process.env.PUBLIC_APP_URL || "https://www.fbcranes.co.za/atec").replace(/\/$/, "")
+    const appUrl = (process.env.PUBLIC_APP_URL || "https://www.atecinspections.co.za").replace(/\/$/, "")
     const latestInspectionResult = await pool.query(
       `
       SELECT DISTINCT ON (inspectiontype)
@@ -4049,7 +4049,7 @@ app.get("/assets/:id/qr-label.pdf", pdfLimiter, async (req, res) => {
       .font("Helvetica")
       .fontSize(5.5)
       .fillColor("#475569")
-      .text("FB Cranes Inspection Platform | www.fbcranes.co.za/atec | 011 902 3271", labelX + innerPad, footerY + mm(1.3), {
+      .text("FB Cranes Inspection Platform | www.atecinspections.co.za | 011 902 3271", labelX + innerPad, footerY + mm(1.3), {
         width: borderWidth - (innerPad * 2),
         align: "center"
       })
