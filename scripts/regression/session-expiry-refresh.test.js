@@ -4,6 +4,7 @@ const path = require("path")
 
 const root = path.resolve(__dirname, "..", "..")
 const main = fs.readFileSync(path.join(root, "frontend", "src", "main.js"), "utf8")
+const api = fs.readFileSync(path.join(root, "frontend", "src", "api.js"), "utf8")
 
 assert(
   main.includes("response.status === 401") &&
@@ -21,6 +22,11 @@ assert(
 assert(
   main.includes("if (!currentUser || sessionExpiryReloadStarted) return"),
   "Session checks must not run on the login screen or during a pending refresh"
+)
+assert(
+  !api.includes("`${window.location.origin}${encodedPath}`") &&
+    api.includes("return apiUrl(encodedPath)"),
+  "Authenticated upload URLs must use the configured API route in production"
 )
 
 console.log("Session expiry refresh regression test passed")

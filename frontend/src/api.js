@@ -44,9 +44,5 @@ export function uploadUrl(path = '') {
 
   const encodedPath = encodeURI(cleanPath)
 
-  if (import.meta.env.PROD && cleanPath.startsWith('/uploads/')) {
-    return `${window.location.origin}${encodedPath}`
-  }
-
   return apiUrl(encodedPath)
 }
