@@ -1,0 +1,27 @@
+SCENE 1: Manual time when omitted
+Screen action: Manual time when omitted. The exception procedure when an assistant was not added to the job crew.
+Narration: Manual time when omitted. The exception procedure when an assistant was not added to the job crew.
+
+SCENE 2: First confirm it is genuinely missing
+Screen action: First confirm it is genuinely missing. Open My Day and select the correct work date. Check whether copied time already exists. If a line exists but is wrong, edit it; do not add another overlapping line. Confirm the numeric Accelo Job Number with the inspector. Warning: Manual job time is a recovery route, not the normal daily workflow.
+Narration: First confirm it is genuinely missing. Open My Day and select the correct work date. Check whether copied time already exists. If a line exists but is wrong, edit it; do not add another overlapping line. Confirm the numeric Accelo Job Number with the inspector. Warning: Manual job time is a recovery route, not the normal daily workflow.
+
+SCENE 3: Open the exception form
+Screen action: Open the exception form. Open Add an exception or non-job activity. Choose WORK, TRAVEL, STANDBY or WAITING to match what actually happened.
+Narration: Open the exception form. Open Add an exception or non-job activity. Choose WORK, TRAVEL, STANDBY or WAITING to match what actually happened.
+
+SCENE 4: Enter the missing period
+Screen action: Enter the missing period. Enter the numeric Accelo Job Number — digits only. Enter the actual Started and Ended date/time. End must be later than start. Add useful details, for example: Assisted Inspector Smith — omitted from job crew. Select Underground only when the approved rule genuinely applies. Select Add time and confirm the new line appears.
+Narration: Enter the missing period. Enter the numeric Accelo Job Number — digits only. Enter the actual Started and Ended date/time. End must be later than start. Add useful details, for example: Assisted Inspector Smith — omitted from job crew. Select Underground only when the approved rule genuinely applies. Select Add time and confirm the new line appears.
+
+SCENE 5: Example: Job 11927
+Screen action: Example: Job 11927. TRAVEL: 06:30 to 07:15. WORK: 07:15 to 12:00. Do not include an unpaid break inside a work line. WORK: 12:30 to 15:30. TRAVEL: 15:30 to 16:15. Warning: Use separate lines for distinct activities and periods.
+Narration: Example: Job 11927. TRAVEL: 06:30 to 07:15. WORK: 07:15 to 12:00. Do not include an unpaid break inside a work line. WORK: 12:30 to 15:30. TRAVEL: 15:30 to 16:15. Warning: Use separate lines for distinct activities and periods.
+
+SCENE 6: Submit only after checking
+Screen action: Submit only after checking. Check totals, job number, activities, overlaps and duplicates. Select Confirm and submit to manager only when the day is complete. If the sheet is already submitted, ask the manager to return it. Ask the inspector or manager to correct the job crew record where procedure permits.
+Narration: Submit only after checking. Check totals, job number, activities, overlaps and duplicates. Select Confirm and submit to manager only when the day is complete. If the sheet is already submitted, ask the manager to return it. Ask the inspector or manager to correct the job crew record where procedure permits.
+
+SCENE 7: Knowledge check
+Screen action: Why must the assistant check existing lines before adding manual time? Correct response: To prevent duplicate or overlapping time when job-card time has already been copied.
+Narration: Why must the assistant check existing lines before adding manual time? Correct response: To prevent duplicate or overlapping time when job-card time has already been copied.

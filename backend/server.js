@@ -30,6 +30,10 @@ const {
 } = require("./services/inspectionIntegrity")
 const { buildSystemInfo } = require("./services/systemInfo")
 const {
+  isValidPublicCertificateToken,
+  publicCertificateUrl
+} = require("./services/publicCertificateAccess")
+const {
   pdfConfig,
   positiveInteger,
   resolveUploadRoot,
@@ -1979,6 +1983,37 @@ async function authorizeUploadRequest(req, res, next) {
   return next()
 }
 
+app.get("/public/certificates/:testid.pdf", pdfLimiter, asyncRoute(async (req, res) => {
+  const { testid } = req.params
+
+  if (!/^\d+$/.test(String(testid)) || !isValidPublicCertificateToken(testid, req.query.token)) {
+    await req.logAudit("PUBLIC_CERTIFICATE_DENIED", "certificates", /^\d+$/.test(String(testid)) ? testid : null)
+    return res.status(404).json({ error: "Certificate not found" })
+  }
+
+  const certificate = await getCertificateData(testid)
+
+  if (!certificate || !certificateIsEligible(certificate)) {
+    await req.logAudit("PUBLIC_CERTIFICATE_DENIED", "certificates", testid, {
+      reason: certificate ? "not_eligible" : "not_found"
+    })
+    return res.status(404).json({ error: "Certificate not found" })
+  }
+
+  const pdfBuffer = await runQueuedPdfJob(() => createSingleCertificatePdfBuffer(certificate, {
+    projectRoot: path.join(__dirname, ".."),
+    uploadsRoot
+  }), { priority: 1 })
+
+  await req.logAudit("PUBLIC_CERTIFICATE_VIEWED", "certificates", testid)
+  res.setHeader("Content-Type", "application/pdf")
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, private")
+  res.setHeader("Pragma", "no-cache")
+  res.setHeader("Expires", "0")
+  res.setHeader("Content-Disposition", `inline; filename="certificate-${testid}.pdf"`)
+  res.send(pdfBuffer)
+}))
+
 app.use("/uploads", requireAuth, trackActiveUser, asyncRoute(authorizeUploadRequest), express.static(uploadsRoot));
 app.use(requireAuth)
 app.use(trackActiveUser)
@@ -3753,29 +3788,13 @@ app.get("/assets/:id/qr-label.pdf", pdfLimiter, async (req, res) => {
     const loadTest = latestByType.LOADTEST || null
     const assetStatus = latestOverall?.status || "-"
     const visualPdfUrl = visualInspection
-      ? `${appUrl}/api/inspections/${visualInspection.testid}/certificate.pdf`
+      ? publicCertificateUrl(appUrl, visualInspection.testid)
       : ""
     const loadPdfUrl = loadTest
-      ? `${appUrl}/api/inspections/${loadTest.testid}/certificate.pdf`
+      ? publicCertificateUrl(appUrl, loadTest.testid)
       : ""
     const lookupUrl = `${appUrl}/?qr=${encodeURIComponent(asset.qrcode)}`
-    const qrPayload = [
-      "ATEC ASSET LABEL",
-      `Website: ${appUrl}`,
-      "Landline: 011 902 3271",
-      `Asset ID: ${asset.assetid}`,
-      `Asset Tag: ${asset.assettagno || "-"}`,
-      `Serial No: ${asset.serialno || "-"}`,
-      `Equipment: ${asset.equipmenttype || "-"}`,
-      `Status: ${assetStatus}`,
-      `Last Inspection Date: ${formatPdfDate(visualInspection?.testdate) || "-"}`,
-      `Next Inspection Date: ${formatPdfDate(visualInspection?.validdate) || "-"}`,
-      `Inspection PDF: ${visualPdfUrl || "-"}`,
-      `Last Load Test Date: ${formatPdfDate(loadTest?.testdate) || "-"}`,
-      `Next Load Test Date: ${formatPdfDate(loadTest?.validdate) || "-"}`,
-      `Load Test PDF: ${loadPdfUrl || "-"}`,
-      `Lookup: ${lookupUrl}`
-    ].join("\n")
+    const qrPayload = visualPdfUrl || loadPdfUrl || lookupUrl
 
     const qrDataUrl = await QRCode.toDataURL(qrPayload, {
       errorCorrectionLevel: "M",
