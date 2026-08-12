@@ -1028,7 +1028,9 @@ window.createUser = async function () {
       return
     }
 
-    alert('Customer portal user created successfully')
+    alert(managementMode === 'customers'
+      ? 'Customer portal user created successfully'
+      : 'ATEC user created successfully')
     await showUserManagement()
   } catch (err) {
     alert('Could not connect to the server. Please try again.')

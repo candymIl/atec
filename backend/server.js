@@ -3803,9 +3803,12 @@ app.get("/assets/:id/qr-label.pdf", pdfLimiter, async (req, res) => {
     })
     const qrBuffer = Buffer.from(qrDataUrl.split(",")[1], "base64")
 
+    const mm = value => value * 72 / 25.4
+    const labelWidth = mm(95)
+    const labelHeight = mm(60)
     const doc = new PDFDocument({
-      size: "A4",
-      margin: 28,
+      size: [labelWidth, labelHeight],
+      margin: 0,
       info: {
         Title: `ATEC QR Label ${asset.assetid}`
       }
@@ -3819,38 +3822,38 @@ app.get("/assets/:id/qr-label.pdf", pdfLimiter, async (req, res) => {
 
     doc.pipe(res)
 
-    const labelX = 42
-    const labelY = 44
-    const labelWidth = doc.page.width - (labelX * 2)
-    const labelHeight = 620
-    const innerPad = 26
-    const qrSize = 160
+    const labelX = mm(1.5)
+    const labelY = mm(1.5)
+    const borderWidth = labelWidth - mm(3)
+    const borderHeight = labelHeight - mm(3)
+    const innerPad = mm(2.5)
+    const qrSize = mm(32)
     const qrX = labelX + innerPad
-    const qrY = labelY + 108
-    const detailX = qrX + qrSize + 42
-    const detailWidth = labelX + labelWidth - detailX - innerPad
-    const footerY = labelY + labelHeight - 46
+    const qrY = labelY + mm(10)
+    const detailX = qrX + qrSize + mm(3)
+    const detailWidth = labelX + borderWidth - detailX - innerPad
+    const footerY = labelY + borderHeight - mm(5)
 
     doc
-      .roundedRect(labelX, labelY, labelWidth, labelHeight, 8)
-      .lineWidth(1.2)
+      .roundedRect(labelX, labelY, borderWidth, borderHeight, mm(1.5))
+      .lineWidth(0.8)
       .strokeColor("#1f3f66")
       .stroke()
 
     doc
       .font("Helvetica-Bold")
-      .fontSize(24)
+      .fontSize(13)
       .fillColor("#123a63")
-      .text("ATEC ASSET LABEL", labelX + innerPad, labelY + 24, {
-        width: labelWidth - (innerPad * 2)
+      .text("ATEC ASSET LABEL", labelX + innerPad, labelY + mm(2.2), {
+        width: borderWidth - (innerPad * 2)
       })
 
     doc
       .font("Helvetica")
-      .fontSize(9)
+      .fontSize(5.5)
       .fillColor("#475569")
-      .text("Scan this QR code for asset status, inspection dates and certificate PDF links.", labelX + innerPad, labelY + 62, {
-        width: labelWidth - (innerPad * 2)
+      .text("Scan for asset status and available certificates", labelX + innerPad, labelY + mm(7.1), {
+        width: borderWidth - (innerPad * 2)
       })
 
     doc.image(qrBuffer, qrX, qrY, {
@@ -3859,9 +3862,9 @@ app.get("/assets/:id/qr-label.pdf", pdfLimiter, async (req, res) => {
 
     doc
       .font("Helvetica-Bold")
-      .fontSize(10)
+      .fontSize(6.5)
       .fillColor("#111827")
-      .text(asset.qrcode, qrX, qrY + qrSize + 14, {
+      .text(asset.qrcode, qrX, qrY + qrSize + mm(1), {
         width: qrSize,
         align: "center"
       })
@@ -3882,86 +3885,60 @@ app.get("/assets/:id/qr-label.pdf", pdfLimiter, async (req, res) => {
     ]
 
     let detailY = qrY
+    const detailRowHeight = mm(3.35)
+    const detailLabelWidth = mm(17)
     rows.forEach(([label, value]) => {
       const displayValue = String(value || "-")
-      const labelHeight = doc
-        .font("Helvetica-Bold")
-        .fontSize(7.5)
-        .heightOfString(String(label).toUpperCase(), { width: detailWidth })
-      const valueHeight = doc
-        .font("Helvetica-Bold")
-        .fontSize(11.5)
-        .heightOfString(displayValue, { width: detailWidth })
-      const rowHeight = Math.max(26, labelHeight + valueHeight + 8)
-
       doc
         .font("Helvetica-Bold")
-        .fontSize(7.5)
+        .fontSize(5.2)
         .fillColor("#64748b")
         .text(String(label).toUpperCase(), detailX, detailY, {
-          width: detailWidth,
+          width: detailLabelWidth,
           lineBreak: false
         })
 
       doc
         .font("Helvetica-Bold")
-        .fontSize(10)
+        .fontSize(displayValue.length > 24 ? 5.2 : 6.2)
         .fillColor(String(label).toLowerCase() === "status" && assetStatus === "NOT SAFE" ? "#b91c1c" : "#0f2742")
-        .text(displayValue, detailX, detailY + 11, {
-          width: detailWidth,
-          lineGap: 0
-        })
-
-      detailY += rowHeight
-    })
-
-    const linkY = Math.max(qrY + qrSize + 42, detailY + 8)
-    const linkWidth = labelWidth - (innerPad * 2)
-    const linkRows = [
-      ["Website", appUrl],
-      ["Landline", "011 902 3271"],
-      ["Inspection PDF", visualPdfUrl || "No inspection PDF yet"],
-      ["Load Test PDF", loadPdfUrl || "No load test PDF yet"]
-    ]
-
-    let currentLinkY = linkY
-    linkRows.forEach(([label, value]) => {
-      doc
-        .font("Helvetica-Bold")
-        .fontSize(7)
-        .fillColor("#64748b")
-        .text(`${label}:`, labelX + innerPad, currentLinkY, {
-          width: 76,
+        .text(displayValue, detailX + detailLabelWidth, detailY, {
+          width: detailWidth - detailLabelWidth,
+          height: detailRowHeight,
           lineBreak: false
         })
 
-      doc
-        .font("Helvetica")
-        .fontSize(7)
-        .fillColor("#0f2742")
-        .text(String(value), labelX + innerPad + 82, currentLinkY, {
-          width: linkWidth - 82,
-          lineGap: 0
-        })
-
-      currentLinkY += Math.max(12, doc.heightOfString(String(value), {
-        width: linkWidth - 82
-      }) + 4)
+      detailY += detailRowHeight
     })
 
     doc
+      .font("Helvetica")
+      .fontSize(5.2)
+      .fillColor("#475569")
+      .text(`Inspection PDF: ${visualPdfUrl ? "Available" : "Not available"}`, qrX, qrY + qrSize + mm(4), {
+        width: qrSize,
+        align: "center",
+        lineBreak: false
+      })
+      .text(`Load test PDF: ${loadPdfUrl ? "Available" : "Not available"}`, qrX, qrY + qrSize + mm(6.2), {
+        width: qrSize,
+        align: "center",
+        lineBreak: false
+      })
+
+    doc
       .moveTo(labelX + innerPad, footerY)
-      .lineTo(labelX + labelWidth - innerPad, footerY)
-      .lineWidth(0.8)
+      .lineTo(labelX + borderWidth - innerPad, footerY)
+      .lineWidth(0.5)
       .strokeColor("#cbd5e1")
       .stroke()
 
     doc
       .font("Helvetica")
-      .fontSize(8)
+      .fontSize(5.5)
       .fillColor("#475569")
-      .text("FB Cranes Inspection Platform | www.fbcranes.co.za/atec | 011 902 3271", labelX + innerPad, footerY + 12, {
-        width: labelWidth - (innerPad * 2),
+      .text("FB Cranes Inspection Platform | www.fbcranes.co.za/atec | 011 902 3271", labelX + innerPad, footerY + mm(1.3), {
+        width: borderWidth - (innerPad * 2),
         align: "center"
       })
 

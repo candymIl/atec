@@ -22,6 +22,9 @@ const protectedCertificateRoute = server.indexOf('app.get("/inspections/:testid/
 assert(publicRoute >= 0 && publicRoute < authGate, "Signed public certificate route must be registered before authentication")
 assert(protectedCertificateRoute > authGate, "Existing staff certificate route must remain authenticated")
 assert(server.includes("const qrPayload = visualPdfUrl || loadPdfUrl || lookupUrl"), "QR must contain one directly openable URL")
+assert(server.includes("const labelWidth = mm(95)"), "QR label width must be 95 mm")
+assert(server.includes("const labelHeight = mm(60)"), "QR label height must be 60 mm")
+assert(server.includes('size: [labelWidth, labelHeight]'), "QR label PDF page must use the physical label dimensions")
 assert(server.includes("certificateIsEligible(certificate)"), "Public route must reject ineligible certificates")
 
 console.log("Public QR certificate regression checks passed")
