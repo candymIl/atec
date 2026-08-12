@@ -1353,6 +1353,12 @@ function renderStartupError(message, details = {}) {
 async function loadData() {
   startFrontendUpdateChecks()
 
+  const startupNfcToken = String(new URLSearchParams(window.location.search || '').get('nfc') || '').trim()
+  if (/^nfc_[A-Za-z0-9_-]{32,64}$/.test(startupNfcToken)) {
+    window.location.replace(`${API_BASE}/public/nfc/${encodeURIComponent(startupNfcToken)}`)
+    return
+  }
+
   let sessionResponse
 
   try {

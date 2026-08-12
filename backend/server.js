@@ -557,8 +557,8 @@ function maskLookupToken(token) {
 }
 
 function nfcUrlForToken(token) {
-  const appUrl = (process.env.PUBLIC_APP_URL || "https://www.fbcranes.co.za/atec").replace(/\/$/, "")
-  return `${appUrl}/?nfc=${encodeURIComponent(token)}`
+  const appUrl = (process.env.PUBLIC_APP_URL || "https://www.atecinspections.co.za").replace(/\/$/, "")
+  return `${appUrl}/api/public/nfc/${encodeURIComponent(token)}`
 }
 
 async function createUniqueNfcToken() {
@@ -2016,14 +2016,24 @@ app.get("/public/certificates/:testid.pdf", pdfLimiter, asyncRoute(async (req, r
   res.send(pdfBuffer)
 }))
 
-app.get("/public/assets/:assetid/certificates", pdfLimiter, asyncRoute(async (req, res) => {
-  const { assetid } = req.params
+async function sendPublicAssetCertificatesPage(req, res, assetid) {
+  const assetResult = await pool.query(
+    `
+    SELECT a.assetid, a.assettagno, a.serialno, a.description, a.archived,
+           c.clientname, s.sitename, sec.sectionname, et.description AS equipmenttype
+    FROM atec.tblasset a
+    LEFT JOIN atec.tblclients c ON c.clientid = a.clientid
+    LEFT JOIN atec.tblsites s ON s.siteid = a.siteid
+    LEFT JOIN atec.tblsection sec ON sec.sectionid = a.sectionid
+    LEFT JOIN atec.tblequiptype et ON et.equiptypeid = a.equiptypeid
+    WHERE a.assetid = $1
+    LIMIT 1
+    `,
+    [assetid]
+  )
 
-  if (!/^\d+$/.test(String(assetid)) || !isValidPublicAssetToken(assetid, req.query.token)) {
-    await req.logAudit("PUBLIC_ASSET_CERTIFICATES_DENIED", "assets", /^\d+$/.test(String(assetid)) ? assetid : null)
-    return res.status(404).send("Certificate page not found")
-  }
-
+  if (!assetResult.rows[0]) return res.status(404).send("Certificate page not found")
+  const asset = assetResult.rows[0]
   const result = await pool.query(
     `
     SELECT DISTINCT ON (inspectiontype) inspectiontype, testid, testdate, status
@@ -2035,18 +2045,31 @@ app.get("/public/assets/:assetid/certificates", pdfLimiter, asyncRoute(async (re
     [assetid]
   )
 
-  const links = []
+  const inspections = []
   for (const row of result.rows) {
     const certificate = await getCertificateData(row.testid)
-    if (certificate && certificateIsEligible(certificate)) {
-      links.push({
-        label: row.inspectiontype === "LOADTEST" ? "Load Test Certificate" : "Inspection Certificate",
-        url: publicCertificateUrl(process.env.PUBLIC_APP_URL || "https://www.atecinspections.co.za", row.testid),
-        date: formatPdfDate(row.testdate),
-        status: String(row.status || "-")
-      })
-    }
+    inspections.push({
+      label: row.inspectiontype === "LOADTEST" ? "Load Test" : "Inspection",
+      date: formatPdfDate(row.testdate),
+      status: String(row.status || "-").toUpperCase(),
+      url: certificate && certificateIsEligible(certificate)
+        ? publicCertificateUrl(process.env.PUBLIC_APP_URL || "https://www.atecinspections.co.za", row.testid)
+        : ""
+    })
   }
+
+  const safe = value => String(value ?? "-")
+    .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;").replaceAll("'", "&#39;")
+  const detailRows = [
+    ["Equipment", asset.equipmenttype || asset.description],
+    ["Asset ID", asset.assetid],
+    ["Asset Tag", asset.assettagno],
+    ["Serial Number", asset.serialno],
+    ["Client", asset.clientname],
+    ["Site", asset.sitename],
+    ["Section", asset.sectionname]
+  ]
 
   await req.logAudit("PUBLIC_ASSET_CERTIFICATES_VIEWED", "assets", assetid)
   res.setHeader("Content-Type", "text/html; charset=utf-8")
@@ -2054,10 +2077,51 @@ app.get("/public/assets/:assetid/certificates", pdfLimiter, asyncRoute(async (re
   res.send(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ATEC Asset Certificates</title>
-<style>body{font-family:Arial,sans-serif;background:#f4f7fb;color:#102a43;margin:0;padding:24px}.card{max-width:560px;margin:24px auto;background:#fff;border-radius:14px;padding:24px;box-shadow:0 8px 30px rgba(15,39,66,.12)}h1{font-size:24px;margin:0 0 8px}.sub{color:#627d98;margin-bottom:24px}.cert{display:block;text-decoration:none;color:#fff;background:#123a63;border-radius:10px;padding:16px;margin:14px 0;font-size:18px;font-weight:700}.meta{display:block;font-size:13px;font-weight:400;margin-top:6px;color:#d9e8f5}.empty{padding:16px;background:#fff4e5;border-radius:10px;color:#7c4a03}.foot{font-size:13px;color:#829ab1;margin-top:24px}</style>
-</head><body><main class="card"><h1>ATEC Asset Certificates</h1><div class="sub">Asset ${String(assetid)}</div>
-${links.length ? links.map(link => `<a class="cert" href="${link.url}">${link.label}<span class="meta">${link.date || "Date unavailable"} | ${link.status}</span></a>`).join("") : '<div class="empty">No eligible certificates are currently available.</div>'}
+<style>body{font-family:Arial,sans-serif;background:#f4f7fb;color:#102a43;margin:0;padding:16px}.card{max-width:620px;margin:16px auto;background:#fff;border-radius:14px;padding:22px;box-shadow:0 8px 30px rgba(15,39,66,.12)}h1{font-size:24px;margin:0 0 6px}.sub{color:#627d98;margin-bottom:18px}.details{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0 22px}.detail{background:#f4f7fb;border-radius:8px;padding:10px}.detail b{display:block;font-size:11px;color:#627d98;text-transform:uppercase;margin-bottom:4px}.inspection{border:1px solid #d9e2ec;border-radius:10px;padding:14px;margin:14px 0}.inspection h2{font-size:18px;margin:0 0 10px}.status{display:inline-block;border-radius:999px;padding:6px 10px;font-size:13px;font-weight:700;background:#e8f5e9;color:#176b2c}.status.not-safe{background:#fde8e8;color:#a61b1b}.cert{display:block;text-align:center;text-decoration:none;color:#fff;background:#123a63;border-radius:8px;padding:12px;margin-top:12px;font-weight:700}.meta{color:#627d98;margin-left:8px}.empty{padding:16px;background:#fff4e5;border-radius:10px;color:#7c4a03}.archived{background:#fde8e8;color:#a61b1b;padding:10px;border-radius:8px;font-weight:700}.foot{font-size:13px;color:#829ab1;margin-top:24px}@media(max-width:500px){.details{grid-template-columns:1fr}}</style>
+</head><body><main class="card"><h1>ATEC Asset Status</h1><div class="sub">Inspection and load-test certificates</div>
+${asset.archived ? '<div class="archived">This asset is archived.</div>' : ""}
+<div class="details">${detailRows.map(([label, value]) => `<div class="detail"><b>${safe(label)}</b>${safe(value)}</div>`).join("")}</div>
+${inspections.length ? inspections.map(item => `<section class="inspection"><h2>${safe(item.label)}</h2><span class="status ${item.status.includes("NOT SAFE") ? "not-safe" : ""}">${safe(item.status)}</span><span class="meta">${safe(item.date || "Date unavailable")}</span>${item.url ? `<a class="cert" href="${item.url}">View ${safe(item.label)} Certificate</a>` : '<div class="empty">Certificate is not available.</div>'}</section>`).join("") : '<div class="empty">No inspection or load-test records are currently available.</div>'}
 <div class="foot">FB Cranes Inspection Platform | 011 902 3271</div></main></body></html>`)
+}
+
+app.get("/public/assets/:assetid/certificates", pdfLimiter, asyncRoute(async (req, res) => {
+  const { assetid } = req.params
+  if (!/^\d+$/.test(String(assetid)) || !isValidPublicAssetToken(assetid, req.query.token)) {
+    await req.logAudit("PUBLIC_ASSET_CERTIFICATES_DENIED", "assets", /^\d+$/.test(String(assetid)) ? assetid : null)
+    return res.status(404).send("Certificate page not found")
+  }
+  return sendPublicAssetCertificatesPage(req, res, assetid)
+}))
+
+app.get("/public/nfc/:token", searchLimiter, asyncRoute(async (req, res) => {
+  const token = String(req.params.token || "").trim()
+  if (!isValidNfcToken(token)) return res.status(404).send("Asset tag not found")
+
+  const result = await pool.query(
+    `SELECT assetid, archived, nfc_enabled, nfc_revoked_at
+     FROM atec.tblasset WHERE nfc_token = $1 LIMIT 1`,
+    [token]
+  )
+  const asset = result.rows[0]
+  if (!asset || !asset.nfc_enabled || asset.nfc_revoked_at) {
+    await req.logAudit("NFC_SCAN_DENIED", "assets", asset?.assetid || null, {
+      reason: asset ? "revoked_or_disabled" : "not_found",
+      token: maskLookupToken(token)
+    })
+    return res.status(404).send("Asset tag not found")
+  }
+
+  await pool.query(
+    `UPDATE atec.tblasset SET nfc_last_scanned_at = now(),
+     nfc_scan_count = COALESCE(nfc_scan_count, 0) + 1 WHERE assetid = $1`,
+    [asset.assetid]
+  )
+  await req.logAudit(asset.archived ? "NFC_ARCHIVED_ASSET_TAPPED" : "NFC_SCAN", "assets", asset.assetid, {
+    token: maskLookupToken(token), publicPage: true
+  })
+
+  return sendPublicAssetCertificatesPage(req, res, asset.assetid)
 }))
 
 app.use("/uploads", requireAuth, trackActiveUser, asyncRoute(authorizeUploadRequest), express.static(uploadsRoot));

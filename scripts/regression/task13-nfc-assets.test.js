@@ -27,6 +27,8 @@ assertIncludes(server, "function isValidNfcToken", "Invalid token rejection help
 assertIncludes(server, "/^nfc_[A-Za-z0-9_-]{32,64}$/.test", "NFC token format must be constrained")
 assertIncludes(server, "SELECT 1 FROM atec.tblasset WHERE nfc_token = $1 LIMIT 1", "NFC uniqueness check is missing")
 assertIncludes(server, "app.get(\"/assets/nfc/:token\", searchLimiter", "NFC lookup route must be rate limited")
+assertIncludes(server, "app.get(\"/public/nfc/:token\", searchLimiter", "Public NFC asset-status page must be rate limited")
+assertIncludes(server, "return sendPublicAssetCertificatesPage(req, res, asset.assetid)", "Public NFC must render the asset certificate page without exposing a non-revocable replacement URL")
 assertIncludes(server, "![\"ADMIN\", \"MANAGER\"].includes(req.user?.role)", "NFC management endpoints must enforce Admin/Manager server-side")
 assertIncludes(server, "return res.status(404).json({ error: \"Asset tag not found\" })", "Public lookup should minimize not-found information")
 assertIncludes(server, "UPDATE atec.tblasset", "NFC scan count and token management updates are missing")
@@ -46,6 +48,7 @@ assertIncludes(server, "role === \"MANAGER\"", "Manager NFC management path must
 
 assertIncludes(frontend, "getStartupAssetTap", "Authentication return/deep-link helper is missing")
 assertIncludes(frontend, "params.get(\"nfc\")", "NFC return-to destination must be read from URL")
+assertIncludes(frontend, "window.location.replace(`${API_BASE}/public/nfc/", "Existing NFC tag URLs must redirect to the public status page")
 assertIncludes(frontend, "params.get(\"qr\")", "QR return-to destination must keep working")
 assertIncludes(frontend, "await resolveStartupAssetTap(startupTap)", "Startup tap resolution is missing")
 assertIncludes(frontend, "canManageNfcTokens", "NFC management UI role gate is missing")
