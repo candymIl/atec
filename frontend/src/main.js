@@ -6477,6 +6477,9 @@ function normalizeQuickAssetScan(value = '') {
   const publicAssetCertificatesMatch = raw.match(/\/public\/assets\/(\d+)\/certificates(?:[/?#]|$)/i)
   if (publicAssetCertificatesMatch) return publicAssetCertificatesMatch[1]
 
+  const publicNfcMatch = raw.match(/\/public\/nfc\/(nfc_[A-Za-z0-9_-]{32,64})(?:[/?#]|$)/i)
+  if (publicNfcMatch) return publicNfcMatch[1]
+
   const qrParamMatch = raw.match(/[?&]qr=([^&\s]+)/i)
   if (qrParamMatch) return decodeURIComponent(qrParamMatch[1]).trim()
 
@@ -6649,6 +6652,77 @@ window.quickFindAsset = async function () {
 
 let quickScannerStream = null
 let quickScannerLoopActive = false
+let quickNfcAbortController = null
+
+function quickNfcRecordValue(record) {
+  if (!record?.data) return ''
+
+  try {
+    return new TextDecoder(record.encoding || 'utf-8').decode(record.data).trim()
+  } catch (err) {
+    console.error('Unable to decode NFC record:', err)
+    return ''
+  }
+}
+
+window.startQuickNfcScan = async function () {
+  const status = document.querySelector('#quickNfcStatus')
+
+  if (!('NDEFReader' in window)) {
+    if (status) {
+      status.hidden = false
+      status.textContent = 'NFC scanning is not supported by this browser. Use Chrome on an NFC-enabled Android phone.'
+    }
+    return
+  }
+
+  quickNfcAbortController?.abort()
+  quickNfcAbortController = new AbortController()
+
+  try {
+    const reader = new window.NDEFReader()
+    await reader.scan({ signal: quickNfcAbortController.signal })
+
+    if (status) {
+      status.hidden = false
+      status.textContent = 'Ready—hold the back of the phone against the NFC tag.'
+    }
+
+    reader.addEventListener('readingerror', () => {
+      if (status) status.textContent = 'The NFC tag could not be read. Hold the phone against the tag and try again.'
+    })
+
+    reader.addEventListener('reading', event => {
+      const values = Array.from(event.message?.records || [])
+        .map(quickNfcRecordValue)
+        .filter(Boolean)
+      const scannedValue = values
+        .map(normalizeQuickAssetScan)
+        .find(value => /^nfc_[A-Za-z0-9_-]{32,64}$/.test(value))
+
+      if (!scannedValue) {
+        if (status) status.textContent = 'This NFC tag does not contain a valid ATEC asset link.'
+        return
+      }
+
+      const searchInput = document.querySelector('#quickAssetSearch')
+      if (searchInput) searchInput.value = scannedValue
+      if (status) status.textContent = 'NFC tag read. Opening the asset…'
+      quickNfcAbortController?.abort()
+      quickNfcAbortController = null
+      quickFindAsset()
+    })
+  } catch (err) {
+    if (err?.name === 'AbortError') return
+    console.error('Unable to start NFC scanner:', err)
+    if (status) {
+      status.hidden = false
+      status.textContent = err?.name === 'NotAllowedError'
+        ? 'NFC permission was not allowed. Enable NFC and allow access, then try again.'
+        : 'NFC scanning could not start. Confirm NFC is enabled and use Chrome on Android.'
+    }
+  }
+}
 
 window.startQuickCameraScan = async function () {
   const scanner = document.querySelector('#quickCameraScanner')

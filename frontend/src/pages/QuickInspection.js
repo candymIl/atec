@@ -5,7 +5,7 @@ export function renderQuickInspection() {
     <div class="filter-card">
       <h3>Scan / Search Asset</h3>
 
-      <label>QR Code, Asset ID, Serial No, Hoist Serial No or Asset Tag</label>
+      <label>QR Code, NFC Tag, Asset ID, Serial No, Hoist Serial No or Asset Tag</label>
 
       <input
         id="quickAssetSearch"
@@ -24,7 +24,13 @@ export function renderQuickInspection() {
         <button type="button" class="qr-scan-btn" onclick="startQuickCameraScan()">
           Scan With Camera
         </button>
+
+        <button type="button" onclick="startQuickNfcScan()">
+          Scan NFC Tag
+        </button>
       </div>
+
+      <p id="quickNfcStatus" class="nfc-writing-note" hidden></p>
 
       <div id="quickCameraScanner" class="quick-camera-scanner" hidden>
         <video id="quickCameraVideo" playsinline></video>
