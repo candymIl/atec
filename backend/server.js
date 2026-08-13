@@ -13576,12 +13576,15 @@ async function buildNotificationEmailPreview(req, body = {}) {
     clientid: row.clientid,
     siteid: row.siteid
   })
+  return buildNotificationPreviewFromRow(row, recipients)
+}
+
+async function buildNotificationPreviewFromRow(row, recipients) {
   const report = await getCustomerDetailedReport({ clientid: row.clientid, siteid: row.siteid || "" })
   const attentionAssets = report.assets.map(asset => ({
     ...asset,
     attention_priority: notificationAssetPriority(asset, row.notification_lead_days)
   })).filter(asset => asset.attention_priority)
-
   return {
     row,
     recipients,
@@ -13693,9 +13696,10 @@ async function getNotificationDeliveryHistory(req) {
 
 async function sendNotificationPreview(preview, options = {}) {
   const recipients = preview.recipients.map(recipient => recipient.email)
+  let reportPdf
 
   try {
-    const reportPdf = await createNotificationReportPdfBuffer(preview)
+    reportPdf = await createNotificationReportPdfBuffer(preview)
     await sendApplicationEmail({
       from: process.env.MAIL_FROM,
       to: recipients,
@@ -13709,26 +13713,41 @@ async function sendNotificationPreview(preview, options = {}) {
         contentType: "application/pdf"
       }]
     })
+  } catch (err) {
+    try {
+      await recordNotificationDelivery(preview, recipients, {
+        deliveryType: options.deliveryType || "MANUAL",
+        status: "FAILED",
+        sentByUserId: options.sentByUserId || null,
+        errorMessage: getMailErrorMessage(err)
+      })
+    } catch (historyError) {
+      logSafeError("Notification failure history", historyError)
+    }
+    throw err
+  }
 
-    await recordNotificationDelivery(preview, recipients, {
+  let historyRecorded = false
+  let historyWarning = null
+  try {
+    const history = await recordNotificationDelivery(preview, recipients, {
       deliveryType: options.deliveryType || "MANUAL",
       status: "SENT",
       sentByUserId: options.sentByUserId || null
     })
+    historyRecorded = Boolean(history)
+    if (!historyRecorded) historyWarning = "Email sent, but notification history is not available."
+  } catch (historyError) {
+    const referenceId = logSafeError("Notification sent history", historyError)
+    historyWarning = `Email sent successfully, but notification history could not be recorded. Reference: ${referenceId}`
+  }
 
-    return {
-      success: true,
-      sent_to: recipients.length,
-      recipients
-    }
-  } catch (err) {
-    await recordNotificationDelivery(preview, recipients, {
-      deliveryType: options.deliveryType || "MANUAL",
-      status: "FAILED",
-      sentByUserId: options.sentByUserId || null,
-      errorMessage: getMailErrorMessage(err)
-    })
-    throw err
+  return {
+    success: true,
+    sent_to: recipients.length,
+    recipients,
+    history_recorded: historyRecorded,
+    history_warning: historyWarning
   }
 }
 
@@ -13775,15 +13794,8 @@ async function runScheduledNotificationDelivery(options = {}) {
     }
 
     for (const row of candidates) {
-      const preview = {
-        row,
-        recipients: await getNotificationRecipients({
-          clientid: row.clientid,
-          siteid: row.siteid
-        }),
-        subject: notificationEmailSubject(row),
-        message: notificationEmailText(row)
-      }
+      const notificationRecipients = await getNotificationRecipients({ clientid: row.clientid, siteid: row.siteid })
+      const preview = await buildNotificationPreviewFromRow(row, notificationRecipients)
 
       if (!preview.recipients.length) {
         result.skipped += 1
@@ -13805,7 +13817,9 @@ async function runScheduledNotificationDelivery(options = {}) {
           clientid: row.clientid,
           siteid: row.siteid,
           status: "SENT",
-          sent_to: delivery.sent_to
+          sent_to: delivery.sent_to,
+          history_recorded: delivery.history_recorded,
+          history_warning: delivery.history_warning
         })
         await logAudit(systemReq, "SEND_NOTIFICATION_AUTOMATIC", "notifications", row.clientid, {
           clientid: row.clientid,
@@ -14163,7 +14177,9 @@ app.post("/dashboard/notification-centre/send", emailLimiter, asyncRoute(async (
   res.json({
     success: true,
     sent_to: delivery.sent_to,
-    recipients: delivery.recipients
+    recipients: delivery.recipients,
+    history_recorded: delivery.history_recorded,
+    history_warning: delivery.history_warning
   })
 }))
 

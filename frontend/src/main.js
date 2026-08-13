@@ -10273,7 +10273,9 @@ window.sendDashboardNotification = async function (clientid, siteid = '') {
 
     if (!response.ok) throw new Error(result.error || 'Unable to send notification')
 
-    alert(`Notification sent to ${result.sent_to || 0} recipient(s).`)
+    alert(result.history_warning
+      ? `Notification sent to ${result.sent_to || 0} recipient(s).\n\n${result.history_warning}`
+      : `Notification sent to ${result.sent_to || 0} recipient(s).`)
     loadDashboardNotificationCentre()
     loadDashboardNotificationHistory()
   } catch (err) {
