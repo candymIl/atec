@@ -3842,6 +3842,168 @@ app.delete("/assets/:id/nfc", asyncRoute(async (req, res) => {
   })
 }))
 
+app.get("/assets/qr-labels/bulk.pdf", pdfLimiter, async (req, res) => {
+  try {
+    const clientid = String(req.query.clientid || "").trim()
+    const siteid = String(req.query.siteid || "").trim()
+    const equiptypeid = String(req.query.equiptypeid || "").trim()
+
+    if (!/^\d+$/.test(clientid)) {
+      return res.status(400).json({ error: "Customer is required" })
+    }
+    if (siteid && !/^\d+$/.test(siteid)) {
+      return res.status(400).json({ error: "Invalid site filter" })
+    }
+    if (equiptypeid && !/^\d+$/.test(equiptypeid)) {
+      return res.status(400).json({ error: "Invalid equipment type filter" })
+    }
+
+    const values = [clientid]
+    const filters = ["a.clientid = $1", "COALESCE(a.archived, false) = false"]
+    if (siteid) {
+      values.push(siteid)
+      filters.push(`a.siteid = $${values.length}`)
+    }
+    if (equiptypeid) {
+      values.push(equiptypeid)
+      filters.push(`a.equiptypeid = $${values.length}`)
+    }
+
+    const result = await pool.query(
+      `
+      SELECT
+        a.assetid,
+        COALESCE(a.qrcode, 'ATEC-ASSET-' || a.assetid::text) AS qrcode,
+        a.assettagno,
+        a.serialno,
+        c.clientname,
+        s.sitename,
+        sec.sectionname,
+        et.description AS equipmenttype,
+        visual.testid AS visual_testid,
+        visual.testdate AS visual_testdate,
+        visual.validdate AS visual_validdate,
+        visual.status AS visual_status,
+        loadtest.testid AS load_testid,
+        loadtest.testdate AS load_testdate,
+        loadtest.validdate AS load_validdate,
+        loadtest.status AS load_status
+      FROM atec.tblasset a
+      LEFT JOIN atec.tblclients c ON c.clientid = a.clientid
+      LEFT JOIN atec.tblsites s ON s.siteid = a.siteid
+      LEFT JOIN atec.tblsection sec ON sec.sectionid = a.sectionid
+      LEFT JOIN atec.tblequiptype et ON et.equiptypeid = a.equiptypeid
+      LEFT JOIN LATERAL (
+        SELECT i.testid, i.testdate, i.validdate, i.status
+        FROM atec.tblinspection i
+        WHERE i.assetid = a.assetid AND i.inspectiontype = 'VISUAL'
+        ORDER BY i.testdate DESC, i.testid DESC
+        LIMIT 1
+      ) visual ON true
+      LEFT JOIN LATERAL (
+        SELECT i.testid, i.testdate, i.validdate, i.status
+        FROM atec.tblinspection i
+        WHERE i.assetid = a.assetid AND i.inspectiontype = 'LOADTEST'
+        ORDER BY i.testdate DESC, i.testid DESC
+        LIMIT 1
+      ) loadtest ON true
+      WHERE ${filters.join(" AND ")}
+      ORDER BY et.description NULLS LAST, s.sitename NULLS LAST, a.assetid
+      LIMIT 501
+      `,
+      values
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "No active assets match the selected filters" })
+    }
+    if (result.rows.length > 500) {
+      return res.status(400).json({ error: "More than 500 assets match. Select a site or equipment type to narrow the batch." })
+    }
+
+    const mm = value => value * 72 / 25.4
+    const doc = new PDFDocument({ size: "A4", margin: 0, info: { Title: `ATEC Bulk QR Labels - Customer ${clientid}` } })
+    const appUrl = (process.env.PUBLIC_APP_URL || "https://www.atecinspections.co.za").replace(/\/$/, "")
+    const labelWidth = mm(95)
+    const labelHeight = mm(60)
+    const positions = Array.from({ length: 8 }, (_, index) => ({
+      x: mm(7.5 + (index % 2) * 100),
+      y: mm(13.5 + Math.floor(index / 2) * 65)
+    }))
+
+    res.setHeader("Content-Type", "application/pdf")
+    res.setHeader("Content-Disposition", `attachment; filename="customer-${clientid}-bulk-qr-labels.pdf"`)
+    doc.pipe(res)
+
+    for (let index = 0; index < result.rows.length; index += 1) {
+      if (index > 0 && index % 8 === 0) doc.addPage({ size: "A4", margin: 0 })
+      const asset = result.rows[index]
+      const position = positions[index % 8]
+      const hasCertificates = asset.visual_testid || asset.load_testid
+      const qrPayload = hasCertificates
+        ? publicAssetCertificatesUrl(appUrl, asset.assetid)
+        : `${appUrl}/?qr=${encodeURIComponent(asset.qrcode)}`
+      const qrDataUrl = await QRCode.toDataURL(qrPayload, { errorCorrectionLevel: "M", margin: 1, width: 300 })
+      const qrBuffer = Buffer.from(qrDataUrl.split(",")[1], "base64")
+      const x = position.x
+      const y = position.y
+      const pad = mm(2.5)
+      const qrSize = mm(31)
+      const qrX = x + pad
+      const qrY = y + mm(10)
+      const detailX = qrX + qrSize + mm(3)
+      const detailWidth = labelWidth - pad - (detailX - x)
+      const latestStatus = asset.visual_status || asset.load_status || "-"
+      const rows = [
+        ["Asset ID", asset.assetid],
+        ["Asset Tag", asset.assettagno || "-"],
+        ["Serial No", asset.serialno || "-"],
+        ["Equipment", asset.equipmenttype || "-"],
+        ["Client", asset.clientname || "-"],
+        ["Site", asset.sitename || "-"],
+        ["Section", asset.sectionname || "-"],
+        ["Status", latestStatus],
+        ["Last Inspection", formatPdfDate(asset.visual_testdate) || "-"],
+        ["Next Inspection", formatPdfDate(asset.visual_validdate) || "-"],
+        ["Last Load Test", formatPdfDate(asset.load_testdate) || "-"],
+        ["Next Load Test", formatPdfDate(asset.load_validdate) || "-"]
+      ]
+
+      doc.roundedRect(x, y, labelWidth, labelHeight, mm(1.5)).lineWidth(0.7).strokeColor("#1f3f66").stroke()
+      doc.font("Helvetica-Bold").fontSize(12).fillColor("#123a63").text("ATEC ASSET LABEL", x + pad, y + mm(2), { width: labelWidth - pad * 2 })
+      doc.font("Helvetica").fontSize(5.2).fillColor("#475569").text("Scan for asset status and available certificates", x + pad, y + mm(6.8), { width: labelWidth - pad * 2 })
+      doc.image(qrBuffer, qrX, qrY, { fit: [qrSize, qrSize] })
+      doc.font("Helvetica-Bold").fontSize(6.2).fillColor("#111827").text(asset.qrcode, qrX, qrY + qrSize + mm(1), { width: qrSize, align: "center" })
+
+      rows.forEach(([label, value], rowIndex) => {
+        const rowY = qrY + rowIndex * mm(3.3)
+        const displayValue = String(value || "-")
+        doc.font("Helvetica-Bold").fontSize(5).fillColor("#64748b").text(String(label).toUpperCase(), detailX, rowY, { width: mm(17), lineBreak: false })
+        doc.font("Helvetica-Bold").fontSize(displayValue.length > 24 ? 4.8 : 5.8)
+          .fillColor(String(label).toLowerCase() === "status" && latestStatus === "NOT SAFE" ? "#b91c1c" : "#0f2742")
+          .text(displayValue, detailX + mm(17), rowY, { width: detailWidth - mm(17), height: mm(3.2), lineBreak: false })
+      })
+
+      const footerY = y + labelHeight - mm(5)
+      doc.moveTo(x + pad, footerY).lineTo(x + labelWidth - pad, footerY).lineWidth(0.4).strokeColor("#cbd5e1").stroke()
+      doc.font("Helvetica").fontSize(5.2).fillColor("#475569")
+        .text("www.atecinspections.co.za | 011 902 3271", x + pad, footerY + mm(1.3), { width: labelWidth - pad * 2, align: "center" })
+    }
+
+    await req.logAudit("GENERATE_BULK_QR_LABELS", "assets", null, {
+      clientid: Number(clientid),
+      siteid: siteid ? Number(siteid) : null,
+      equiptypeid: equiptypeid ? Number(equiptypeid) : null,
+      label_count: result.rows.length
+    })
+    doc.end()
+  } catch (err) {
+    console.error("Bulk QR label PDF error:", err)
+    if (!res.headersSent) res.status(500).json({ error: "An unexpected server error occurred" })
+    else res.end()
+  }
+})
+
 app.get("/assets/:id/qr-label.pdf", pdfLimiter, async (req, res) => {
   try {
     const { id } = req.params

@@ -152,6 +152,9 @@ export function renderAssetSetup(assets, pageInfo = {}) {
         <button onclick="showAddAssetForm()">
           Add Asset
         </button>
+        <button type="button" class="qr-label-btn" onclick="showBulkQrLabelForm()">
+          Bulk QR Labels
+        </button>
       </div>
     ` : ''}
 

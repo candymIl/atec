@@ -3407,6 +3407,92 @@ window.openAssetQrLabel = function (assetid) {
   window.open(`${API_BASE}/assets/${assetid}/qr-label.pdf`, "_blank")
 }
 
+window.showBulkQrLabelForm = function () {
+  if (!['ADMIN', 'MANAGER', 'INSPECTOR'].includes(currentUser?.role)) return
+
+  document.querySelector('#page').innerHTML = `
+    <h1>Bulk QR Labels</h1>
+    <div class="filter-card">
+      <p>Generate print-ready A4 sheets with eight 95 mm × 60 mm asset labels per page.</p>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Customer *</label>
+          <select id="bulkQrClient" onchange="bulkQrCustomerChanged()">
+            <option value="">Select customer</option>
+            ${activeRecords(customers).map(row => `<option value="${safeAttr(row.clientid)}">${escapeHtml(row.clientname || '')}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Site</label>
+          <select id="bulkQrSite" onchange="updateBulkQrCount()">
+            <option value="">All sites</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Equipment Category / Type</label>
+          <select id="bulkQrEquipment" onchange="updateBulkQrCount()">
+            <option value="">All equipment types</option>
+            ${activeRecords(equipmentTypes).slice().sort((a, b) => String(a.description || '').localeCompare(String(b.description || ''))).map(row => `<option value="${safeAttr(row.equiptypeid)}">${escapeHtml(row.description || '')}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <p id="bulkQrCount">Select a customer to preview the matching active assets.</p>
+      <div class="form-actions">
+        <button type="button" onclick="downloadBulkQrLabels()">Generate Bulk Label PDF</button>
+        <button type="button" class="secondary-btn" onclick="showAssetSetup()">Back to Assets</button>
+      </div>
+      <p class="muted-text">Maximum 500 labels per PDF. For larger fleets, generate separate PDFs per site or equipment type.</p>
+    </div>
+  `
+}
+
+window.bulkQrCustomerChanged = function () {
+  const clientid = document.querySelector('#bulkQrClient')?.value || ''
+  const siteSelect = document.querySelector('#bulkQrSite')
+  const matchingSites = activeRecords(sites)
+    .filter(row => String(row.clientid) === String(clientid))
+    .sort((a, b) => String(a.sitename || '').localeCompare(String(b.sitename || '')))
+
+  siteSelect.innerHTML = `<option value="">All sites</option>${matchingSites.map(row => `<option value="${safeAttr(row.siteid)}">${escapeHtml(row.sitename || '')}</option>`).join('')}`
+  updateBulkQrCount()
+}
+
+window.updateBulkQrCount = function () {
+  const clientid = document.querySelector('#bulkQrClient')?.value || ''
+  const siteid = document.querySelector('#bulkQrSite')?.value || ''
+  const equiptypeid = document.querySelector('#bulkQrEquipment')?.value || ''
+  const countBox = document.querySelector('#bulkQrCount')
+
+  if (!clientid) {
+    countBox.textContent = 'Select a customer to preview the matching active assets.'
+    return
+  }
+
+  const count = assets.filter(asset =>
+    String(asset.clientid) === String(clientid) &&
+    (!siteid || String(asset.siteid) === String(siteid)) &&
+    (!equiptypeid || String(asset.equiptypeid) === String(equiptypeid)) &&
+    asset.archived !== true && asset.archived !== 'true'
+  ).length
+
+  countBox.innerHTML = `<strong>${count}</strong> matching active asset(s). ${count > 500 ? 'Narrow the filters to 500 or fewer.' : ''}`
+}
+
+window.downloadBulkQrLabels = function () {
+  const clientid = document.querySelector('#bulkQrClient')?.value || ''
+  if (!clientid) {
+    alert('Please select a customer.')
+    return
+  }
+
+  const params = new URLSearchParams({ clientid })
+  const siteid = document.querySelector('#bulkQrSite')?.value || ''
+  const equiptypeid = document.querySelector('#bulkQrEquipment')?.value || ''
+  if (siteid) params.set('siteid', siteid)
+  if (equiptypeid) params.set('equiptypeid', equiptypeid)
+  window.open(`${API_BASE}/assets/qr-labels/bulk.pdf?${params.toString()}`, '_blank')
+}
+
 window.showMpiReports = async function () {
   if (!ensurePageAccess('mpi')) return
   setCurrentPage('mpi')
