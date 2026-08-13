@@ -10080,9 +10080,9 @@ function renderDashboardNotificationCentre() {
     </div>
     <div id="dashboardNotificationPreview" class="dashboard-notification-preview" hidden></div>
     <div class="report-scroll-control dashboard-notification-scroll-control">
-      <span>Left</span>
+      <button id="dashboardNotificationScrollLeft" type="button" class="dashboard-notification-scroll-button" onclick="scrollDashboardNotificationTable(-1)" aria-label="Scroll table left" title="Scroll table left">&#8592;</button>
       <input id="dashboardNotificationTableSlider" type="range" min="0" max="0" value="0" step="1">
-      <span>Right</span>
+      <button id="dashboardNotificationScrollRight" type="button" class="dashboard-notification-scroll-button" onclick="scrollDashboardNotificationTable(1)" aria-label="Scroll table right" title="Scroll table right">&#8594;</button>
     </div>
     <div class="dashboard-notification-table-wrap">
       <table class="dashboard-table dashboard-notification-table">
@@ -10153,6 +10153,8 @@ window.setDashboardNotificationPageSize = function (value) {
 function bindDashboardNotificationSlider() {
   const slider = document.querySelector("#dashboardNotificationTableSlider")
   const tableWrap = document.querySelector(".dashboard-notification-table-wrap")
+  const leftButton = document.querySelector('#dashboardNotificationScrollLeft')
+  const rightButton = document.querySelector('#dashboardNotificationScrollRight')
 
   if (!slider || !tableWrap) return
 
@@ -10161,6 +10163,8 @@ function bindDashboardNotificationSlider() {
     slider.max = String(maxScroll)
     slider.value = String(Math.min(tableWrap.scrollLeft, maxScroll))
     slider.disabled = maxScroll === 0
+    if (leftButton) leftButton.disabled = maxScroll === 0 || tableWrap.scrollLeft <= 1
+    if (rightButton) rightButton.disabled = maxScroll === 0 || tableWrap.scrollLeft >= maxScroll - 1
   }
 
   updateSliderRange()
@@ -10171,9 +10175,17 @@ function bindDashboardNotificationSlider() {
 
   tableWrap.addEventListener("scroll", () => {
     slider.value = String(tableWrap.scrollLeft)
+    updateSliderRange()
   })
 
   window.addEventListener("resize", updateSliderRange, { once: true })
+}
+
+window.scrollDashboardNotificationTable = function (direction) {
+  const tableWrap = document.querySelector('.dashboard-notification-table-wrap')
+  if (!tableWrap) return
+  const distance = Math.max(240, Math.round(tableWrap.clientWidth * 0.7))
+  tableWrap.scrollBy({ left: Number(direction) * distance, behavior: 'smooth' })
 }
 
 function renderDashboardNotificationRow(row) {

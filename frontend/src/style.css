@@ -1564,7 +1564,42 @@ tr:hover {
 }
 
 .dashboard-notification-scroll-control {
+  grid-template-columns: 36px minmax(0, 1fr) 36px;
   margin-bottom: 8px;
+  width: 100%;
+}
+
+.dashboard-notification-scroll-control input[type="range"] {
+  box-sizing: border-box;
+  max-width: none;
+  min-width: 0;
+  width: 100%;
+}
+
+.dashboard-notification-scroll-button {
+  align-items: center;
+  background: #183153;
+  border: 0;
+  border-radius: 7px;
+  color: #ffffff;
+  cursor: pointer;
+  display: flex;
+  font-size: 20px;
+  font-weight: 800;
+  height: 32px;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  width: 36px;
+}
+
+.dashboard-notification-scroll-button:hover:not(:disabled) {
+  background: #274d7a;
+}
+
+.dashboard-notification-scroll-button:disabled {
+  cursor: default;
+  opacity: .35;
 }
 
 .dashboard-notification-filter-row {
