@@ -10064,7 +10064,7 @@ function renderDashboardNotificationCentre() {
         type="text"
         placeholder="Filter customer, site or numbers..."
         value="${escapeHtml(document.querySelector("#dashboardNotificationSearch")?.value || "")}"
-        oninput="dashboardNotificationFiltersChanged()"
+        oninput="dashboardNotificationSearchChanged(this)"
       >
       <select id="dashboardNotificationRecipientFilter" onchange="dashboardNotificationFiltersChanged()">
         <option value="">All portal users</option>
@@ -10135,6 +10135,17 @@ function renderDashboardNotificationCentre() {
 window.dashboardNotificationFiltersChanged = function () {
   window.dashboardNotificationPage = 1
   renderDashboardNotificationCentre()
+}
+
+window.dashboardNotificationSearchChanged = function (input) {
+  const value = String(input?.value || '')
+  const cursor = Number(input?.selectionStart ?? value.length)
+  window.dashboardNotificationPage = 1
+  renderDashboardNotificationCentre()
+  const replacement = document.querySelector('#dashboardNotificationSearch')
+  if (!replacement) return
+  replacement.focus({ preventScroll: true })
+  replacement.setSelectionRange(cursor, cursor)
 }
 
 window.setDashboardNotificationPage = function (page) {

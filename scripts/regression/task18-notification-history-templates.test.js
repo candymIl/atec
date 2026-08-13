@@ -43,6 +43,8 @@ assertIncludes(style, ".dashboard-notification-pagination", "Notification pagina
 assertIncludes(main, "scrollDashboardNotificationTable", "The notification table must have left and right scroll buttons")
 assertIncludes(main, "Scroll table left", "The notification scroll controls must be accessible")
 assertIncludes(style, ".dashboard-notification-scroll-button", "Notification scroll arrow styles are missing")
+assertIncludes(main, "dashboardNotificationSearchChanged", "Notification search must preserve focus while filtering")
+assertIncludes(main, "replacement.setSelectionRange(cursor, cursor)", "Notification search must preserve the typing cursor")
 assertIncludes(server, "getNotificationDeliveryHistory", "Task 18 must expose notification delivery history")
 assertIncludes(server, 'app.get("/dashboard/notification-centre/history"', "Task 18 needs a history endpoint")
 assertIncludes(server, "cardinality(d.recipients)", "History endpoint must expose recipient count")
