@@ -11087,6 +11087,11 @@ window.saveJobCard = async function (forcedStatus = null) {
     document.querySelector('#jcReference')?.focus()
     return
   }
+  if (!payload.assetids.length) {
+    alert('Select at least one asset for the job card.')
+    document.querySelector('#jcAssetSearch')?.focus()
+    return
+  }
   const id = jobCardEditing?.jobcardid
   const pendingFiles = !id ? [...(document.querySelector('#jcPhotos')?.files || [])] : []
   const pendingPhotoDetails = {

@@ -14297,6 +14297,9 @@ async function saveJobCard(req, res) {
   const equipmentStatus = String(body.equipment_status || "NOT_TESTED").toUpperCase()
   const acceloJobNumber = String(body.customer_reference || "").trim()
   if (!body.clientid || !body.siteid) return res.status(400).json({ error: "Customer and site are required" })
+  if (!Array.isArray(body.assetids) || !body.assetids.map(Number).some(value => Number.isInteger(value) && value > 0)) {
+    return res.status(400).json({ error: "Select at least one asset for the job card" })
+  }
   if (!/^[0-9]+$/.test(acceloJobNumber)) {
     return res.status(400).json({ error: "Accelo Job Number is required and may contain numeric digits only" })
   }
@@ -14519,7 +14522,6 @@ function addJobCardPdfPageFrames(doc, card) {
   const marginX = 28.35
   for (let index = 0; index < range.count; index += 1) {
     doc.switchToPage(range.start + index)
-    drawJobCardPdfFrame(doc, card)
     const savedX = doc.x
     const savedY = doc.y
     const savedBottomMargin = doc.page.margins.bottom
@@ -14597,6 +14599,7 @@ function drawJobCardPdfPhotoPages(doc, card) {
 
   for (let pageStart = 0; pageStart < card.photos.length; pageStart += photosPerPage) {
     doc.addPage()
+    drawJobCardPdfFrame(doc, card)
     const pagePhotos = card.photos.slice(pageStart, pageStart + photosPerPage)
     doc.fontSize(14).font("Helvetica-Bold").fillColor("#183153")
       .text("JOB CARD PHOTOGRAPHS", left, 108, { width: contentWidth, align: "center" })
@@ -14645,22 +14648,149 @@ function createJobCardPdfBuffer(card) {
   doc.on("data", chunk => chunks.push(chunk))
   doc.on("error", reject)
   doc.on("end", () => resolve(Buffer.concat(chunks)))
-  const line = (label, value) => { doc.font("Helvetica-Bold").text(`${label}: `, { continued: true }).font("Helvetica").text(String(value || "-")) }
+  drawJobCardPdfFrame(doc, card)
   doc.fontSize(15).font("Helvetica-Bold").fillColor("#183153").text("TECHNICIAN JOB CARD", { align: "center" }).moveDown(.6)
   drawJobCardPdfSummary(doc, card)
-  doc.fillColor("black").fontSize(9)
-  const section = (title, value) => { doc.moveDown(.6).font("Helvetica-Bold").fillColor("#183153").text(title.toUpperCase()); doc.fillColor("black").font("Helvetica").text(String(value || "-")) }
-  section("Fault reported", card.reported_fault); section("Findings and diagnosis", card.findings); section("Root cause", card.root_cause)
-  section("Work performed", card.work_performed); section("Operational test", `${card.test_performed || "-"}\nResult: ${card.test_result || "-"}`)
-  section("Recommendations / outstanding work", card.recommendations); section("Equipment status reason", card.equipment_status_reason)
-  doc.moveDown().font("Helvetica-Bold").fillColor("#183153").text("MATERIALS")
-  doc.fillColor("black").font("Helvetica"); card.materials.forEach(row => doc.text(`${row.quantity} x ${row.description}${row.part_number ? ` (${row.part_number})` : ""} - ${row.material_status}`)); if (!card.materials.length) doc.text("None recorded")
-  doc.moveDown().font("Helvetica-Bold").fillColor("#183153").text("DEVIATIONS")
-  doc.fillColor("black").font("Helvetica"); card.deviations.forEach((row, i) => doc.text(`${i + 1}. ${row.severity} / ${row.category}: ${row.description}\n   Action: ${row.immediate_action || "-"}`)); if (!card.deviations.length) doc.text("None recorded")
-  line("Normal / Overtime / Standby hours", `${card.normal_hours || 0} / ${card.overtime_hours || 0} / ${card.standby_hours || 0}`); line("Travel", `${card.kilometres || 0} km`)
-  doc.moveDown(); line("Customer representative", `${card.customer_signatory_name || "-"} ${card.customer_signatory_designation ? `(${card.customer_signatory_designation})` : ""}`)
+  const clean = value => String(value ?? "").trim()
+  const dateTime = value => {
+    if (!value) return ""
+    const parsed = value instanceof Date ? value : new Date(value)
+    if (Number.isNaN(parsed.getTime())) return clean(value)
+    return new Intl.DateTimeFormat("en-ZA", {
+      timeZone: "Africa/Johannesburg", day: "2-digit", month: "short", year: "numeric",
+      hour: "2-digit", minute: "2-digit", hour12: false
+    }).format(parsed).replace(",", "")
+  }
+  const newPage = () => { doc.addPage(); drawJobCardPdfFrame(doc, card) }
+  const ensureSpace = height => { if (doc.y + height > doc.page.height - doc.page.margins.bottom) newPage() }
+  const heading = title => {
+    ensureSpace(34)
+    doc.moveDown(.8)
+    const y = doc.y
+    doc.roundedRect(doc.page.margins.left, y, 4, 15, 2).fill("#f6c515")
+    doc.font("Helvetica-Bold").fontSize(9).fillColor("#183153")
+      .text(title.toUpperCase(), doc.page.margins.left + 10, y + 2, { characterSpacing: .35 })
+    doc.y = y + 21
+  }
+  const detail = (title, value) => {
+    if (!clean(value)) return
+    ensureSpace(36)
+    doc.font("Helvetica-Bold").fontSize(7).fillColor("#64748b").text(title.toUpperCase(), { characterSpacing: .2 })
+    doc.font("Helvetica").fontSize(9).fillColor("#111827").text(clean(value), { lineGap: 1.5 })
+    doc.moveDown(.35)
+  }
+  const table = (title, rows, candidates) => {
+    if (!rows.length) return
+    const columns = candidates.filter(column => rows.some(row => clean(column.value(row))))
+    if (!columns.length) return
+    heading(title)
+    const totalWeight = columns.reduce((sum, column) => sum + column.weight, 0)
+    const width = doc.page.width - doc.page.margins.left - doc.page.margins.right
+    const widths = columns.map(column => width * column.weight / totalWeight)
+    const drawHeader = () => {
+      const y = doc.y
+      let x = doc.page.margins.left
+      columns.forEach((column, index) => {
+        doc.rect(x, y, widths[index], 20).fillAndStroke("#183153", "#183153")
+        doc.font("Helvetica-Bold").fontSize(6.7).fillColor("#ffffff").text(column.label.toUpperCase(), x + 5, y + 6, { width: widths[index] - 10, ellipsis: true })
+        x += widths[index]
+      })
+      doc.y = y + 20
+    }
+    drawHeader()
+    rows.forEach((row, rowIndex) => {
+      const values = columns.map(column => clean(column.value(row)))
+      const rowHeight = Math.max(22, ...values.map((value, index) => doc.font("Helvetica").fontSize(7.5).heightOfString(value, { width: widths[index] - 10 }) + 10))
+      if (doc.y + rowHeight > doc.page.height - doc.page.margins.bottom) { newPage(); drawHeader() }
+      const y = doc.y
+      let x = doc.page.margins.left
+      columns.forEach((column, index) => {
+        const background = rowIndex % 2 ? "#f8fafc" : "#ffffff"
+        doc.rect(x, y, widths[index], rowHeight).fillAndStroke(background, "#d7deea")
+        doc.font("Helvetica").fontSize(7.5).fillColor("#111827").text(values[index], x + 5, y + 6, { width: widths[index] - 10 })
+        x += widths[index]
+      })
+      doc.y = y + rowHeight
+    })
+  }
+
+  const timeline = [
+    ["Planned", card.planned_at], ["Departed", card.departed_at], ["Arrived", card.arrived_at],
+    ["Work started", card.work_started_at], ["Work completed", card.work_completed_at], ["Travel completed", card.travel_completed_at]
+  ].filter(([, value]) => value)
+  if (timeline.length) {
+    heading("Job timeline")
+    const width = doc.page.width - doc.page.margins.left - doc.page.margins.right
+    const cellWidth = width / 3
+    for (let rowStart = 0; rowStart < timeline.length; rowStart += 3) {
+      ensureSpace(39)
+      const y = doc.y
+      timeline.slice(rowStart, rowStart + 3).forEach(([label, value], column) => {
+        const x = doc.page.margins.left + column * cellWidth
+        doc.roundedRect(x, y, cellWidth - 7, 34, 3).fillAndStroke("#f8fafc", "#d7deea")
+        doc.font("Helvetica-Bold").fontSize(6.3).fillColor("#64748b").text(label.toUpperCase(), x + 7, y + 6, { width: cellWidth - 21 })
+        doc.font("Helvetica").fontSize(8).fillColor("#111827").text(dateTime(value), x + 7, y + 17, { width: cellWidth - 21 })
+      })
+      doc.y = y + 39
+    }
+  }
+
+  table("Selected equipment", card.assets || [], [
+    { label: "Asset tag", weight: 1.1, value: row => row.assettagno },
+    { label: "Equipment", weight: 1.8, value: row => row.equipmenttype || row.description },
+    { label: "Description", weight: 2.2, value: row => row.description },
+    { label: "Serial number", weight: 1.25, value: row => row.serialno },
+    { label: "Manufacturer", weight: 1.3, value: row => row.manufacturer },
+    { label: "WLL", weight: .75, value: row => row.wll }
+  ])
+
+  const workDetails = [
+    ["Fault reported", card.reported_fault], ["Findings and diagnosis", card.findings], ["Root cause", card.root_cause],
+    ["Work performed", card.work_performed], ["Operational test", card.test_performed], ["Test result", card.test_result],
+    ["Recommendations / outstanding work", card.recommendations], ["Equipment status reason", card.equipment_status_reason]
+  ].filter(([, value]) => clean(value))
+  if (workDetails.length) {
+    heading("Work details")
+    workDetails.forEach(([title, value]) => detail(title, value))
+  }
+
+  table("Materials used", card.materials || [], [
+    { label: "Qty", weight: .55, value: row => row.quantity },
+    { label: "Description", weight: 2.7, value: row => row.description },
+    { label: "Part number", weight: 1.25, value: row => row.part_number },
+    { label: "Supplied by", weight: 1.1, value: row => String(row.supplied_by || "").replaceAll("_", " ") },
+    { label: "Status", weight: .9, value: row => String(row.material_status || "").replaceAll("_", " ") }
+  ])
+
+  table("Deviations", card.deviations || [], [
+    { label: "Severity", weight: .9, value: row => row.severity },
+    { label: "Category", weight: 1, value: row => row.category },
+    { label: "Description", weight: 2.5, value: row => row.description },
+    { label: "Immediate action", weight: 2, value: row => row.immediate_action },
+    { label: "Further work", weight: 1.7, value: row => row.further_work_required },
+    { label: "Target", weight: 1, value: row => row.target_date ? formatPdfDate(row.target_date) : "" }
+  ])
+
+  const totals = [
+    ["Normal hours", card.normal_hours], ["Overtime hours", card.overtime_hours], ["Standby hours", card.standby_hours], ["Distance", card.kilometres === null || card.kilometres === undefined || card.kilometres === "" ? "" : `${card.kilometres} km`]
+  ].filter(([, value]) => value !== "" && value !== null && value !== undefined)
+  if (totals.length) {
+    heading("Time and travel summary")
+    doc.font("Helvetica").fontSize(8.5).fillColor("#111827").text(totals.map(([label, value]) => `${label}: ${value}`).join("   |   "))
+  }
+
+  ensureSpace(125)
+  heading("Acknowledgement")
+  if (clean(card.customer_signatory_name) || clean(card.customer_signatory_designation)) {
+    doc.font("Helvetica-Bold").fontSize(7).fillColor("#64748b").text("CUSTOMER REPRESENTATIVE")
+    doc.font("Helvetica").fontSize(9).fillColor("#111827").text(`${clean(card.customer_signatory_name)}${clean(card.customer_signatory_designation) ? ` - ${clean(card.customer_signatory_designation)}` : ""}`)
+  }
+  if (card.customer_signed_at) detail("Signed", dateTime(card.customer_signed_at))
+  if (clean(card.signature_unavailable_reason)) detail("Signature unavailable", card.signature_unavailable_reason)
   if (card.customer_signature_path) { const signatureFile = resolveUploadFilePath(card.customer_signature_path); if (signatureFile && fs.existsSync(signatureFile)) doc.image(signatureFile, { fit: [180, 65] }) }
-  doc.moveDown(.6); line("Technician", card.assigned_to_name)
+  doc.moveDown(.6)
+  doc.font("Helvetica-Bold").fontSize(7).fillColor("#64748b").text("TECHNICIAN")
+  doc.font("Helvetica").fontSize(9).fillColor("#111827").text(clean(card.assigned_to_name))
   if (card.technician_signature_image) {
     const technicianSignatureFile = resolveUploadFilePath(card.technician_signature_image)
     if (technicianSignatureFile && fs.existsSync(technicianSignatureFile)) doc.image(technicianSignatureFile, { fit: [180, 65] })
@@ -14721,13 +14851,15 @@ registerWorkforceRoutes(app, {
 
 app.use(errorHandler)
 
-startNotificationScheduler()
+if (require.main === module) {
+  startNotificationScheduler()
+  const server = app.listen(PORT, () => {
+    console.log(`ATEC server running on port ${PORT}`)
+  })
+  server.requestTimeout = requestTimeoutMs
+  server.headersTimeout = headersTimeoutMs
+  server.keepAliveTimeout = keepAliveTimeoutMs
+}
 
-const server = app.listen(PORT, () => {
-  console.log(`ATEC server running on port ${PORT}`);
-});
-
-server.requestTimeout = requestTimeoutMs
-server.headersTimeout = headersTimeoutMs
-server.keepAliveTimeout = keepAliveTimeoutMs
+module.exports = { createJobCardPdfBuffer }
 
