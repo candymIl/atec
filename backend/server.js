@@ -10127,6 +10127,8 @@ function graphRecipients(value) {
     .map(address => ({ emailAddress: { address } }))
 }
 
+const CUSTOMER_REPORT_CC = "jacques@fbcranes.co.za"
+
 async function sendApplicationEmail(options) {
   if (!useMicrosoftGraphMail()) {
     const transport = getMailTransport()
@@ -10150,8 +10152,11 @@ async function sendApplicationEmail(options) {
     body: JSON.stringify({
       message: {
         subject: String(options.subject || ""),
-        body: { contentType: "Text", content: String(options.text || "") },
+        body: options.html
+          ? { contentType: "HTML", content: String(options.html) }
+          : { contentType: "Text", content: String(options.text || "") },
         toRecipients: graphRecipients(options.to),
+        ...(graphRecipients(options.cc).length ? { ccRecipients: graphRecipients(options.cc) } : {}),
         ...(attachments.length ? { attachments } : {})
       },
       saveToSentItems: true
@@ -10612,6 +10617,7 @@ app.post("/certificates/:testid/email", emailLimiter, async (req, res) => {
     await sendApplicationEmail({
       from: process.env.MAIL_FROM,
       to: recipient,
+      cc: CUSTOMER_REPORT_CC,
       subject: String(subject || defaultSubject).trim(),
       text: String(message || defaultMessage),
       attachments: [
@@ -13383,7 +13389,7 @@ async function getNotificationRecipients({ clientid, siteid }) {
 
 function notificationEmailSubject(row) {
   const siteLabel = row.siteid ? ` - ${row.sitename || "Site"}` : ""
-  return `ATEC notification: ${row.clientname || "Customer"}${siteLabel}`
+  return `ATEC Asset Compliance Notice - ${row.clientname || "Customer"}${siteLabel}`
 }
 
 function notificationAttentionLines(row) {
@@ -13404,7 +13410,7 @@ function notificationEmailText(row) {
   const lines = [
     "Good day,",
     "",
-    "The ATEC Inspection Platform has items needing attention for your account.",
+    "This is an asset compliance notice from ATEC Inspections. The items below require review or action.",
     "",
     `Customer: ${valueOrDash(row.clientname)}`,
     `Site: ${valueOrDash(row.sitename)}`,
@@ -13412,14 +13418,149 @@ function notificationEmailText(row) {
     "Items needing attention:",
     ...(attentionLines.length ? attentionLines : ["- No active notification items are currently listed."]),
     "",
-    "Please log in to the ATEC Customer Portal to review certificates, asset status and reports.",
-    "If you need assistance, please contact ATEC Systems.",
+    "A detailed Asset Compliance Attention Report is attached for your records.",
+    "Please review the affected assets and arrange the required inspection, testing or corrective action.",
+    "You can also log in to the ATEC Customer Portal to view the latest certificates and asset status.",
+    "If you need assistance or would like to arrange service, please contact ATEC Inspections.",
     "",
     "Regards,",
-    "ATEC Systems"
+    "ATEC Inspections"
   ]
 
   return lines.join("\n")
+}
+
+function notificationHtmlEscape(value) {
+  return String(value ?? "").replace(/[&<>"']/g, character => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  })[character])
+}
+
+function notificationMetricItems(row) {
+  return [
+    ["Due assets", row.due_assets, "#d97706"],
+    ["Overdue assets", row.overdue_assets, "#b91c1c"],
+    ["Certificates expiring soon", row.expiring_certificates, "#d97706"],
+    ["Failed / not safe assets", row.failed_assets, "#b91c1c"],
+    ["Unresolved visit items", row.unresolved_visit_items, "#7c3aed"],
+    ["Deferred follow-ups due", row.deferred_followups_due, "#7c3aed"]
+  ].filter(([, value]) => Number(value || 0) > 0)
+}
+
+function notificationEmailHtml(row) {
+  const metrics = notificationMetricItems(row)
+  const generated = new Intl.DateTimeFormat("en-ZA", {
+    timeZone: "Africa/Johannesburg", day: "2-digit", month: "long", year: "numeric"
+  }).format(new Date())
+  const metricCards = metrics.map(([label, value, colour]) => `
+    <td style="padding:0 8px 12px 0;vertical-align:top;width:33.33%">
+      <div style="border:1px solid #dbe3ee;border-top:4px solid ${colour};border-radius:8px;padding:14px;background:#f8fafc">
+        <div style="font-size:25px;font-weight:700;color:#183153;line-height:1">${Number(value)}</div>
+        <div style="font-size:12px;color:#475569;margin-top:7px">${notificationHtmlEscape(label)}</div>
+      </div>
+    </td>`).reduce((rows, card, index) => rows + `${index % 3 === 0 ? "<tr>" : ""}${card}${index % 3 === 2 || index === metrics.length - 1 ? "</tr>" : ""}`, "")
+  return `<!doctype html><html><body style="margin:0;background:#eef2f7;font-family:Arial,Helvetica,sans-serif;color:#172033">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#eef2f7"><tr><td align="center" style="padding:24px 12px">
+      <table role="presentation" width="680" cellspacing="0" cellpadding="0" style="width:100%;max-width:680px;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 3px 14px rgba(24,49,83,.12)">
+        <tr><td style="background:#211b64;padding:22px 30px;border-bottom:7px solid #f6c515">
+          <div style="font-size:22px;font-weight:700;color:#ffffff">ATEC Inspections</div>
+          <div style="font-size:12px;color:#dbe5f3;margin-top:4px;letter-spacing:.5px">ASSET COMPLIANCE NOTICE</div>
+        </td></tr>
+        <tr><td style="padding:30px">
+          <p style="margin:0 0 16px;font-size:15px">Good day,</p>
+          <p style="margin:0 0 20px;font-size:14px;line-height:1.6;color:#334155">The following asset compliance items require review or action for <strong>${notificationHtmlEscape(row.clientname)}</strong>${row.sitename ? ` at <strong>${notificationHtmlEscape(row.sitename)}</strong>` : ""}.</p>
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0">${metricCards}</table>
+          <div style="margin:10px 0 22px;padding:16px 18px;background:#fff8dc;border-left:5px solid #f6c515;border-radius:5px">
+            <div style="font-size:13px;font-weight:700;color:#183153;margin-bottom:5px">Recommended action</div>
+            <div style="font-size:13px;line-height:1.55;color:#475569">Please review the attached report and arrange the required inspection, testing or corrective action. Assets marked <strong>Not Safe</strong> should remain out of service until formally cleared.</div>
+          </div>
+          <p style="margin:0 0 12px;font-size:13px;line-height:1.55;color:#475569">A detailed <strong>Asset Compliance Attention Report</strong> is attached. The ATEC Customer Portal also contains the latest certificates, inspection history and current asset status.</p>
+          <p style="margin:0 0 24px;font-size:13px;line-height:1.55;color:#475569">If you need assistance or would like to arrange service, please contact ATEC Inspections.</p>
+          <p style="margin:0;font-size:13px;color:#172033">Regards,<br><strong>ATEC Inspections</strong></p>
+        </td></tr>
+        <tr><td style="padding:14px 30px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;color:#64748b">Generated ${notificationHtmlEscape(generated)}. This automated notice reflects the information recorded in ATEC at the time of issue.</td></tr>
+      </table>
+    </td></tr></table></body></html>`
+}
+
+function notificationAssetPriority(asset, leadDays) {
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const threshold = new Date(today); threshold.setDate(threshold.getDate() + Number(leadDays || 30))
+  const dates = [asset.nextvisualdue, asset.nextloaddue, asset.visualvaliddate, asset.loadvaliddate]
+    .filter(Boolean).map(value => new Date(value)).filter(value => !Number.isNaN(value.getTime()))
+  if (asset.visualstatus === "NOT SAFE" || asset.loadstatus === "NOT SAFE" || asset.reportstatus === "NOT SAFE") return "NOT SAFE"
+  if (["NO VISUAL", "NO LOAD TEST", "VISUAL OVERDUE", "LOAD TEST OVERDUE"].includes(asset.reportstatus) || dates.some(value => value < today)) return "OVERDUE"
+  if (dates.some(value => value <= threshold)) return "DUE SOON"
+  return ""
+}
+
+function createNotificationReportPdfBuffer(preview) {
+  return runQueuedPdfJob(() => new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: "A4", layout: "landscape", margins: { top: 96, right: 30, bottom: 68, left: 30 }, bufferPages: true })
+    const chunks = []
+    doc.on("data", chunk => chunks.push(chunk)); doc.on("error", reject); doc.on("end", () => resolve(Buffer.concat(chunks)))
+    const headerPath = path.join(__dirname, "..", "frontend", "public", "header.jpg")
+    const footerPath = path.join(__dirname, "..", "frontend", "public", "footer.jpg")
+    const width = doc.page.width - 60
+    const frame = () => {
+      if (fs.existsSync(headerPath)) doc.image(headerPath, 30, 10, { width, height: 72 })
+      if (fs.existsSync(footerPath)) doc.image(footerPath, 30, doc.page.height - 50, { width, height: 32 })
+    }
+    const addPage = () => { doc.addPage(); frame() }
+    frame()
+    doc.font("Helvetica-Bold").fontSize(16).fillColor("#183153").text("ASSET COMPLIANCE ATTENTION REPORT", { align: "center" })
+    doc.moveDown(.35).font("Helvetica").fontSize(8).fillColor("#475569")
+      .text(`${preview.row.clientname} | ${preview.row.sitename || "All Sites"} | Issued ${reportDate(new Date())}`, { align: "center" })
+    doc.moveDown(.8)
+    const metrics = notificationMetricItems(preview.row)
+    const boxWidth = width / Math.max(1, Math.min(metrics.length, 6))
+    const boxY = doc.y
+    metrics.forEach(([label, value, colour], index) => {
+      const x = 30 + index * boxWidth
+      doc.roundedRect(x, boxY, boxWidth - 7, 38, 4).fillAndStroke("#f8fafc", "#dbe3ee")
+      doc.rect(x, boxY, 4, 38).fill(colour)
+      doc.font("Helvetica-Bold").fontSize(14).fillColor("#183153").text(String(value), x + 10, boxY + 6, { width: boxWidth - 20 })
+      doc.font("Helvetica").fontSize(6.5).fillColor("#475569").text(label, x + 10, boxY + 23, { width: boxWidth - 18, ellipsis: true })
+    })
+    doc.y = boxY + 50
+    doc.x = 30
+    doc.font("Helvetica-Bold").fontSize(9).fillColor("#183153").text("ASSETS REQUIRING ATTENTION", 30, doc.y, { width })
+    doc.y += 5
+    const columns = [["Priority",55],["Asset tag",62],["Serial number",72],["Equipment",100],["Description",145],["Section",82],["Last visual",65],["Next visual",65],["Last load",65],["Next load",65]]
+    const rows = preview.attentionAssets || []
+    const drawHeader = () => {
+      let x = 30; const y = doc.y
+      columns.forEach(([label, columnWidth]) => { doc.rect(x,y,columnWidth,20).fillAndStroke("#183153","#183153"); doc.font("Helvetica-Bold").fontSize(6.5).fillColor("#fff").text(label.toUpperCase(),x+4,y+7,{width:columnWidth-8}); x += columnWidth })
+      doc.y = y + 20
+    }
+    drawHeader()
+    if (!rows.length) {
+      doc.font("Helvetica").fontSize(8).fillColor("#475569").text("No asset-level rows were available. Review the summary and Customer Portal for visit exceptions or follow-up items.", 36, doc.y + 10, { width: width - 12 })
+      doc.y += 34
+    }
+    rows.forEach((asset, index) => {
+      const values = [asset.attention_priority, asset.assettagno || `Asset ${asset.assetid}`, asset.serialno, asset.equipmenttype, asset.description, asset.sectionname, reportDate(asset.visualtestdate), reportDate(asset.nextvisualdue), reportDate(asset.loadtestdate), reportDate(asset.nextloaddue)].map(reportValue)
+      const rowHeight = Math.max(23, ...values.map((value, column) => doc.font("Helvetica").fontSize(7).heightOfString(value,{width:columns[column][1]-8})+9))
+      if (doc.y + rowHeight > doc.page.height - 68) { addPage(); drawHeader() }
+      let x=30; const y=doc.y
+      columns.forEach(([,columnWidth],column) => { doc.rect(x,y,columnWidth,rowHeight).fillAndStroke(index%2 ? "#f8fafc" : "#fff","#dbe3ee"); const alert = column===0; doc.font(alert?"Helvetica-Bold":"Helvetica").fontSize(7).fillColor(alert && values[column]!=="DUE SOON" ? "#b91c1c" : "#172033").text(values[column],x+4,y+6,{width:columnWidth-8}); x+=columnWidth })
+      doc.y = y + rowHeight
+    })
+    doc.x = 30
+    doc.y += 10
+    doc.font("Helvetica-Bold").fontSize(8).fillColor("#183153").text("RECOMMENDED ACTION", 30, doc.y, { width })
+    doc.y += 3
+    doc.font("Helvetica").fontSize(7.5).fillColor("#334155").text("Review each listed asset and arrange inspection, testing or corrective work as applicable. Assets marked NOT SAFE should remain out of service until formally cleared. This report reflects ATEC records at the time of issue.", 30, doc.y, { width })
+    const range = doc.bufferedPageRange()
+    for (let index=0; index<range.count; index+=1) {
+      doc.switchToPage(range.start+index)
+      const savedBottomMargin = doc.page.margins.bottom
+      doc.page.margins.bottom = 0
+      doc.font("Helvetica").fontSize(6).fillColor("#475569").text(`Page ${index+1} of ${range.count}`,30,doc.page.height-61,{width,align:"right",lineBreak:false})
+      doc.page.margins.bottom = savedBottomMargin
+    }
+    doc.end()
+  }))
 }
 
 async function buildNotificationEmailPreview(req, body = {}) {
@@ -13435,12 +13576,19 @@ async function buildNotificationEmailPreview(req, body = {}) {
     clientid: row.clientid,
     siteid: row.siteid
   })
+  const report = await getCustomerDetailedReport({ clientid: row.clientid, siteid: row.siteid || "" })
+  const attentionAssets = report.assets.map(asset => ({
+    ...asset,
+    attention_priority: notificationAssetPriority(asset, row.notification_lead_days)
+  })).filter(asset => asset.attention_priority)
 
   return {
     row,
     recipients,
     subject: notificationEmailSubject(row),
-    message: notificationEmailText(row)
+    message: notificationEmailText(row),
+    html: notificationEmailHtml(row),
+    attentionAssets
   }
 }
 
@@ -13547,11 +13695,19 @@ async function sendNotificationPreview(preview, options = {}) {
   const recipients = preview.recipients.map(recipient => recipient.email)
 
   try {
+    const reportPdf = await createNotificationReportPdfBuffer(preview)
     await sendApplicationEmail({
       from: process.env.MAIL_FROM,
       to: recipients,
+      cc: CUSTOMER_REPORT_CC,
       subject: preview.subject,
-      text: preview.message
+      text: preview.message,
+      html: preview.html,
+      attachments: [{
+        filename: `ATEC-Asset-Compliance-${String(preview.row.clientname || "Customer").replace(/[^a-z0-9]+/gi, "-")}-${new Date().toISOString().slice(0,10)}.pdf`,
+        content: reportPdf,
+        contentType: "application/pdf"
+      }]
     })
 
     await recordNotificationDelivery(preview, recipients, {
@@ -14902,6 +15058,7 @@ registerMpiRoutes(app, {
   getMailConfigIssues,
   isValidEmailAddress,
   getMailErrorMessage,
+  customerReportCc: CUSTOMER_REPORT_CC,
   uploadRoot: uploadsRoot,
   brandRoot: path.join(__dirname, "..", "frontend", "public")
 })
@@ -14934,5 +15091,5 @@ if (require.main === module) {
   server.keepAliveTimeout = keepAliveTimeoutMs
 }
 
-module.exports = { createJobCardPdfBuffer }
+module.exports = { createJobCardPdfBuffer, createNotificationReportPdfBuffer }
 

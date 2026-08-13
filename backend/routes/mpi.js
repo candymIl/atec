@@ -581,6 +581,7 @@ function registerMpiRoutes(app, dependencies) {
     getMailConfigIssues,
     isValidEmailAddress,
     getMailErrorMessage,
+    customerReportCc,
     uploadRoot,
     brandRoot
   } = dependencies
@@ -1375,6 +1376,7 @@ function registerMpiRoutes(app, dependencies) {
       await sendApplicationEmail({
         from: process.env.MAIL_FROM,
         to: recipient,
+        cc: customerReportCc,
         subject,
         text: message,
         attachments: [{
