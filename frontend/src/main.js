@@ -11122,6 +11122,7 @@ window.saveJobCard = async function (forcedStatus = null) {
     return
   }
   const email = result.email_notification
+  const managerEmail = result.manager_email_notification
   const assignedMessage = email?.requested
     ? (email.sent
       ? `Job card assigned to ${result.assigned_to_name}. Email sent to ${email.to}.`
@@ -11131,9 +11132,11 @@ window.saveJobCard = async function (forcedStatus = null) {
     ASSIGNED: assignedMessage,
     IN_PROGRESS: id ? 'Job started.' : 'On-site job created. You can now add photographs and continue working.',
     AWAITING_SIGNATURE: 'Job card is awaiting customer acknowledgement.',
-    SUBMITTED: pendingFiles.length
-      ? `On-site job submitted to the office with ${pendingFiles.length} photograph(s).`
-      : 'Job card submitted to the office.',
+    SUBMITTED: managerEmail?.requested
+      ? (managerEmail.sent
+        ? `Job card submitted and emailed to ${managerEmail.name || 'the assigned Manager'}${pendingFiles.length ? ` with ${pendingFiles.length} photograph(s) uploaded` : ''}.`
+        : `Job card submitted, but the Manager email could not be sent: ${managerEmail.error}`)
+      : (pendingFiles.length ? `On-site job submitted to the office with ${pendingFiles.length} photograph(s).` : 'Job card submitted to the office.'),
     APPROVED: 'Job card approved.',
     INVOICED: 'Job card marked as invoiced.',
     CANCELLED: 'Job card cancelled.'

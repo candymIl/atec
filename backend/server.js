@@ -14159,6 +14159,9 @@ async function loadJobCard(jobcardid) {
     SELECT j.*, c.clientname, s.sitename, sec.sectionname,
       COALESCE(NULLIF(u.fullname, ''), u.username) AS assigned_to_name,
       u.email AS assigned_to_email,
+      u.manager_user_id,
+      COALESCE(NULLIF(mu.fullname, ''), mu.username) AS manager_name,
+      mu.email AS manager_email,
       u.usersignature AS technician_signature_image,
       COALESCE(NULLIF(cu.fullname, ''), cu.username) AS created_by_name,
       COALESCE(NULLIF(au.fullname, ''), au.username) AS approved_by_name
@@ -14167,6 +14170,7 @@ async function loadJobCard(jobcardid) {
     JOIN atec.tblsites s ON s.siteid = j.siteid
     LEFT JOIN atec.tblsection sec ON sec.sectionid = j.sectionid
     LEFT JOIN atec.tblusers u ON u.userid = j.assigned_to_user_id
+    LEFT JOIN atec.tblusers mu ON mu.userid = u.manager_user_id AND COALESCE(mu.is_active, true) = true
     LEFT JOIN atec.tblusers cu ON cu.userid = j.created_by_user_id
     LEFT JOIN atec.tblusers au ON au.userid = j.approved_by_user_id
     WHERE j.jobcardid = $1
@@ -14291,6 +14295,47 @@ async function emailAssignedTechnician(card) {
   })
 }
 
+async function emailSubmittedJobCardToManager(card) {
+  if (!card.manager_user_id) {
+    throw new Error(`${card.assigned_to_name || "The assigned technician"} does not have a Manager assigned in ATEC`)
+  }
+  if (!isValidEmailAddress(card.manager_email)) {
+    throw new Error(`${card.manager_name || "The assigned Manager"} does not have a valid email address in ATEC`)
+  }
+  const mailConfigIssues = getMailConfigIssues()
+  if (mailConfigIssues.length) {
+    throw new Error(`Email is not configured. Missing: ${mailConfigIssues.join(", ")}`)
+  }
+  const pdf = await createJobCardPdfBuffer(card)
+  await sendApplicationEmail({
+    from: process.env.MAIL_FROM,
+    to: card.manager_email,
+    subject: `ATEC Job Card Submitted - ${card.jobcard_reference}`,
+    text: [
+      `Good day ${card.manager_name || "Manager"},`,
+      "",
+      `${card.assigned_to_name || "A technician"} has submitted a job card for your review.`,
+      "",
+      `Job card: ${card.jobcard_reference}`,
+      `Job number: ${card.customer_reference}`,
+      `Customer: ${card.clientname}`,
+      `Site: ${card.sitename}`,
+      `Equipment status: ${String(card.equipment_status || "").replaceAll("_", " ")}`,
+      "",
+      "The completed job card is attached as a PDF.",
+      `Open ATEC to review the submitted job card: ${jobCardApplicationUrl()}`,
+      "",
+      "Regards,",
+      "ATEC Inspection Platform"
+    ].join("\n"),
+    attachments: [{
+      filename: `${card.jobcard_reference}.pdf`,
+      content: pdf,
+      contentType: "application/pdf"
+    }]
+  })
+}
+
 async function saveJobCard(req, res) {
   const body = req.body || {}
   const requestedStatus = String(body.status || "DRAFT").toUpperCase()
@@ -14357,6 +14402,22 @@ async function saveJobCard(req, res) {
         VALUES ($1, $2, $3, $4) RETURNING jobcardid`, [`PENDING-${crypto.randomUUID()}`, body.clientid, body.siteid, req.user.user_id])
       jobcardid = inserted.rows[0].jobcardid
     }
+    const leadUserId = Number(body.assigned_to_user_id || (req.user.role === "INSPECTOR" ? req.user.user_id : 0))
+    if (requestedStatus === "SUBMITTED" && previousStatus !== "SUBMITTED") {
+      const manager = await client.query(`SELECT u.manager_user_id,
+        COALESCE(NULLIF(m.fullname,''),m.username) AS manager_name,m.email AS manager_email
+        FROM atec.tblusers u
+        LEFT JOIN atec.tblusers m ON m.userid=u.manager_user_id AND COALESCE(m.is_active,true)=true
+        WHERE u.userid=$1`, [leadUserId])
+      if (!manager.rows[0]?.manager_user_id) {
+        await client.query("ROLLBACK")
+        return res.status(400).json({ error: "The assigned technician must have a Manager assigned before the job card can be submitted" })
+      }
+      if (!isValidEmailAddress(manager.rows[0].manager_email)) {
+        await client.query("ROLLBACK")
+        return res.status(400).json({ error: `${manager.rows[0].manager_name || "The assigned Manager"} must have a valid email address before the job card can be submitted` })
+      }
+    }
     if (["SUBMITTED", "APPROVED", "INVOICED"].includes(requestedStatus) &&
         !body.customer_signature_data && !existingSignaturePath && !String(body.signature_unavailable_reason || "").trim()) {
       await client.query("ROLLBACK")
@@ -14418,7 +14479,6 @@ async function saveJobCard(req, res) {
         crewByUser.set(userId, { user_id: userId, crew_role: crewRole })
       }
     }
-    const leadUserId = Number(body.assigned_to_user_id || (req.user.role === "INSPECTOR" ? req.user.user_id : 0))
     if (leadUserId) crewByUser.set(leadUserId, { user_id: leadUserId, crew_role: "LEAD_TECHNICIAN" })
     await client.query("DELETE FROM atec.tbljobcardcrew WHERE jobcardid=$1", [jobcardid])
     for (const row of crewByUser.values()) {
@@ -14449,7 +14509,20 @@ async function saveJobCard(req, res) {
       }
     }
     const savedCard = await loadJobCard(jobcardid)
-    res.status(req.params.id ? 200 : 201).json({ ...savedCard, email_notification: emailNotification })
+    let managerEmailNotification = { requested: false, sent: false }
+    if (requestedStatus === "SUBMITTED" && previousStatus !== "SUBMITTED") {
+      managerEmailNotification.requested = true
+      try {
+        await emailSubmittedJobCardToManager(savedCard)
+        await req.logAudit("JOB_CARD_SUBMISSION_EMAIL_SENT", "job_cards", jobcardid, { to: savedCard.manager_email })
+        managerEmailNotification = { requested: true, sent: true, to: savedCard.manager_email, name: savedCard.manager_name }
+      } catch (emailError) {
+        const emailMessage = getMailErrorMessage(emailError)
+        await req.logAudit("JOB_CARD_SUBMISSION_EMAIL_FAILED", "job_cards", jobcardid, { to: savedCard.manager_email || null, error: emailMessage })
+        managerEmailNotification = { requested: true, sent: false, to: savedCard.manager_email || null, name: savedCard.manager_name, error: emailMessage }
+      }
+    }
+    res.status(req.params.id ? 200 : 201).json({ ...savedCard, email_notification: emailNotification, manager_email_notification: managerEmailNotification })
   } catch (err) {
     await client.query("ROLLBACK")
     if (newSignaturePath) deleteUploadFileIfUnreferenced(newSignaturePath).catch(() => {})
