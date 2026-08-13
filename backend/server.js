@@ -13343,7 +13343,6 @@ async function getNotificationCentreRows(req) {
       COALESCE(expiring.expiring_certificates, 0) DESC,
       COALESCE(c.clientname, 'Unknown Customer') ASC,
       COALESCE(s.sitename, 'All Sites') ASC
-    LIMIT 100
     `,
     scopedToClient.values
   )

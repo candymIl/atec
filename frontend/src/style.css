@@ -1538,6 +1538,31 @@ tr:hover {
   overflow-x: auto;
 }
 
+.dashboard-notification-pagination {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+
+.dashboard-notification-pagination label,
+.dashboard-notification-page-buttons {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dashboard-notification-pagination select {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  min-height: 32px;
+  padding: 5px 8px;
+}
+
 .dashboard-notification-scroll-control {
   margin-bottom: 8px;
 }

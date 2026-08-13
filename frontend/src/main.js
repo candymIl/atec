@@ -9954,6 +9954,7 @@ async function loadDashboardNotificationCentre(preloadedData = null) {
     }
 
     window.dashboardNotificationRows = rows
+    window.dashboardNotificationPage = 1
     renderDashboardNotificationCentre()
   } catch (err) {
     console.error("Failed to load notification centre:", err)
@@ -9971,6 +9972,11 @@ function dashboardNotificationFilters() {
     recipients: String(document.querySelector("#dashboardNotificationRecipientFilter")?.value || ""),
     auto: String(document.querySelector("#dashboardNotificationAutoFilter")?.value || "")
   }
+}
+
+function dashboardNotificationPageSize() {
+  const value = String(window.dashboardNotificationPageSize || localStorage.getItem('dashboardNotificationPageSize') || '25')
+  return value === 'all' ? 'all' : [25, 50, 100].includes(Number(value)) ? Number(value) : 25
 }
 
 function dashboardNotificationFilterRows(rows) {
@@ -10038,11 +10044,19 @@ function renderDashboardNotificationCentre() {
     "overdue_assets",
     "desc"
   )
+  const pageSize = dashboardNotificationPageSize()
+  const totalPages = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(displayRows.length / pageSize))
+  const currentPage = Math.min(Math.max(1, Number(window.dashboardNotificationPage || 1)), totalPages)
+  window.dashboardNotificationPage = currentPage
+  const pageStart = pageSize === 'all' ? 0 : (currentPage - 1) * pageSize
+  const pageRows = pageSize === 'all' ? displayRows : displayRows.slice(pageStart, pageStart + pageSize)
+  const firstShown = displayRows.length ? pageStart + 1 : 0
+  const lastShown = displayRows.length ? pageStart + pageRows.length : 0
 
   container.innerHTML = `
     <div class="dashboard-notification-summary">
-      <span><strong>${escapeHtml(displayRows.length)}</strong> of <strong>${escapeHtml(rows.length)}</strong> customer/site notification row(s)</span>
-      <span>Preview before sending to customer portal users.</span>
+      <span><strong>${escapeHtml(displayRows.length)}</strong> actionable customer/site row(s) match the filters. Showing <strong>${firstShown}-${lastShown}</strong>.</span>
+      <span>This is the attention list, not the complete customer register. Preview before sending to customer portal users.</span>
     </div>
     <div class="dashboard-notification-filter-row">
       <input
@@ -10050,14 +10064,14 @@ function renderDashboardNotificationCentre() {
         type="text"
         placeholder="Filter customer, site or numbers..."
         value="${escapeHtml(document.querySelector("#dashboardNotificationSearch")?.value || "")}"
-        oninput="renderDashboardNotificationCentre()"
+        oninput="dashboardNotificationFiltersChanged()"
       >
-      <select id="dashboardNotificationRecipientFilter" onchange="renderDashboardNotificationCentre()">
+      <select id="dashboardNotificationRecipientFilter" onchange="dashboardNotificationFiltersChanged()">
         <option value="">All portal users</option>
         <option value="ready" ${dashboardNotificationFilters().recipients === "ready" ? "selected" : ""}>Has portal users</option>
         <option value="missing" ${dashboardNotificationFilters().recipients === "missing" ? "selected" : ""}>No portal users</option>
       </select>
-      <select id="dashboardNotificationAutoFilter" onchange="renderDashboardNotificationCentre()">
+      <select id="dashboardNotificationAutoFilter" onchange="dashboardNotificationFiltersChanged()">
         <option value="">All automatic status</option>
         <option value="ready" ${dashboardNotificationFilters().auto === "ready" ? "selected" : ""}>Automatic ready</option>
         <option value="waiting" ${dashboardNotificationFilters().auto === "waiting" ? "selected" : ""}>Automatic waiting</option>
@@ -10088,7 +10102,7 @@ function renderDashboardNotificationCentre() {
           </tr>
         </thead>
         <tbody>
-          ${displayRows.length ? displayRows.map(row => renderDashboardNotificationRow(row)).join("") : `
+          ${pageRows.length ? pageRows.map(row => renderDashboardNotificationRow(row)).join("") : `
             <tr>
               <td colspan="11" class="empty-row">No notification rows match the selected filters.</td>
             </tr>
@@ -10096,9 +10110,44 @@ function renderDashboardNotificationCentre() {
         </tbody>
       </table>
     </div>
+    ${displayRows.length ? `
+      <div class="dashboard-notification-pagination">
+        <label>Rows per page
+          <select onchange="setDashboardNotificationPageSize(this.value)">
+            <option value="25" ${pageSize === 25 ? 'selected' : ''}>25</option>
+            <option value="50" ${pageSize === 50 ? 'selected' : ''}>50</option>
+            <option value="100" ${pageSize === 100 ? 'selected' : ''}>100</option>
+            <option value="all" ${pageSize === 'all' ? 'selected' : ''}>All filtered</option>
+          </select>
+        </label>
+        <div class="dashboard-notification-page-buttons">
+          <button type="button" class="secondary-small-btn" onclick="setDashboardNotificationPage(${currentPage - 1})" ${currentPage <= 1 ? 'disabled' : ''}>Previous</button>
+          <span>Page <strong>${currentPage}</strong> of <strong>${totalPages}</strong></span>
+          <button type="button" class="secondary-small-btn" onclick="setDashboardNotificationPage(${currentPage + 1})" ${currentPage >= totalPages ? 'disabled' : ''}>Next</button>
+        </div>
+      </div>
+    ` : ''}
   `
 
   bindDashboardNotificationSlider()
+}
+
+window.dashboardNotificationFiltersChanged = function () {
+  window.dashboardNotificationPage = 1
+  renderDashboardNotificationCentre()
+}
+
+window.setDashboardNotificationPage = function (page) {
+  window.dashboardNotificationPage = Math.max(1, Number(page || 1))
+  renderDashboardNotificationCentre()
+  document.querySelector('#dashboardNotificationCentre')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+window.setDashboardNotificationPageSize = function (value) {
+  window.dashboardNotificationPageSize = value === 'all' ? 'all' : Number(value)
+  localStorage.setItem('dashboardNotificationPageSize', String(window.dashboardNotificationPageSize))
+  window.dashboardNotificationPage = 1
+  renderDashboardNotificationCentre()
 }
 
 function bindDashboardNotificationSlider() {
@@ -10177,6 +10226,7 @@ window.clearDashboardNotificationFilters = function () {
   if (search) search.value = ""
   if (recipients) recipients.value = ""
   if (auto) auto.value = ""
+  window.dashboardNotificationPage = 1
   renderDashboardNotificationCentre()
 }
 
