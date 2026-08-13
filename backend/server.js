@@ -13622,7 +13622,7 @@ async function recordNotificationDelivery(preview, recipients, options = {}) {
     VALUES (
       $1, $2, $3, $4, $5, $6, $7::text[],
       $8, $9, $10, $11, $12, $13, $14, $15,
-      CASE WHEN $4 = 'SENT' THEN now() ELSE NULL END
+      CASE WHEN $4::varchar = 'SENT' THEN now() ELSE NULL END
     )
     RETURNING notificationdeliveryid, sent_at
     `,

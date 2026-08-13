@@ -33,6 +33,7 @@ assertIncludes(server, "cc: CUSTOMER_REPORT_CC", "Customer compliance and certif
 assertIncludes(server, "buildNotificationPreviewFromRow", "Manual and scheduled notifications must use the same complete report preview")
 assertIncludes(server, "history_recorded: historyRecorded", "A sent email must report history storage separately")
 assertIncludes(server, "Notification sent history", "Post-send history failures must be logged without falsely reporting email failure")
+assertIncludes(server, "CASE WHEN $4::varchar = 'SENT'", "Notification history status must use one explicit PostgreSQL parameter type")
 assertIncludes(main, "result.history_warning", "The dashboard must distinguish sent email from history-recording warnings")
 assertIncludes(server, "getNotificationDeliveryHistory", "Task 18 must expose notification delivery history")
 assertIncludes(server, 'app.get("/dashboard/notification-centre/history"', "Task 18 needs a history endpoint")
