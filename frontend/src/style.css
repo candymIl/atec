@@ -6283,3 +6283,14 @@ tr:hover {
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   margin-top: 1rem;
 }
+@media print {
+  .sidebar,
+  .mobile-menu-toggle,
+  .risk-report-controls,
+  .app-update-notice { display: none !important; }
+
+  .main-content,
+  #page { width: 100% !important; margin: 0 !important; padding: 0 !important; }
+
+  #riskAssessmentTable table { font-size: 9pt; }
+}

@@ -11,7 +11,7 @@ import { renderQuickInspection } from './pages/QuickInspection.js'
 import { renderCertificateSearch } from './pages/Certificates.js'
 import { renderCustomerDetailedReport } from './pages/CustomerDetailedReport.js'
 import { renderCustomerPortal } from './pages/CustomerPortal.js'
-import { renderRiskAssessments, renderRiskAssessmentTable } from './pages/RiskAssessments.js'
+import { renderRiskAssessments, renderRiskAssessmentReports, renderRiskAssessmentTable } from './pages/RiskAssessments.js'
 import { renderSystemHealthPage } from './pages/SystemHealth.js'
 import { renderMpiReportsPage } from './pages/MpiReports.js'
 import {
@@ -174,6 +174,7 @@ const pageAccess = {
   mpi: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER'],
   'customer-report': ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER', 'CUSTOMER'],
   she: ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER'],
+  'she-reports': ['ADMIN', 'MANAGER', 'INSPECTOR', 'VIEWER'],
   criteria: ['ADMIN'],
   users: ['ADMIN', 'MANAGER'],
   'system-health': ['ADMIN'],
@@ -253,9 +254,13 @@ function renderRoleMenu() {
       canManageCustomerPortalUsers() ? menuButton('users', 'Customer Portal Users', 'showCustomerUserManagement()') : '',
       menuButton('work-schedules','Work Schedules','showWorkSchedules()')
     ]),
+    menuGroup('risk-assessment','Risk Assesment',[
+      menuButton('she','SLAMM','showRiskAssessments()'),
+      menuButton('she-reports','Reporting','showRiskAssessmentReports()')
+    ]),
     menuGroup('system','System Setup',[
       menuButton('criteria','Equipment Type Criteria','showEquipmentTypeCriteria()'),
-      menuButton('she','SLAMM','showRiskAssessments()'),menuButton('system-health','System Health','showSystemHealth()')
+      menuButton('system-health','System Health','showSystemHealth()')
     ]),
     menuGroup('account','Account',[menuButton('profile','My Profile','showMyProfile()')])
   ].join('')
@@ -3201,6 +3206,13 @@ window.showRiskAssessments = async function () {
   await renderRiskAssessments(assets, window.canWriteRiskAssessments)
 }
 
+window.showRiskAssessmentReports = async function () {
+  if (!ensurePageAccess('she-reports')) return
+  setCurrentPage('she-reports')
+  window.canWriteRiskAssessments = false
+  await renderRiskAssessmentReports()
+}
+
 window.loadRiskAssessments = async function () {
   const response = await fetch(`${API_BASE}/she/risk-assessments`)
   const data = await response.json()
@@ -3216,6 +3228,10 @@ window.loadRiskAssessments = async function () {
 
 window.filterRiskAssessments = function () {
   renderRiskAssessmentTable(window.riskAssessments || [], window.canWriteRiskAssessments)
+}
+
+window.printRiskAssessments = function () {
+  window.print()
 }
 
 window.downloadRiskAssessments = async function (format = "pdf") {
@@ -11382,6 +11398,10 @@ switch (currentPage) {
     showRiskAssessments()
     break
 
+  case "she-reports":
+    showRiskAssessmentReports()
+    break
+
   case "users":
     showUserManagement()
     break
@@ -11438,6 +11458,7 @@ window.addEventListener('popstate', event => {
     mpi: window.showMpiReports,
     'customer-report': window.showCustomerDetailedReport,
     she: window.showRiskAssessments,
+    'she-reports': window.showRiskAssessmentReports,
     users: window.showUserManagement,
     'system-health': window.showSystemHealth,
     profile: window.showMyProfile

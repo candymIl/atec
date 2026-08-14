@@ -301,6 +301,27 @@ export async function renderRiskAssessments(assets = [], canWrite = true) {
   await window.loadRiskAssessments()
 }
 
+export async function renderRiskAssessmentReports() {
+  const page = document.querySelector('#page')
+  page.innerHTML = `
+    <h1>SLAMM Reporting</h1>
+    <p>Search, review, print or download SLAMM risk assessments.</p>
+    <div class="filter-card risk-report-controls">
+      <div class="form-row">
+        <div class="form-group"><label>Search</label><input id="riskSearch" type="text" placeholder="Asset, activity, hazard, status..." onkeyup="filterRiskAssessments()"></div>
+        <div class="form-group"><label>Status</label><select id="riskStatusFilter" onchange="filterRiskAssessments()"><option value="">All</option>${statusOptions('')}</select></div>
+      </div>
+      <div class="form-actions">
+        <button type="button" onclick="printRiskAssessments()">Print Report</button>
+        <button type="button" onclick="downloadRiskAssessments('pdf')">Download PDF</button>
+        <button type="button" onclick="downloadRiskAssessments('xlsx')">Export Excel</button>
+      </div>
+    </div>
+    <div id="riskAssessmentTable"></div>
+  `
+  await window.loadRiskAssessments()
+}
+
 export function renderRiskAssessmentTable(risks = [], canWrite = true) {
   const table = document.querySelector('#riskAssessmentTable')
   const search = document.querySelector('#riskSearch')?.value.toLowerCase().trim() || ''
