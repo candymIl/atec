@@ -10873,22 +10873,57 @@ function createSlammPdf(row, res, disposition = "attachment") {
   doc.pipe(res)
 
   const heading = title => {
-    doc.moveDown(0.55).font("Helvetica-Bold").fontSize(10).fillColor("#1f3b5c").text(title)
-    doc.moveDown(0.2).strokeColor("#cbd5e1").moveTo(42, doc.y).lineTo(553, doc.y).stroke().moveDown(0.3)
+    if (doc.y > doc.page.height - 82) doc.addPage()
+    doc.moveDown(0.45)
+    const y = doc.y
+    doc.roundedRect(42, y, 511, 18, 2).fill("#e8eef7")
+    doc.font("Helvetica-Bold").fontSize(9).fillColor("#183153").text(title.toUpperCase(), 50, y + 5, { width: 495, lineBreak: false })
+    doc.y = y + 23
   }
   const field = (label, value) => {
-    doc.font("Helvetica-Bold").fontSize(7).fillColor("#64748b").text(String(label).toUpperCase(), { continued: true })
-    doc.font("Helvetica").fontSize(8.5).fillColor("#111827").text(`  ${reportValue(value) || "-"}`)
+    const cleanValue = reportValue(value) || "-"
+    const labelWidth = 132
+    const valueWidth = 371
+    const rowY = doc.y
+    const rowHeight = Math.max(14, doc.font("Helvetica").fontSize(8).heightOfString(cleanValue, { width: valueWidth }) + 5)
+    if (rowY + rowHeight > doc.page.height - 72) {
+      doc.addPage()
+      doc.y = 45
+      return field(label, value)
+    }
+    doc.rect(46, rowY, 503, rowHeight).fill("#f8fafc")
+    doc.font("Helvetica-Bold").fontSize(6.7).fillColor("#64748b").text(String(label).toUpperCase(), 51, rowY + 4, { width: labelWidth, lineBreak: false, ellipsis: true })
+    doc.font("Helvetica").fontSize(8).fillColor("#111827").text(cleanValue, 183, rowY + 3.5, { width: valueWidth })
+    doc.y = rowY + rowHeight + 1
   }
   const answers = (title, values) => {
     heading(title)
     const data = values && typeof values === "object" ? values : {}
-    Object.entries(data).forEach(([key, value]) => field(slammQuestionLabels[key] || key.replaceAll("_", " "), value))
+    Object.entries(data).forEach(([key, value]) => {
+      const label = slammQuestionLabels[key] || key.replaceAll("_", " ")
+      const rowY = doc.y
+      const rowHeight = Math.max(14, doc.font("Helvetica-Bold").fontSize(7).heightOfString(label, { width: 390 }) + 6)
+      if (rowY + rowHeight > doc.page.height - 72) {
+        doc.addPage()
+        doc.y = 45
+      }
+      const y = doc.y
+      doc.rect(46, y, 503, rowHeight).fill("#f8fafc")
+      doc.font("Helvetica-Bold").fontSize(7).fillColor("#475569").text(label, 51, y + 4, { width: 390 })
+      const answerColor = String(value).toUpperCase() === "NO" ? "#b91c1c" : "#166534"
+      doc.font("Helvetica-Bold").fontSize(8).fillColor(answerColor).text(reportValue(value), 455, y + 4, { width: 80, align: "center", lineBreak: false })
+      doc.y = y + rowHeight + 1
+    })
     if (!Object.keys(data).length) doc.font("Helvetica-Oblique").fontSize(8).fillColor("#64748b").text("No answers recorded")
   }
 
-  doc.font("Helvetica-Bold").fontSize(18).fillColor("#172554").text("ATEC SLAMM RISK ASSESSMENT", { align: "center" })
-  doc.font("Helvetica").fontSize(8).fillColor("#64748b").text(`SLAMM No. ${row.riskid}`, { align: "center" })
+  doc.roundedRect(42, 32, 511, 54, 4).fill("#183153")
+  doc.font("Helvetica-Bold").fontSize(17).fillColor("#ffffff").text("ATEC SLAMM RISK ASSESSMENT", 57, 45, { width: 360, lineBreak: false })
+  doc.font("Helvetica").fontSize(7).fillColor("#cbd5e1").text("STOP  |  LOOK  |  ASSESS  |  MANAGE  |  MONITOR", 57, 68, { width: 360, lineBreak: false })
+  doc.roundedRect(439, 44, 96, 29, 3).fill("#ffffff")
+  doc.font("Helvetica-Bold").fontSize(7).fillColor("#64748b").text("SLAMM NUMBER", 448, 49, { width: 78, align: "center", lineBreak: false })
+  doc.font("Helvetica-Bold").fontSize(12).fillColor("#183153").text(String(row.riskid), 448, 59, { width: 78, align: "center", lineBreak: false })
+  doc.y = 92
 
   heading("Assessment Details")
   field("Assessment date", reportDate(row.assessment_date))
@@ -10908,13 +10943,9 @@ function createSlammPdf(row, res, disposition = "attachment") {
   heading("Look and Assess")
   field("Hazards and risks", row.hazard)
   field("Consequence", row.consequence)
-  field("Initial severity", row.initial_severity)
-  field("Initial likelihood", row.initial_likelihood)
-  field("Initial risk rating", row.initial_rating)
+  field("Initial risk", `Severity ${reportValue(row.initial_severity)}  |  Likelihood ${reportValue(row.initial_likelihood)}  |  Rating ${reportValue(row.initial_rating)}`)
   field("Controls", row.controls)
-  field("Residual severity", row.residual_severity)
-  field("Residual likelihood", row.residual_likelihood)
-  field("Residual risk rating", row.residual_rating)
+  field("Residual risk", `Severity ${reportValue(row.residual_severity)}  |  Likelihood ${reportValue(row.residual_likelihood)}  |  Rating ${reportValue(row.residual_rating)}`)
 
   heading("Manage and Monitor")
   field("Actions required", row.action_required)
@@ -10938,7 +10969,9 @@ function createSlammPdf(row, res, disposition = "attachment") {
   const range = doc.bufferedPageRange()
   for (let index = range.start; index < range.start + range.count; index += 1) {
     doc.switchToPage(index)
-    doc.font("Helvetica").fontSize(6.5).fillColor("#64748b").text(`SLAMM ${row.riskid} | Page ${index + 1} of ${range.count}`, 42, doc.page.height - 30, { width: 511, align: "right" })
+    doc.strokeColor("#cbd5e1").moveTo(42, doc.page.height - 66).lineTo(553, doc.page.height - 66).stroke()
+    doc.font("Helvetica").fontSize(6.5).fillColor("#64748b").text(`ATEC Inspection Platform  |  SLAMM ${row.riskid}`, 42, doc.page.height - 59, { width: 300, lineBreak: false })
+    doc.text(`Page ${index + 1} of ${range.count}`, 353, doc.page.height - 59, { width: 200, align: "right", lineBreak: false })
   }
   doc.end()
 }
