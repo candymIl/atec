@@ -267,38 +267,8 @@ export async function renderRiskAssessments(assets = [], canWrite = true) {
         <button onclick="saveRiskAssessment()">Save Risk Assessment</button>
         <button type="button" class="secondary-button" onclick="showRiskAssessments()">Clear Form</button>
       </div>
-    </div>` : ''}
-
-    <div class="filter-card">
-      <div class="form-row">
-        <div class="form-group">
-          <label>Search</label>
-          <input id="riskSearch" type="text" placeholder="Asset, activity, hazard, status..." onkeyup="filterRiskAssessments()">
-        </div>
-
-        <div class="form-group">
-          <label>Status</label>
-          <select id="riskStatusFilter" onchange="filterRiskAssessments()">
-            <option value="">All</option>
-            ${statusOptions('')}
-          </select>
-        </div>
-      </div>
-
-      <div class="form-actions">
-        <button type="button" onclick="downloadRiskAssessments('pdf')">
-          Download PDF
-        </button>
-        <button type="button" onclick="downloadRiskAssessments('xlsx')">
-          Export Excel
-        </button>
-      </div>
-    </div>
-
-    <div id="riskAssessmentTable"></div>
+    </div>` : '<div class="filter-card"><p>You have view-only access. Open Reporting to view and print saved SLAMMs.</p></div>'}
   `
-
-  await window.loadRiskAssessments()
 }
 
 export async function renderRiskAssessmentReports() {
@@ -370,6 +340,7 @@ export function renderRiskAssessmentTable(risks = [], canWrite = true) {
           <th>${sortHeader('Responsible', 'riskAssessments', 'responsible_person', 'filterRiskAssessments')}</th>
           <th>${sortHeader('Status', 'riskAssessments', 'status', 'filterRiskAssessments')}</th>
           <th>${sortHeader('Due', 'riskAssessments', 'due_date', 'filterRiskAssessments')}</th>
+          <th>Report</th>
           ${canWrite ? '<th>Action</th>' : ''}
         </tr>
       </thead>
@@ -390,6 +361,10 @@ export function renderRiskAssessmentTable(risks = [], canWrite = true) {
             <td>${escapeHtml(risk.responsible_person || '')}</td>
             <td>${escapeHtml(risk.status || '')}</td>
             <td>${formatDate(risk.due_date)}</td>
+            <td><div class="action-buttons">
+              <button onclick="downloadRiskAssessmentPdf(${risk.riskid})">PDF</button>
+              <button class="secondary-button" onclick="printRiskAssessment(${risk.riskid})">Print</button>
+            </div></td>
             ${canWrite ? `<td>
               <div class="action-buttons">
                 <button onclick="editRiskAssessment(${risk.riskid})">Edit</button>
@@ -399,7 +374,7 @@ export function renderRiskAssessmentTable(risks = [], canWrite = true) {
           </tr>
         `).join('') : `
           <tr>
-            <td colspan="${canWrite ? '12' : '11'}" class="empty-row">No risk assessments found</td>
+            <td colspan="${canWrite ? '13' : '12'}" class="empty-row">No risk assessments found</td>
           </tr>
         `}
       </tbody>

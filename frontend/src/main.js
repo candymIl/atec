@@ -3209,7 +3209,7 @@ window.showRiskAssessments = async function () {
 window.showRiskAssessmentReports = async function () {
   if (!ensurePageAccess('she-reports')) return
   setCurrentPage('she-reports')
-  window.canWriteRiskAssessments = false
+  window.canWriteRiskAssessments = ['ADMIN', 'MANAGER', 'INSPECTOR'].includes(currentUser?.role)
   await renderRiskAssessmentReports()
 }
 
@@ -3232,6 +3232,28 @@ window.filterRiskAssessments = function () {
 
 window.printRiskAssessments = function () {
   window.print()
+}
+
+window.downloadRiskAssessmentPdf = async function (riskid) {
+  const response = await fetch(`${API_BASE}/she/risk-assessments/${riskid}.pdf`)
+  if (!response.ok) {
+    const data = await readApiResponse(response)
+    alert(data.error || 'Unable to download this SLAMM')
+    return
+  }
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `ATEC-SLAMM-${riskid}.pdf`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
+window.printRiskAssessment = function (riskid) {
+  window.open(`${API_BASE}/she/risk-assessments/${riskid}.pdf?disposition=inline`, '_blank', 'noopener')
 }
 
 window.downloadRiskAssessments = async function (format = "pdf") {
@@ -3363,17 +3385,13 @@ window.saveRiskAssessment = async function () {
   await showRiskAssessments()
 }
 
-window.editRiskAssessment = function (riskid) {
+window.editRiskAssessment = async function (riskid) {
   const risk = (window.riskAssessments || []).find(item => String(item.riskid) === String(riskid))
 
   if (!risk) return
 
-  if (!document.querySelector('#riskId')) {
-    const hidden = document.createElement('input')
-    hidden.type = 'hidden'
-    hidden.id = 'riskId'
-    document.querySelector('.filter-card').appendChild(hidden)
-  }
+  if (!document.querySelector('#riskId')) await window.showRiskAssessments()
+  if (!document.querySelector('#riskId')) return
 
   document.querySelector('#riskId').value = risk.riskid
   document.querySelector('#riskAssetId').value = risk.assetid || ''

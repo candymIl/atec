@@ -10777,6 +10777,11 @@ async function getRiskAssessmentRows(filters = {}) {
   const values = []
   const where = ["COALESCE(r.archived, false) = false"]
 
+  if (filters.riskid) {
+    values.push(filters.riskid)
+    where.push(`r.riskid = $${values.length}`)
+  }
+
   if (filters.status) {
     values.push(filters.status)
     where.push(`r.status = $${values.length}`)
@@ -10836,6 +10841,118 @@ app.get("/she/risk-assessments", async (req, res) => {
   } catch (err) {
     console.error("Risk assessment list error:", err)
     res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
+
+const slammQuestionLabels = {
+  routine_task: "Routine task performed daily or weekly",
+  team_fit: "Team physically and mentally fit",
+  authorized: "Required authorization, access and permits confirmed",
+  tools_ppe_safe: "Tools, equipment and PPE inspected and safe",
+  energy_locked_out: "Energy sources isolated and locked out where required",
+  team_competent: "Team trained, competent and appointed",
+  task_planned: "Task planned without unsafe improvisation",
+  stop_if_risk_changes: "Team will stop and escalate if risk changes",
+  standard_understood: "Applicable task standard understood",
+  task_completed_safely: "Task completed safely",
+  team_accounted_for: "All team members accounted for and safe",
+  near_misses: "Near misses or incidents experienced",
+  ppe_worn: "Required PPE worn",
+  housekeeping_done: "Good housekeeping maintained",
+  reported_complete: "Task completion reported",
+  went_to_plan: "Task went according to plan",
+  extra_information: "Additional task information required"
+}
+
+function createSlammPdf(row, res, disposition = "attachment") {
+  const filename = `ATEC-SLAMM-${row.riskid}-${reportDate(row.assessment_date)}.pdf`
+  res.setHeader("Content-Type", "application/pdf")
+  res.setHeader("Content-Disposition", `${disposition}; filename="${filename}"`)
+
+  const doc = new PDFDocument({ size: "A4", margins: { top: 38, right: 42, bottom: 42, left: 42 }, bufferPages: true })
+  doc.pipe(res)
+
+  const heading = title => {
+    doc.moveDown(0.55).font("Helvetica-Bold").fontSize(10).fillColor("#1f3b5c").text(title)
+    doc.moveDown(0.2).strokeColor("#cbd5e1").moveTo(42, doc.y).lineTo(553, doc.y).stroke().moveDown(0.3)
+  }
+  const field = (label, value) => {
+    doc.font("Helvetica-Bold").fontSize(7).fillColor("#64748b").text(String(label).toUpperCase(), { continued: true })
+    doc.font("Helvetica").fontSize(8.5).fillColor("#111827").text(`  ${reportValue(value) || "-"}`)
+  }
+  const answers = (title, values) => {
+    heading(title)
+    const data = values && typeof values === "object" ? values : {}
+    Object.entries(data).forEach(([key, value]) => field(slammQuestionLabels[key] || key.replaceAll("_", " "), value))
+    if (!Object.keys(data).length) doc.font("Helvetica-Oblique").fontSize(8).fillColor("#64748b").text("No answers recorded")
+  }
+
+  doc.font("Helvetica-Bold").fontSize(18).fillColor("#172554").text("ATEC SLAMM RISK ASSESSMENT", { align: "center" })
+  doc.font("Helvetica").fontSize(8).fillColor("#64748b").text(`SLAMM No. ${row.riskid}`, { align: "center" })
+
+  heading("Assessment Details")
+  field("Assessment date", reportDate(row.assessment_date))
+  field("Assessment time", row.assessment_time)
+  field("Status", String(row.status || "").replaceAll("_", " "))
+  field("Customer", row.clientname)
+  field("Site", row.sitename)
+  field("Section", row.sectionname)
+  field("Asset", row.assettagno || row.assetid)
+  field("Task description", row.activity)
+  field("Responsible person", row.responsible_person)
+
+  heading("Stop and Look")
+  field("Hazard types", Array.isArray(row.hazard_categories) ? row.hazard_categories.join(", ") : row.hazard_categories)
+  answers("Stop Questions", row.stop_questions)
+
+  heading("Look and Assess")
+  field("Hazards and risks", row.hazard)
+  field("Consequence", row.consequence)
+  field("Initial severity", row.initial_severity)
+  field("Initial likelihood", row.initial_likelihood)
+  field("Initial risk rating", row.initial_rating)
+  field("Controls", row.controls)
+  field("Residual severity", row.residual_severity)
+  field("Residual likelihood", row.residual_likelihood)
+  field("Residual risk rating", row.residual_rating)
+
+  heading("Manage and Monitor")
+  field("Actions required", row.action_required)
+  field("Manage plan", row.manage_plan)
+  field("Monitor notes", row.monitor_notes)
+  field("Due date", reportDate(row.due_date))
+
+  answers("After Task Review", row.review_questions)
+  field("Additional comments / recommendations", row.additional_notes)
+
+  heading("Team Members")
+  const team = Array.isArray(row.team_members) ? row.team_members : []
+  team.forEach((member, index) => field(`Member ${index + 1}`, [member.name, member.surname, member.signature].filter(Boolean).join(" | ")))
+  if (!team.length) doc.font("Helvetica-Oblique").fontSize(8).fillColor("#64748b").text("No team members recorded")
+
+  heading("After Task Sign-off")
+  field("Responsible person", row.responsible_signoff_name)
+  field("Supervisor", row.supervisor_signoff_name)
+  field("Created by", row.created_by_name)
+
+  const range = doc.bufferedPageRange()
+  for (let index = range.start; index < range.start + range.count; index += 1) {
+    doc.switchToPage(index)
+    doc.font("Helvetica").fontSize(6.5).fillColor("#64748b").text(`SLAMM ${row.riskid} | Page ${index + 1} of ${range.count}`, 42, doc.page.height - 30, { width: 511, align: "right" })
+  }
+  doc.end()
+}
+
+app.get("/she/risk-assessments/:id.pdf", pdfLimiter, async (req, res) => {
+  try {
+    const id = Number(req.params.id)
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Invalid risk assessment ID" })
+    const [row] = await getRiskAssessmentRows({ riskid: id })
+    if (!row) return res.status(404).json({ error: "Risk assessment not found" })
+    createSlammPdf(row, res, req.query.disposition === "inline" ? "inline" : "attachment")
+  } catch (err) {
+    const referenceId = logSafeError("Individual SLAMM PDF", err)
+    if (!res.headersSent) res.status(500).json({ error: "An unexpected server error occurred", referenceId })
   }
 })
 
