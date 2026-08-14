@@ -11790,25 +11790,32 @@ function drawCustomerReportPdf(doc, report) {
     ["No Load Test", report.summary.noLoadAssets]
   ]
 
-  const summaryWidth = width / 3
+  const summaryColumns = 3
+  const summaryColumnGap = 8
+  const summaryRowGap = 4
+  const summaryBoxHeight = 20
+  const summaryWidth = (width - (summaryColumnGap * (summaryColumns - 1))) / summaryColumns
 
   summaryItems.forEach((item, index) => {
-    const col = index % 3
-    const row = Math.floor(index / 3)
-    const boxX = marginX + (col * summaryWidth)
-    const boxY = y + (row * 24)
+    const col = index % summaryColumns
+    const row = Math.floor(index / summaryColumns)
+    const boxX = marginX + (col * (summaryWidth + summaryColumnGap))
+    const boxY = y + (row * (summaryBoxHeight + summaryRowGap))
 
-    doc.rect(boxX, boxY, summaryWidth - 8, 20).strokeColor("#d9e1ec").stroke()
+    doc.rect(boxX, boxY, summaryWidth, summaryBoxHeight).strokeColor("#d9e1ec").stroke()
     doc.font("Helvetica-Bold").fontSize(7).fillColor("#1f3b5c").text(item[0], boxX + 5, boxY + 4, {
-      width: summaryWidth - 50
+      width: summaryWidth - 50,
+      lineBreak: false
     })
-    doc.font("Helvetica").fontSize(9).fillColor("#111827").text(reportValue(item[1]), boxX + summaryWidth - 45, boxY + 4, {
+    doc.font("Helvetica-Bold").fontSize(9).fillColor("#111827").text(reportValue(item[1]), boxX + summaryWidth - 41, boxY + 4, {
       width: 36,
-      align: "right"
+      align: "right",
+      lineBreak: false
     })
   })
 
-  y += 84
+  const summaryRows = Math.ceil(summaryItems.length / summaryColumns)
+  y += (summaryRows * summaryBoxHeight) + ((summaryRows - 1) * summaryRowGap) + 12
 
   const columns = [
     ["Asset", 40],
