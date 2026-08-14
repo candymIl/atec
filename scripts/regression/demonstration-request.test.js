@@ -1,0 +1,21 @@
+const assert = require('assert')
+const fs = require('fs')
+const path = require('path')
+
+const root = path.join(__dirname, '..', '..')
+const server = fs.readFileSync(path.join(root, 'backend', 'server.js'), 'utf8')
+const frontend = fs.readFileSync(path.join(root, 'frontend', 'src', 'main.js'), 'utf8')
+const styles = fs.readFileSync(path.join(root, 'frontend', 'src', 'style.css'), 'utf8')
+
+assert.match(server, /app\.post\("\/public\/demonstration-request", csrfProtection, demonstrationRequestLimiter/)
+assert.match(server, /to: "info@atecinspections\.co\.za"/)
+assert.match(server, /req\.body\.consent === true/)
+assert.match(server, /limit: 5/)
+assert.match(frontend, /Request a Live Demonstration/)
+assert.match(frontend, /href="tel:\+27795297683"/)
+assert.match(frontend, /\/public\/demonstration-request/)
+assert.match(frontend, /demoWebsite/)
+assert.match(styles, /\.login-shell/)
+assert.match(styles, /@media \(max-width: 520px\)/)
+
+console.log('Demonstration request regression checks passed.')

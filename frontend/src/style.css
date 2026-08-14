@@ -3552,6 +3552,79 @@ tr:hover {
   padding: 10px;
 }
 
+.login-shell {
+  align-items: stretch;
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(320px, 400px) minmax(420px, 680px);
+  max-width: 1120px;
+  margin: auto;
+  width: 100%;
+}
+
+.login-shell .login-card { max-width: none; }
+
+.login-eyebrow {
+  color: #2563a9;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.login-discovery {
+  background: linear-gradient(145deg, #102a4f 0%, #184776 100%);
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(15, 45, 79, 0.18);
+  color: #fff;
+  padding: 40px;
+  position: relative;
+}
+
+.login-discovery .login-eyebrow { color: #8fc5ff; }
+.login-discovery h2 { font-size: clamp(1.8rem, 4vw, 2.55rem); line-height: 1.08; margin: 10px 0 18px; }
+.login-discovery > p { color: #dbeafe; line-height: 1.65; }
+.login-discovery ul { display: grid; gap: 10px; margin: 22px 0 26px; padding-left: 22px; }
+.login-discovery li::marker { color: #42d17c; }
+.demo-cta { background: #16a45b; border-color: #16a45b; font-weight: 800; }
+.demo-cta:hover { background: #118249; border-color: #118249; }
+.demo-contact { font-size: 0.92rem; margin: 18px 0 0; }
+.demo-contact a { color: #fff; font-weight: 800; }
+
+.demo-request-form {
+  background: #fff;
+  border-radius: 10px;
+  color: #1f2937;
+  margin-top: 26px;
+  padding: 24px;
+}
+
+.demo-request-form[hidden] { display: none; }
+.demo-form-heading { align-items: center; display: flex; justify-content: space-between; }
+.demo-form-heading h3 { color: #102a4f; margin: 0 0 16px; }
+.demo-close { background: transparent; border: 0; color: #64748b; font-size: 1.8rem; line-height: 1; padding: 0 4px; }
+.demo-form-grid { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+.demo-request-form label { display: grid; font-size: 0.86rem; font-weight: 700; gap: 5px; }
+.demo-request-form input, .demo-request-form select, .demo-request-form textarea { width: 100%; }
+.demo-consent { align-items: start; display: flex !important; font-weight: 500 !important; margin: 14px 0; }
+.demo-consent input { margin-top: 2px; width: auto; }
+.demo-honeypot { left: -10000px; position: absolute; }
+.demo-form-status { border-radius: 6px; font-weight: 700; margin: 10px 0; }
+.demo-form-status.success { background: #dcfce7; color: #166534; padding: 10px; }
+.demo-form-status.error { background: #fee2e2; color: #b91c1c; padding: 10px; }
+
+@media (max-width: 860px) {
+  .login-shell { grid-template-columns: 1fr; max-width: 560px; }
+  .login-discovery { padding: 28px; }
+}
+
+@media (max-width: 520px) {
+  .login-page { align-items: start; padding: 14px; }
+  .login-card, .login-discovery { padding: 22px; }
+  .demo-form-grid { grid-template-columns: 1fr; }
+}
+
 .bulk-certificate-batches span {
   color: #475569;
   font-size: 0.9rem;

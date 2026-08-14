@@ -420,18 +420,96 @@ function renderLogin(message = '') {
   window.removePageScrollControls?.()
   document.querySelector('#app').innerHTML = `
     <div class="login-page">
-      <form class="login-card" onsubmit="event.preventDefault(); loginUser()">
-        <img src="${assetUrl('logo.jpg')}" alt="ATEC Logo" class="login-logo">
-        <h1>ATEC Login</h1>
-        ${message ? `<p class="login-error">${message}</p>` : ''}
-        <label>Username or Email</label>
-        <input id="loginUsername" type="text" autocomplete="username">
-        <label>Password</label>
-        <input id="loginPassword" type="password" autocomplete="current-password">
-        <button type="submit">Login</button>
-      </form>
+      <main class="login-shell">
+        <form class="login-card" onsubmit="event.preventDefault(); loginUser()">
+          <img src="${assetUrl('logo.jpg')}" alt="ATEC Logo" class="login-logo">
+          <p class="login-eyebrow">Secure customer and operations access</p>
+          <h1>Sign in to ATEC</h1>
+          ${message ? `<p class="login-error">${message}</p>` : ''}
+          <label for="loginUsername">Username or Email</label>
+          <input id="loginUsername" type="text" autocomplete="username">
+          <label for="loginPassword">Password</label>
+          <input id="loginPassword" type="password" autocomplete="current-password">
+          <button type="submit">Sign In</button>
+        </form>
+        <section class="login-discovery" aria-labelledby="demoHeading">
+          <p class="login-eyebrow">New to ATEC?</p>
+          <h2 id="demoHeading">Discover the ATEC Inspection Platform</h2>
+          <p>See how ATEC connects asset registers, job planning, field inspections, workforce activity, certificates and customer reporting in one controlled platform.</p>
+          <ul><li>Connected customer and asset records</li><li>Guided inspections and field evidence</li><li>Workforce, approval and reporting workflows</li></ul>
+          <button type="button" class="demo-cta" onclick="showDemonstrationRequest()">Request a Live Demonstration</button>
+          <p class="demo-contact">Prefer to speak to us? <a href="tel:+27795297683">079 529 7683</a></p>
+          <form id="demonstrationRequestForm" class="demo-request-form" hidden onsubmit="event.preventDefault(); submitDemonstrationRequest()">
+            <div class="demo-form-heading"><h3>Request a live demonstration</h3><button type="button" class="demo-close" onclick="hideDemonstrationRequest()" aria-label="Close demonstration request">&times;</button></div>
+            <div class="demo-form-grid">
+              <label>Full name *<input id="demoFullName" maxlength="120" autocomplete="name" required></label>
+              <label>Company *<input id="demoCompany" maxlength="160" autocomplete="organization" required></label>
+              <label>Work email *<input id="demoEmail" type="email" maxlength="254" autocomplete="email" required></label>
+              <label>Telephone *<input id="demoPhone" type="tel" maxlength="40" autocomplete="tel" required></label>
+              <label>Area of interest<select id="demoInterest"><option>General platform overview</option><option>Asset inspections and certificates</option><option>Job cards and workforce</option><option>Customer portal and reporting</option><option>Risk and compliance</option></select></label>
+              <label>Preferred contact<select id="demoContactMethod"><option>Email</option><option>Telephone</option></select></label>
+            </div>
+            <label>How can we help?<textarea id="demoMessage" maxlength="2000" rows="3"></textarea></label>
+            <label class="demo-honeypot" aria-hidden="true">Website<input id="demoWebsite" tabindex="-1" autocomplete="off"></label>
+            <label class="demo-consent"><input id="demoConsent" type="checkbox" required> I agree that ATEC may contact me about this request.</label>
+            <p id="demoFormStatus" class="demo-form-status" role="status" aria-live="polite"></p>
+            <button id="demoSubmitButton" type="submit" class="demo-cta">Send Demonstration Request</button>
+          </form>
+        </section>
+      </main>
     </div>
   `
+}
+
+window.showDemonstrationRequest = function () {
+  const form = document.querySelector('#demonstrationRequestForm')
+  if (!form) return
+  form.hidden = false
+  form.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  document.querySelector('#demoFullName')?.focus()
+}
+
+window.hideDemonstrationRequest = function () {
+  const form = document.querySelector('#demonstrationRequestForm')
+  if (form) form.hidden = true
+}
+
+window.submitDemonstrationRequest = async function () {
+  const form = document.querySelector('#demonstrationRequestForm')
+  const status = document.querySelector('#demoFormStatus')
+  const button = document.querySelector('#demoSubmitButton')
+  if (!form?.reportValidity() || !status || !button) return
+  button.disabled = true
+  button.textContent = 'Sending...'
+  status.className = 'demo-form-status'
+  status.textContent = ''
+  try {
+    const response = await fetch(`${API_BASE}/public/demonstration-request`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        full_name: document.querySelector('#demoFullName')?.value,
+        company: document.querySelector('#demoCompany')?.value,
+        email: document.querySelector('#demoEmail')?.value,
+        phone: document.querySelector('#demoPhone')?.value,
+        interest: document.querySelector('#demoInterest')?.value,
+        contact_method: document.querySelector('#demoContactMethod')?.value,
+        message: document.querySelector('#demoMessage')?.value,
+        website: document.querySelector('#demoWebsite')?.value,
+        consent: document.querySelector('#demoConsent')?.checked === true
+      })
+    })
+    const result = await readApiResponse(response)
+    if (!response.ok) throw new Error(result.error || 'Your request could not be sent.')
+    form.reset()
+    status.className = 'demo-form-status success'
+    status.textContent = result.message
+  } catch (err) {
+    status.className = 'demo-form-status error'
+    status.textContent = err.message
+  } finally {
+    button.disabled = false
+    button.textContent = 'Send Demonstration Request'
+  }
 }
 
 window.loginUser = async function () {

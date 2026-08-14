@@ -462,6 +462,14 @@ const loginLimiter = rateLimit({
   legacyHeaders: false
 })
 
+const demonstrationRequestLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  message: { error: "Too many demonstration requests. Please call 079 529 7683 or try again later." },
+  standardHeaders: true,
+  legacyHeaders: false
+})
+
 const searchLimiter = rateLimit({
   windowMs: parseRateLimitEnv("SEARCH_RATE_LIMIT_WINDOW_MS", 60 * 1000, 15 * 60 * 1000),
   limit: parseRateLimitEnv("SEARCH_RATE_LIMIT", 120, 1000),
@@ -1253,6 +1261,55 @@ app.post("/auth/login", csrfProtection, loginLimiter, asyncRoute(async (req, res
 
   res.cookie("atec_session", signAuthToken(user), authCookieOptions())
   res.json({ user: publicUser(user) })
+}))
+
+app.post("/public/demonstration-request", csrfProtection, demonstrationRequestLimiter, asyncRoute(async (req, res) => {
+  const fullName = String(req.body.full_name || "").trim().slice(0, 120)
+  const company = String(req.body.company || "").trim().slice(0, 160)
+  const email = String(req.body.email || "").trim().slice(0, 254)
+  const phone = String(req.body.phone || "").trim().slice(0, 40)
+  const interest = String(req.body.interest || "General platform overview").trim().slice(0, 160)
+  const contactMethod = String(req.body.contact_method || "Email").trim().slice(0, 40)
+  const message = String(req.body.message || "").trim().slice(0, 2000)
+  const website = String(req.body.website || "").trim()
+  const consent = req.body.consent === true
+
+  if (website) return res.json({ message: "Your request has been received." })
+  if (!fullName || !company || !email || !phone) {
+    return res.status(400).json({ error: "Name, company, work email and telephone number are required." })
+  }
+  if (!isValidEmailAddress(email)) {
+    return res.status(400).json({ error: "Enter a valid work email address." })
+  }
+  if (!consent) {
+    return res.status(400).json({ error: "Consent to be contacted is required." })
+  }
+
+  const submittedAt = new Date().toLocaleString("en-ZA", { timeZone: "Africa/Johannesburg" })
+  const text = [
+    "New ATEC live demonstration request", "",
+    `Name: ${fullName}`, `Company: ${company}`, `Work email: ${email}`,
+    `Telephone: ${phone}`, `Area of interest: ${interest}`,
+    `Preferred contact method: ${contactMethod}`, `Submitted: ${submittedAt} SAST`,
+    "", "Message:", message || "No additional message provided."
+  ].join("\n")
+
+  try {
+    await sendApplicationEmail({
+      from: process.env.MAIL_FROM,
+      to: "info@atecinspections.co.za",
+      replyTo: email,
+      subject: `ATEC demonstration request - ${company}`,
+      text
+    })
+    res.json({ message: "Thank you. Your demonstration request has been received. An ATEC representative will contact you shortly." })
+  } catch (err) {
+    const referenceId = logSafeError("Public demonstration request", err)
+    res.status(503).json({
+      error: "We could not send your request right now. Please call 079 529 7683 or try again later.",
+      reference_id: referenceId
+    })
+  }
 }))
 
 app.post("/auth/logout", requireAuth, csrfProtection, asyncRoute(async (req, res) => {
