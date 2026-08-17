@@ -11054,6 +11054,11 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
 let jobCardEditing = null
 let jobCardAssets = []
 let jobCardTechnicians = []
+let jobCardListRows = []
+let jobCardListView = 'ACTIVE'
+let jobCardListPage = 1
+let jobCardListSearchTimer = null
+const JOB_CARD_LIST_PAGE_SIZE = 15
 
 function jobCardOption(value, label, selected) {
   return `<option value="${safeAttr(value)}" ${String(value) === String(selected || '') ? 'selected' : ''}>${escapeHtml(label)}</option>`
@@ -11063,13 +11068,102 @@ window.showJobCards = async function () {
   if (!ensurePageAccess('job-cards')) return
   setCurrentPage('job-cards')
   const page = document.querySelector('#page')
-  page.innerHTML = `<div class="page-heading"><div><h2>Technician Job Cards</h2><p>Repair, maintenance and call-out worksheets with equipment, deviations, photographs and customer sign-off.</p></div><button class="load-test-btn" onclick="openJobCard()">New Job Card</button></div><div class="filter-card"><div id="jobCardList">Loading job cards...</div></div>`
+  page.innerHTML = `<div class="page-heading job-card-page-heading"><div><h2>Technician Job Cards</h2><p>Find, track and manage field work without losing sight of what needs attention.</p></div><button class="load-test-btn" onclick="openJobCard()">+ New Job Card</button></div><div id="jobCardList"><div class="job-card-loading">Loading job cards...</div></div>`
   const response = await fetch(`${API_BASE}/job-cards`)
   const rows = await readApiResponse(response)
   const box = document.querySelector('#jobCardList')
   if (!response.ok) { box.innerHTML = `<p class="login-error">${escapeHtml(rows.error || 'Could not load job cards')}</p>`; return }
-  box.innerHTML = `<div class="job-card-list">${rows.map(card => `<div class="job-card-list-row"><button type="button" class="job-card-list-item" onclick="openJobCard(${card.jobcardid})"><span><strong>${escapeHtml(card.jobcard_reference)}</strong><small>${escapeHtml(card.clientname)} / ${escapeHtml(card.sitename)}</small></span><span><b class="job-card-status status-${safeAttr(card.status.toLowerCase())}">${escapeHtml(card.status.replaceAll('_',' '))}</b><small>${escapeHtml(card.assigned_to_name || 'Unassigned')} · ${escapeHtml(card.open_deviations)} open deviation(s)</small></span></button><button type="button" class="job-card-list-pdf" aria-label="Open PDF for ${safeAttr(card.jobcard_reference)}" onclick="window.open('${API_BASE}/job-cards/${card.jobcardid}/pdf','_blank','noopener')">PDF</button></div>`).join('') || '<p>No job cards yet.</p>'}</div>`
+  jobCardListRows = Array.isArray(rows) ? rows : []
+  jobCardListPage = 1
+  renderJobCardList()
 }
+
+function jobCardListStatusGroup(status) {
+  const value = String(status || '').toUpperCase()
+  if (['DRAFT', 'ASSIGNED', 'IN_PROGRESS'].includes(value)) return 'ACTIVE'
+  if (value === 'SUBMITTED') return 'REVIEW'
+  if (['APPROVED', 'INVOICED'].includes(value)) return 'COMPLETED'
+  if (value === 'CANCELLED') return 'CANCELLED'
+  return 'ACTIVE'
+}
+
+function jobCardDateLabel(value) {
+  if (!value) return 'No date set'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? 'No date set' : date.toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+function renderJobCardList() {
+  const box = document.querySelector('#jobCardList')
+  if (!box) return
+  const search = String(document.querySelector('#jobCardSearch')?.value || '').trim().toLowerCase()
+  const status = String(document.querySelector('#jobCardStatusFilter')?.value || '')
+  const technician = String(document.querySelector('#jobCardTechnicianFilter')?.value || '')
+  const sort = String(document.querySelector('#jobCardSort')?.value || 'UPDATED_DESC')
+  const counts = jobCardListRows.reduce((result, card) => {
+    result[jobCardListStatusGroup(card.status)]++
+    return result
+  }, { ACTIVE: 0, REVIEW: 0, COMPLETED: 0, CANCELLED: 0 })
+  const technicians = [...new Set(jobCardListRows.map(card => card.assigned_to_name || 'Unassigned'))].sort((a, b) => a.localeCompare(b))
+  let filtered = jobCardListRows.filter(card => {
+    const groupMatch = jobCardListView === 'ALL' || jobCardListStatusGroup(card.status) === jobCardListView
+    const statusMatch = !status || String(card.status) === status
+    const technicianMatch = !technician || String(card.assigned_to_name || 'Unassigned') === technician
+    const haystack = [card.jobcard_reference, card.clientname, card.sitename, card.assigned_to_name, card.job_type].join(' ').toLowerCase()
+    return groupMatch && statusMatch && technicianMatch && (!search || haystack.includes(search))
+  })
+  filtered.sort((a, b) => {
+    if (sort === 'REFERENCE_DESC') return String(b.jobcard_reference).localeCompare(String(a.jobcard_reference), undefined, { numeric: true })
+    if (sort === 'CUSTOMER_ASC') return String(a.clientname).localeCompare(String(b.clientname))
+    if (sort === 'PLANNED_ASC') return new Date(a.planned_at || '9999-12-31') - new Date(b.planned_at || '9999-12-31')
+    return new Date(b.updated_at || 0) - new Date(a.updated_at || 0)
+  })
+  const totalPages = Math.max(1, Math.ceil(filtered.length / JOB_CARD_LIST_PAGE_SIZE))
+  jobCardListPage = Math.min(jobCardListPage, totalPages)
+  const start = (jobCardListPage - 1) * JOB_CARD_LIST_PAGE_SIZE
+  const visible = filtered.slice(start, start + JOB_CARD_LIST_PAGE_SIZE)
+  const views = [
+    ['ACTIVE', 'Active', counts.ACTIVE], ['REVIEW', 'Awaiting review', counts.REVIEW],
+    ['COMPLETED', 'Completed', counts.COMPLETED], ['CANCELLED', 'Cancelled', counts.CANCELLED],
+    ['ALL', 'All job cards', jobCardListRows.length]
+  ]
+  box.innerHTML = `<section class="job-card-overview" aria-label="Job card workload">
+      <div class="job-card-overview-copy"><span>Work queue</span><strong>${counts.ACTIVE + counts.REVIEW}</strong><small>job card${counts.ACTIVE + counts.REVIEW === 1 ? '' : 's'} still in the workflow</small></div>
+      <div class="job-card-metric"><span class="job-card-metric-dot active"></span><div><strong>${counts.ACTIVE}</strong><small>Active</small></div></div>
+      <div class="job-card-metric"><span class="job-card-metric-dot review"></span><div><strong>${counts.REVIEW}</strong><small>Awaiting review</small></div></div>
+      <div class="job-card-metric"><span class="job-card-metric-dot complete"></span><div><strong>${counts.COMPLETED}</strong><small>Completed</small></div></div>
+    </section>
+    <section class="filter-card job-card-workspace">
+      <div class="job-card-view-tabs" role="tablist" aria-label="Job card views">${views.map(([value, label, count]) => `<button type="button" role="tab" aria-selected="${jobCardListView === value}" class="${jobCardListView === value ? 'active' : ''}" onclick="setJobCardListView('${value}')"><span>${label}</span><b>${count}</b></button>`).join('')}</div>
+      <div class="job-card-toolbar">
+        <label class="job-card-search"><span>Search job cards</span><input id="jobCardSearch" type="search" placeholder="Job number, customer, site or inspector" value="${safeAttr(search)}" oninput="jobCardListSearchChanged()"></label>
+        <label><span>Status</span><select id="jobCardStatusFilter" onchange="jobCardListFiltersChanged()"><option value="">All statuses</option>${['DRAFT','ASSIGNED','IN_PROGRESS','SUBMITTED','APPROVED','INVOICED','CANCELLED'].map(value => `<option value="${value}" ${status === value ? 'selected' : ''}>${value.replaceAll('_',' ')}</option>`).join('')}</select></label>
+        <label><span>Inspector</span><select id="jobCardTechnicianFilter" onchange="jobCardListFiltersChanged()"><option value="">All inspectors</option>${technicians.map(value => `<option value="${safeAttr(value)}" ${technician === value ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('')}</select></label>
+        <label><span>Sort by</span><select id="jobCardSort" onchange="jobCardListFiltersChanged()"><option value="UPDATED_DESC" ${sort === 'UPDATED_DESC' ? 'selected' : ''}>Recently updated</option><option value="REFERENCE_DESC" ${sort === 'REFERENCE_DESC' ? 'selected' : ''}>Newest job number</option><option value="PLANNED_ASC" ${sort === 'PLANNED_ASC' ? 'selected' : ''}>Planned date</option><option value="CUSTOMER_ASC" ${sort === 'CUSTOMER_ASC' ? 'selected' : ''}>Customer A–Z</option></select></label>
+      </div>
+      <div class="job-card-results-heading"><p><strong>${filtered.length}</strong> job card${filtered.length === 1 ? '' : 's'} found</p>${(search || status || technician) ? '<button type="button" class="job-card-clear-filters" onclick="clearJobCardListFilters()">Clear filters</button>' : ''}</div>
+      <div class="job-card-list">${visible.map(card => `<article class="job-card-list-row"><button type="button" class="job-card-list-item" onclick="openJobCard(${card.jobcardid})"><span class="job-card-primary"><strong>${escapeHtml(card.jobcard_reference)}</strong><small>${escapeHtml(card.clientname)}</small><span>${escapeHtml(card.sitename)}</span></span><span class="job-card-assignee"><small>Inspector</small><strong>${escapeHtml(card.assigned_to_name || 'Unassigned')}</strong></span><span class="job-card-date"><small>${card.planned_at ? 'Planned' : 'Updated'}</small><strong>${jobCardDateLabel(card.planned_at || card.updated_at)}</strong></span><span class="job-card-state"><b class="job-card-status status-${safeAttr(String(card.status).toLowerCase())}">${escapeHtml(String(card.status).replaceAll('_',' '))}</b>${Number(card.open_deviations) > 0 ? `<small class="job-card-deviation-count">${escapeHtml(card.open_deviations)} open deviation${Number(card.open_deviations) === 1 ? '' : 's'}</small>` : '<small>No open deviations</small>'}</span></button><button type="button" class="job-card-list-pdf" aria-label="Open PDF for ${safeAttr(card.jobcard_reference)}" title="Open PDF" onclick="window.open('${API_BASE}/job-cards/${card.jobcardid}/pdf','_blank','noopener')"><span aria-hidden="true">PDF</span></button></article>`).join('') || `<div class="job-card-empty"><strong>No job cards match this view</strong><p>Try another status or clear the search filters.</p></div>`}</div>
+      ${filtered.length > JOB_CARD_LIST_PAGE_SIZE ? `<div class="job-card-pagination"><span>Showing ${start + 1}–${Math.min(start + JOB_CARD_LIST_PAGE_SIZE, filtered.length)} of ${filtered.length}</span><div><button type="button" onclick="changeJobCardListPage(-1)" ${jobCardListPage === 1 ? 'disabled' : ''}>Previous</button><b>Page ${jobCardListPage} of ${totalPages}</b><button type="button" onclick="changeJobCardListPage(1)" ${jobCardListPage === totalPages ? 'disabled' : ''}>Next</button></div></div>` : ''}
+    </section>`
+}
+
+window.setJobCardListView = function (view) { jobCardListView = view; jobCardListPage = 1; renderJobCardList() }
+window.jobCardListFiltersChanged = function () { jobCardListPage = 1; renderJobCardList() }
+window.jobCardListSearchChanged = function () {
+  clearTimeout(jobCardListSearchTimer)
+  jobCardListSearchTimer = setTimeout(() => {
+    jobCardListPage = 1
+    renderJobCardList()
+    const input = document.querySelector('#jobCardSearch')
+    if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length) }
+  }, 180)
+}
+window.clearJobCardListFilters = function () {
+  const search = document.querySelector('#jobCardSearch'); const status = document.querySelector('#jobCardStatusFilter'); const technician = document.querySelector('#jobCardTechnicianFilter')
+  if (search) search.value = ''; if (status) status.value = ''; if (technician) technician.value = ''
+  jobCardListPage = 1; renderJobCardList()
+}
+window.changeJobCardListPage = function (change) { jobCardListPage += change; renderJobCardList(); document.querySelector('#jobCardList')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
 
 async function loadJobCardFormData() {
   const assetPageUrl = page => `${API_BASE}/assets?limit=250&page=${page}&sortKey=clientname&sortDir=asc`
