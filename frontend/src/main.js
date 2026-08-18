@@ -11167,25 +11167,12 @@ window.changeJobCardListPage = function (change) { jobCardListPage += change; re
 
 async function loadJobCardAssets(clientid = '', siteid = '') {
   if (!clientid) { jobCardAssets = []; return }
-  const assetPageUrl = page => {
-    const params = new URLSearchParams({ limit:'250', page:String(page), sortKey:'clientname', sortDir:'asc', clientid:String(clientid) })
-    if (siteid) params.set('siteid', String(siteid))
-    return `${API_BASE}/assets?${params.toString()}`
-  }
-  const assetResponse = await fetch(assetPageUrl(1))
+  const params = new URLSearchParams({ clientid:String(clientid) })
+  if (siteid) params.set('siteid', String(siteid))
+  const assetResponse = await fetch(`${API_BASE}/job-cards/equipment?${params.toString()}`)
   const assetPayload = await readApiResponse(assetResponse)
   if (!assetResponse.ok) throw new Error(assetPayload.error || 'Could not load equipment for the selected customer and site')
-  jobCardAssets = Array.isArray(assetPayload) ? assetPayload : (assetPayload.rows || [])
-  const totalAssets = Number(assetPayload.total || jobCardAssets.length)
-  const remainingPages = Math.ceil(totalAssets / 250)
-  if (assetResponse.ok && remainingPages > 1) {
-    for (let page = 2; page <= remainingPages; page += 1) {
-      const response = await fetch(assetPageUrl(page))
-      const payload = await readApiResponse(response)
-      if (!response.ok) throw new Error(payload.error || `Could not load equipment page ${page}`)
-      jobCardAssets.push(...(Array.isArray(payload) ? payload : (payload.rows || [])))
-    }
-  }
+  jobCardAssets = Array.isArray(assetPayload) ? assetPayload : []
 }
 
 async function loadJobCardFormData() {

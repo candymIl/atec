@@ -14621,6 +14621,29 @@ app.get("/job-cards-technicians", asyncRoute(async (req, res) => {
   res.json(result.rows)
 }))
 
+app.get("/job-cards/equipment", asyncRoute(async (req, res) => {
+  const clientid = Number(req.query.clientid)
+  const siteid = req.query.siteid ? Number(req.query.siteid) : null
+  if (!Number.isInteger(clientid) || clientid <= 0 || (siteid !== null && (!Number.isInteger(siteid) || siteid <= 0))) {
+    return res.status(400).json({ error: "Select a valid customer and site" })
+  }
+  const values = [clientid]
+  let siteFilter = ""
+  if (siteid !== null) {
+    values.push(siteid)
+    siteFilter = ` AND a.siteid=$${values.length}`
+  }
+  const result = await pool.query(`SELECT a.assetid,a.clientid,a.siteid,a.sectionid,a.equiptypeid,
+    a.serialno,a.assettagno,a.description,a.wll,et.description AS equipmenttype,
+    et.equipgroupid,eg.groupname AS equipmentgroup
+    FROM atec.tblasset a
+    LEFT JOIN atec.tblequiptype et ON et.equiptypeid=a.equiptypeid
+    LEFT JOIN atec.tblequipgroup eg ON eg.equipgroupid=et.equipgroupid
+    WHERE a.clientid=$1${siteFilter} AND COALESCE(a.archived,false)=false
+    ORDER BY eg.groupname,et.description,COALESCE(NULLIF(a.assettagno,''),a.serialno),a.assetid`, values)
+  res.json(result.rows)
+}))
+
 async function calculateJobCardTimeSummary(client, body, fallbackUserId) {
   const userId = Number(body.assigned_to_user_id || fallbackUserId || 0)
   const workStart = body.work_started_at || null
