@@ -40,7 +40,12 @@ export function groupCriteriaRows(rows = [], config, inspectiontype = "VISUAL") 
     groupedRows.get(section).push(row)
   })
 
-  return sections
+  const configuredGroups = sections
     .map(section => [section, groupedRows.get(section) || []])
     .filter(([, sectionRows]) => sectionRows.length)
+
+  const additionalGroups = Array.from(groupedRows.entries())
+    .filter(([section, sectionRows]) => !sections.includes(section) && sectionRows.length)
+
+  return [...configuredGroups, ...additionalGroups]
 }

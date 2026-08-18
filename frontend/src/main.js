@@ -8360,12 +8360,12 @@ function renderVisualCriteriaRow(row) {
   `
 }
 
-function renderGenericInspectionCriteria(asset, measurementCriteria, visualCriteria, inspectiontype) {
+function renderGenericInspectionCriteria(asset, measurementCriteria, visualCriteria, inspectiontype, showTypeHeadings = true) {
   return `
     ${measurementCriteria.length ? `
-      <div class="inspection-section-title">
+      ${showTypeHeadings ? `<div class="inspection-section-title">
         Measurements
-      </div>
+      </div>` : ""}
 
       <div class="inspection-header measurements ${inspectiontype === "LOADTEST" ? "loadtest-measurements" : ""}">
         <div>Criteria</div>
@@ -8377,18 +8377,36 @@ function renderGenericInspectionCriteria(asset, measurementCriteria, visualCrite
       ${measurementCriteria.map(row => renderMeasurementCriteriaRow(row, asset, inspectiontype)).join("")}
     ` : ""}
 
-    <div class="inspection-section-title">
-      Visual Inspection
-    </div>
+    ${visualCriteria.length ? `
+      ${showTypeHeadings ? `<div class="inspection-section-title">
+        Visual Inspection
+      </div>` : ""}
 
-    <div class="inspection-header visual">
-      <div>Criteria</div>
-      <div>Result</div>
-      <div>Reason for FAIL (required)</div>
-    </div>
+      <div class="inspection-header visual">
+        <div>Criteria</div>
+        <div>Result</div>
+        <div>Reason for FAIL (required)</div>
+      </div>
 
-    ${visualCriteria.map(row => renderVisualCriteriaRow(row)).join("")}
+      ${visualCriteria.map(row => renderVisualCriteriaRow(row)).join("")}
+    ` : ""}
   `
+}
+
+function renderGroupedGenericInspectionCriteria(asset, assetCriteria, inspectiontype, config) {
+  return groupCriteriaRows(assetCriteria, config, inspectiontype)
+    .map(([section, rows]) => {
+      const measurementRows = rows.filter(row => row.fieldtype === "NUMBER")
+      const visualRows = rows.filter(row => row.fieldtype !== "NUMBER")
+
+      return `
+        <section class="generic-inspection-section" data-section-title="${escapeAttribute(section)}">
+          <div class="inspection-section-title">${escapeHtml(section)}</div>
+          ${renderGenericInspectionCriteria(asset, measurementRows, visualRows, inspectiontype, false)}
+        </section>
+      `
+    })
+    .join("")
 }
 
 function renderChainBlockWizard(asset, assetCriteria, inspectiontype) {
@@ -8439,7 +8457,7 @@ function renderInspectionCriteriaLayout(asset, assetCriteria, measurementCriteri
   const wizardKey = getInspectionWizardKey(asset, assetCriteria, inspectiontype)
 
   if (wizardKey === "CRANE") {
-    return renderGenericInspectionCriteria(asset, measurementCriteria, visualCriteria, inspectiontype)
+    return renderGroupedGenericInspectionCriteria(asset, assetCriteria, inspectiontype, craneWizardConfig)
   }
 
   if (wizardKey === "CHAIN_BLOCK_LEVER_HOIST") {

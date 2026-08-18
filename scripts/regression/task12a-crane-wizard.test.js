@@ -52,6 +52,9 @@ assertIncludes(frontendStyles, "grid-template-columns: minmax(0, 1fr) !important
 assertIncludes(frontendStyles, ".inspection-result select", "Mobile inspection result controls must be constrained to the viewport")
 
 assertIncludes(frontendMain, "Use Generic Form", "Crane wizard must keep the internal generic form fallback")
+assertIncludes(frontendMain, "renderGroupedGenericInspectionCriteria(asset, assetCriteria, inspectiontype, craneWizardConfig)", "Crane generic form must use the same grouped criteria source as the wizard")
+assertIncludes(frontendMain, "groupCriteriaRows(assetCriteria, config, inspectiontype)", "Grouped generic form must render every criterion from the shared asset criteria array")
+assertIncludes(read("frontend/src/inspectionWizard/wizardCriteria.js"), "return [...configuredGroups, ...additionalGroups]", "Criteria grouping must retain rows assigned to additional sections")
 assert(!assetSetup.includes("Generic Inspect"), "Asset setup must not show a separate generic visual button for crane wizard assets")
 assert(!assetSetup.includes("Generic Load Test"), "Asset setup must not show a separate generic load-test button for crane wizard assets")
 assert(!inspections.includes("Generic Inspection"), "Inspection page must not show a separate generic visual button for crane wizard assets")
