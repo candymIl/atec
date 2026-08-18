@@ -35,6 +35,7 @@
     "2026-07-29-magnetic-particle-inspection-module.sql",
     "2026-07-30-inspection-job-number.sql",
     "2026-07-30-lean-workforce-timesheets.sql",
-    "2026-07-30-inspection-snapshot-runtime-permissions.sql"
+    "2026-07-30-inspection-snapshot-runtime-permissions.sql",
+    "2026-08-18-job-card-automatic-time-categories.sql"
   ]
 }

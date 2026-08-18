@@ -25,6 +25,17 @@ const calculated = calculateTimeEntries([
 ], schedule)
 assert.strictEqual(calculated.normal_hours, 8.5, "Only a recorded break is deducted")
 assert.strictEqual(calculated.overtime_hours, 0)
+assert.strictEqual(calculated.double_time_hours, 0)
+
+const sunday = splitIntervalBySchedule("2026-08-02T08:00:00+02:00", "2026-08-02T12:00:00+02:00", "WORK", schedule, new Set(), { doubleTime: true })
+assert.strictEqual(sunday.normalHours, 0)
+assert.strictEqual(sunday.overtimeHours, 0)
+assert.strictEqual(sunday.doubleTimeHours, 4, "Sunday work must be double time")
+
+const publicHoliday = splitIntervalBySchedule("2026-08-10T08:00:00+02:00", "2026-08-10T12:00:00+02:00", "WORK", schedule, new Set(["2026-08-10"]), { doubleTime: true })
+assert.strictEqual(publicHoliday.normalHours, 0)
+assert.strictEqual(publicHoliday.overtimeHours, 0)
+assert.strictEqual(publicHoliday.doubleTimeHours, 4, "Public-holiday work must be double time")
 
 const agreedSchedule = {
   schedule_name: "Standard 06:30 schedule",

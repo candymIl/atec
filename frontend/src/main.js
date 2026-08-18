@@ -11212,7 +11212,7 @@ function renderJobCardForm() {
         <label>Customer *<select id="jcClient" onchange="jobCardCustomerChanged()"><option value="">Select customer</option>${customers.map(row => jobCardOption(row.clientid,row.clientname,card.clientid)).join('')}</select></label>
         <label>Site *<select id="jcSite" onchange="jobCardSiteChanged()"><option value="">Select site</option>${relevantSites.map(row => jobCardOption(row.siteid,row.sitename,card.siteid)).join('')}</select></label>
         <label>Section<select id="jcSection"><option value="">All / not specified</option>${relevantSections.map(row => jobCardOption(row.sectionid,row.sectionname,card.sectionid)).join('')}</select></label>
-        <label>Assigned technician<select id="jcAssigned"><option value="">Unassigned</option>${jobCardTechnicians.filter(row => row.role !== 'ASSISTANT').map(row => jobCardOption(row.user_id,row.full_name,card.assigned_to_user_id)).join('')}</select></label>
+        <label>Assigned technician<select id="jcAssigned" onchange="refreshJobCardHours()"><option value="">Unassigned</option>${jobCardTechnicians.filter(row => row.role !== 'ASSISTANT').map(row => jobCardOption(row.user_id,row.full_name,card.assigned_to_user_id)).join('')}</select></label>
         ${['ADMIN','MANAGER'].includes(currentUser.role) ? `<label class="job-card-email-option"><span><input id="jcEmailTechnician" type="checkbox" checked> Email technician when assigned</span><small>The assignment still saves if email delivery fails.</small></label>` : ''}
         <label>Job type<select id="jcType">${['BREAKDOWN','REPAIR','LOAD_TEST','SERVICES','INSPECTIONS','INSTALLATION','INVESTIGATION','OTHER'].map(value => jobCardOption(value,value.replaceAll('_',' '),card.job_type)).join('')}</select></label>
         <label>Priority<select id="jcPriority">${['LOW','NORMAL','HIGH','URGENT'].map(value => jobCardOption(value,value,card.priority)).join('')}</select></label>
@@ -11249,20 +11249,58 @@ function renderJobCardForm() {
       </div></section>
       <section class="filter-card"><div class="section-heading"><div><h3>Materials and Parts</h3><p class="muted-text">“Required” items can be used for follow-up quotations.</p></div><button type="button" onclick="addJobCardMaterialRow()">Add Material</button></div><div id="jcMaterials">${(card.materials || []).map(renderJobCardMaterialRow).join('')}</div></section>
       <section class="filter-card"><div class="section-heading"><div><h3>Deviations</h3><p class="muted-text">Record each defect separately. Critical deviations enforce a safe equipment decision.</p></div><button type="button" onclick="addJobCardDeviationRow()">Add Deviation</button></div><div id="jcDeviations">${(card.deviations || []).map(renderJobCardDeviationRow).join('')}</div></section>
-      <section class="filter-card"><h3>Time and Travel</h3><p class="muted-text">The timestamped timeline creates crew timesheets and is the payroll source. The summary-hour fields below are job-card information only and are not added to payroll.</p><div class="job-card-grid">${jobCardDateField('jcDeparted','Departed workshop',card.departed_at)}${jobCardDateField('jcArrived','Arrived on site',card.arrived_at)}${jobCardDateField('jcStarted','Work started',card.work_started_at)}${jobCardDateField('jcCompleted','Work completed',card.work_completed_at)}${jobCardDateField('jcTravelDone','Travel completed',card.travel_completed_at)}<label>Kilometres<input id="jcKm" type="number" min="0" step="0.1" value="${safeAttr(card.kilometres || '')}"></label><label>Job-card normal hours (not payroll)<input id="jcNormalHours" type="number" min="0" step="0.25" value="${safeAttr(card.normal_hours || '')}"></label><label>Job-card overtime hours (not payroll)<input id="jcOvertimeHours" type="number" min="0" step="0.25" value="${safeAttr(card.overtime_hours || '')}"></label><label>Job-card standby hours (not payroll)<input id="jcStandbyHours" type="number" min="0" step="0.25" value="${safeAttr(card.standby_hours || '')}"></label></div></section>
+      <section class="filter-card"><h3>Time and Travel</h3><p class="muted-text">Hours calculate automatically from the timestamps and the assigned person's work schedule. Sunday and active public-holiday work is double time. Travel is shown separately and is not counted again as normal, overtime or double time.</p><div class="job-card-grid">${jobCardDateField('jcDeparted','Departed workshop',card.departed_at)}${jobCardDateField('jcArrived','Arrived on site',card.arrived_at)}${jobCardDateField('jcStarted','Work started',card.work_started_at)}${jobCardDateField('jcCompleted','Work completed',card.work_completed_at)}${jobCardDateField('jcTravelDone','Travel completed',card.travel_completed_at)}<label>Kilometres<input id="jcKm" type="number" min="0" step="0.1" value="${safeAttr(card.kilometres || '')}"></label><label>Normal time<input id="jcNormalHours" type="number" readonly value="${safeAttr(card.normal_hours ?? '')}"></label><label>Overtime<input id="jcOvertimeHours" type="number" readonly value="${safeAttr(card.overtime_hours ?? '')}"></label><label>Double time<input id="jcDoubleTimeHours" type="number" readonly value="${safeAttr(card.double_time_hours ?? '')}"></label><label>Travelling time<input id="jcTravelHours" type="number" readonly value="${safeAttr(card.travel_hours ?? '')}"></label></div><p id="jcHoursCalculationNote" class="muted-text"></p></section>
       <section class="filter-card"><h3>Final Equipment Status</h3><div class="job-card-grid"><label>Status *<select id="jcEquipmentStatus">${[['SAFE','Safe and returned to service'],['RESTRICTED','Temporarily operational with restrictions'],['FURTHER_WORK','Further work required'],['OUT_OF_SERVICE','Isolated / out of service'],['NOT_TESTED','Not tested']].map(row => jobCardOption(row[0],row[1],card.equipment_status)).join('')}</select></label><label class="job-card-wide">Reason / restrictions<textarea id="jcEquipmentReason">${escapeHtml(card.equipment_status_reason || '')}</textarea></label></div></section>
-      <section class="filter-card"><h3>Customer Acknowledgement</h3><div class="job-card-grid"><label>Name<input id="jcSignatory" value="${safeAttr(card.customer_signatory_name || '')}"></label><label>Designation<input id="jcDesignation" value="${safeAttr(card.customer_signatory_designation || '')}"></label><label>Unavailable / refused reason<input id="jcSignatureReason" value="${safeAttr(card.signature_unavailable_reason || '')}"></label></div>${card.customer_signature_path ? `<p>Customer signature already captured.</p><img class="job-card-signature-image" src="${uploadUrl(card.customer_signature_path)}" alt="Customer signature">` : `<div class="signature-pad-wrap"><canvas id="jcSignatureCanvas" width="700" height="180"></canvas><button type="button" onclick="clearJobCardSignature()">Clear Signature</button></div>`}</section>
+      <section id="jobCardCustomerSignature" class="filter-card" tabindex="-1"><h3>Customer Acknowledgement and Signature</h3><p class="muted-text">Ask the customer representative to enter their details and sign in the block below. This section is available to Admins and Inspectors. If they cannot or refuse to sign, record the reason instead.</p><div class="job-card-grid"><label>Customer representative name<input id="jcSignatory" value="${safeAttr(card.customer_signatory_name || '')}"></label><label>Designation<input id="jcDesignation" value="${safeAttr(card.customer_signatory_designation || '')}"></label><label>Unavailable / refused reason<input id="jcSignatureReason" value="${safeAttr(card.signature_unavailable_reason || '')}"></label></div>${card.customer_signature_path ? `<p><strong>Customer signature captured.</strong></p><img class="job-card-signature-image" src="${uploadUrl(card.customer_signature_path)}" alt="Customer signature">` : `<div class="signature-pad-wrap"><canvas id="jcSignatureCanvas" width="700" height="180" aria-label="Customer signature block"></canvas><button type="button" onclick="clearJobCardSignature()">Clear Signature</button></div>`}</section>
       <section class="filter-card"><h3>Photographs</h3><div class="job-card-photo-grid">${(card.photos || []).map(photo => `<figure><img src="${uploadUrl(photo.photo_path)}" alt="Job card photograph"><figcaption>${escapeHtml(photo.photo_type)}: ${escapeHtml(photo.caption || '')}</figcaption></figure>`).join('')}</div><div class="job-card-grid"><label>Attach to deviation<select id="jcPhotoDeviation" ${card.jobcardid ? '' : 'disabled'}><option value="">General job card</option>${(card.deviations || []).map(row => jobCardOption(row.deviationid,`${row.severity}: ${row.description}`,null)).join('')}</select></label><label>Photo type<select id="jcPhotoType">${['GENERAL','BEFORE','AFTER','DEFECT','NAMEPLATE','TEST'].map(value => jobCardOption(value,value,null)).join('')}</select></label><label>Caption<input id="jcPhotoCaption"></label><label>Take photo or choose from gallery<input id="jcPhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple></label></div>${card.jobcardid ? '<button type="button" onclick="uploadJobCardPhotos()">Upload Photos</button>' : '<p class="muted-text">Selected photos will upload automatically when the on-site job is submitted.</p>'}</section>
-      ${card.jobcardid && ['ADMIN','MANAGER'].includes(currentUser.role) ? `<section class="filter-card"><div class="section-heading"><div><h3>Accelo Completion Package</h3><p class="muted-text">Controlled package containing the approved Job Card, crew timesheets and linked certificates.</p></div><button type="button" onclick="checkAcceloPackage(${card.jobcardid})">Check readiness</button></div><div id="acceloPackageStatus">${card.accelo_email_sent_at ? `<p><strong>Sent:</strong> ${escapeHtml(new Date(card.accelo_email_sent_at).toLocaleString('en-ZA'))} to ${escapeHtml(card.accelo_email_to || '')}</p>` : '<p>Run the readiness check after the Job Card and crew timesheets are approved.</p>'}</div></section>` : ''}
+      ${card.jobcardid && ['ADMIN','MANAGER'].includes(currentUser.role) ? `<section class="filter-card"><div class="section-heading"><div><h3>Accelo Completion Package <small>(Admin/Manager only)</small></h3><p class="muted-text">Office control used after approval to check and send the Job Card, crew timesheets and linked certificates to Accelo. Inspectors do not need this section.</p></div><button type="button" onclick="checkAcceloPackage(${card.jobcardid})">Check readiness</button></div><div id="acceloPackageStatus">${card.accelo_email_sent_at ? `<p><strong>Sent:</strong> ${escapeHtml(new Date(card.accelo_email_sent_at).toLocaleString('en-ZA'))} to ${escapeHtml(card.accelo_email_to || '')}</p>` : '<p>Run the readiness check after the Job Card and crew timesheets are approved.</p>'}</div></section>` : ''}
       ${renderJobCardWorkflow(card)}
     </form>`
   if (!card.customer_signature_path) initialiseJobCardSignature()
   jobCardAssetGroupChanged()
+  refreshJobCardHours()
 }
 
 function dateTimeLocalValue(value) { if (!value) return ''; const date = new Date(value); return Number.isNaN(date.getTime()) ? '' : new Date(date.getTime() - date.getTimezoneOffset()*60000).toISOString().slice(0,16) }
 function jobCardTextarea(id,label,value) { return `<label>${label}<textarea id="${id}">${escapeHtml(value || '')}</textarea></label>` }
-function jobCardDateField(id,label,value) { return `<label>${label}<input id="${id}" type="datetime-local" value="${safeAttr(dateTimeLocalValue(value))}"></label>` }
+function jobCardDateField(id,label,value) { return `<label>${label}<input id="${id}" type="datetime-local" value="${safeAttr(dateTimeLocalValue(value))}" onchange="refreshJobCardHours()"></label>` }
+window.refreshJobCardHours = async function () {
+  const value = id => document.querySelector(id)?.value || null
+  const payload = {
+    assigned_to_user_id: value('#jcAssigned'),
+    departed_at: value('#jcDeparted'),
+    arrived_at: value('#jcArrived'),
+    work_started_at: value('#jcStarted'),
+    work_completed_at: value('#jcCompleted'),
+    travel_completed_at: value('#jcTravelDone')
+  }
+  const hasCompleteInterval = (payload.departed_at && payload.arrived_at) ||
+    (payload.work_started_at && payload.work_completed_at) ||
+    (payload.work_completed_at && payload.travel_completed_at)
+  if (!hasCompleteInterval) return
+  const note = document.querySelector('#jcHoursCalculationNote')
+  try {
+    if (note) note.textContent = 'Calculating hours...'
+    const response = await fetch(`${API_BASE}/job-cards/calculate-hours`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+    })
+    const result = await readApiResponse(response)
+    if (!response.ok) throw new Error(result.error || 'Hours could not be calculated')
+    const values = {
+      jcNormalHours: result.normal_hours,
+      jcOvertimeHours: result.overtime_hours,
+      jcDoubleTimeHours: result.double_time_hours,
+      jcTravelHours: result.travel_hours
+    }
+    Object.entries(values).forEach(([id, hours]) => {
+      const input = document.querySelector(`#${id}`)
+      if (input) input.value = Number(hours || 0).toFixed(2)
+    })
+    if (note) note.textContent = `Calculated using: ${result.schedule_name || 'assigned work schedule'}.`
+  } catch (error) {
+    if (note) note.textContent = error.message
+  }
+}
 function renderJobCardWorkflow(card) {
   const status = card.status || 'DRAFT'
   const adminSelfApproval = currentUser.role === 'ADMIN' && String(card.assigned_to_user_id || '') === String(currentUser.user_id)
@@ -11284,12 +11322,15 @@ function renderJobCardWorkflow(card) {
   }
   const officeUser = ['ADMIN', 'MANAGER'].includes(currentUser.role)
   const actions = []
+  if (['DRAFT','ASSIGNED','IN_PROGRESS','AWAITING_SIGNATURE'].includes(status)) {
+    actions.push(`<button type="button" onclick="goToCustomerSignature()">${card.customer_signature_path ? 'View Customer Signature' : 'Capture Customer Signature'}</button>`)
+  }
   if (status === 'DRAFT') {
     if (officeUser) actions.push(`<button type="button" class="load-test-btn" onclick="saveJobCard('ASSIGNED')">Save & Assign</button>`)
     else actions.push('<button type="button" onclick="saveJobCard(\'IN_PROGRESS\')">Save & Continue On-site</button>', '<button type="button" class="load-test-btn" onclick="saveJobCard(\'SUBMITTED\')">Save & Submit On-site</button>')
   }
   if (status === 'ASSIGNED') actions.push('<button type="button" class="load-test-btn" onclick="saveJobCard(\'IN_PROGRESS\')">Start Job</button>')
-  if (status === 'IN_PROGRESS') actions.push('<button type="button" onclick="saveJobCard(\'AWAITING_SIGNATURE\')">Request Customer Signature</button>', `<button type="button" class="load-test-btn" onclick="saveJobCard('SUBMITTED')">${adminSelfApproval ? 'Submit for My Approval' : 'Submit to Office'}</button>`)
+  if (status === 'IN_PROGRESS') actions.push(`<button type="button" class="load-test-btn" onclick="saveJobCard('SUBMITTED')">${adminSelfApproval ? 'Submit for My Approval' : 'Submit to Office'}</button>`)
   if (status === 'AWAITING_SIGNATURE') actions.push('<button type="button" onclick="saveJobCard(\'IN_PROGRESS\')">Continue Editing</button>', `<button type="button" class="load-test-btn" onclick="saveJobCard('SUBMITTED')">${adminSelfApproval ? 'Submit for My Approval' : 'Submit to Office'}</button>`)
   if (status === 'SUBMITTED' && officeUser) actions.push('<button type="button" onclick="saveJobCard(\'IN_PROGRESS\')">Return for Changes</button>', '<button type="button" class="load-test-btn" onclick="saveJobCard(\'APPROVED\')">Approve Job Card</button>')
   if (status === 'APPROVED' && officeUser) actions.push('<button type="button" class="load-test-btn" onclick="saveJobCard(\'INVOICED\')">Mark as Invoiced</button>')
@@ -11342,6 +11383,11 @@ window.updateJobCardAssetSummary = function () {
 
 function initialiseJobCardSignature() { const canvas = document.querySelector('#jcSignatureCanvas'); if (!canvas) return; const ctx = canvas.getContext('2d'); ctx.lineWidth=2; ctx.lineCap='round'; let drawing=false; const point=e=>{ const r=canvas.getBoundingClientRect(), t=e.touches?.[0]||e; return {x:(t.clientX-r.left)*(canvas.width/r.width),y:(t.clientY-r.top)*(canvas.height/r.height)} }; const start=e=>{drawing=true;const p=point(e);ctx.beginPath();ctx.moveTo(p.x,p.y);e.preventDefault()}; const move=e=>{if(!drawing)return;const p=point(e);ctx.lineTo(p.x,p.y);ctx.stroke();e.preventDefault()}; const stop=()=>drawing=false; canvas.addEventListener('pointerdown',start);canvas.addEventListener('pointermove',move);canvas.addEventListener('pointerup',stop);canvas.addEventListener('pointerleave',stop) }
 window.clearJobCardSignature = function () { const canvas=document.querySelector('#jcSignatureCanvas'); canvas?.getContext('2d').clearRect(0,0,canvas.width,canvas.height) }
+window.goToCustomerSignature = function () {
+  const section = document.querySelector('#jobCardCustomerSignature')
+  section?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  section?.focus({ preventScroll: true })
+}
 function jobCardCanvasHasInk(canvas) { if (!canvas) return false; return canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data.some((value,index)=>index%4===3&&value>0) }
 
 function collectJobCardPayload(forcedStatus) {

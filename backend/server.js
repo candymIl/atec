@@ -59,6 +59,7 @@ const {
 } = require("./middleware/security")
 const { registerMpiRoutes } = require("./routes/mpi")
 const { registerWorkforceRoutes, copyJobCardTimeline } = require("./routes/workforce")
+const { calculateTimeEntries, roundHours } = require("./services/workforceTime")
 
 const defaultFrontendOrigin = process.env.NODE_ENV === "production"
   ? "https://www.atecinspections.co.za"
@@ -14607,6 +14608,49 @@ app.get("/job-cards-technicians", asyncRoute(async (req, res) => {
   res.json(result.rows)
 }))
 
+async function calculateJobCardTimeSummary(client, body, fallbackUserId) {
+  const userId = Number(body.assigned_to_user_id || fallbackUserId || 0)
+  const workStart = body.work_started_at || null
+  const workEnd = body.work_completed_at || null
+  const dateValues = [body.departed_at, body.arrived_at, workStart, workEnd, body.travel_completed_at]
+    .filter(Boolean).map(value => new Date(value)).filter(value => Number.isFinite(value.getTime()))
+  if (!dateValues.length) return { normal_hours: 0, overtime_hours: 0, double_time_hours: 0, travel_hours: 0 }
+  const firstDate = new Date(Math.min(...dateValues.map(value => value.getTime())))
+  const lastDate = new Date(Math.max(...dateValues.map(value => value.getTime())))
+  const scheduleResult = userId ? await client.query(`SELECT schedule.* FROM atec.tblworkschedule schedule
+    WHERE schedule.employee_user_id=$1 AND schedule.effective_from <= $2::date
+      AND (schedule.effective_to IS NULL OR schedule.effective_to >= $2::date)
+    ORDER BY schedule.effective_from DESC,schedule.scheduleid DESC LIMIT 1`, [userId, workStart || firstDate]) : { rows: [] }
+  const schedule = scheduleResult.rows[0] || { schedule_name: "No assigned schedule", rounding_minutes: 1, travel_treatment: "SPLIT_BY_SCHEDULE" }
+  const dayResult = schedule.scheduleid
+    ? await client.query("SELECT * FROM atec.tblworkscheduleday WHERE scheduleid=$1 ORDER BY weekday", [schedule.scheduleid])
+    : { rows: [] }
+  schedule.days = Object.fromEntries(dayResult.rows.map(row => [Number(row.weekday), row]))
+  const holidayResult = await client.query(`SELECT holiday_date::text FROM atec.tblpublicholiday
+    WHERE active=true AND holiday_date BETWEEN $1::date AND $2::date`, [firstDate, lastDate])
+  const holidays = new Set(holidayResult.rows.map(row => String(row.holiday_date).slice(0, 10)))
+  const work = workStart && workEnd
+    ? calculateTimeEntries([{ activity_type: "WORK", started_at: workStart, ended_at: workEnd }], schedule, holidays, { doubleTime: true })
+    : { normal_hours: 0, overtime_hours: 0, double_time_hours: 0 }
+  const travelIntervals = [[body.departed_at, body.arrived_at], [body.work_completed_at, body.travel_completed_at]]
+  const travelHours = travelIntervals.reduce((total, [start, end]) => {
+    const started = new Date(start)
+    const ended = new Date(end)
+    return total + (Number.isFinite(started.getTime()) && Number.isFinite(ended.getTime()) && ended > started ? (ended - started) / 3600000 : 0)
+  }, 0)
+  return {
+    normal_hours: roundHours(work.normal_hours, schedule.rounding_minutes),
+    overtime_hours: roundHours(work.overtime_hours, schedule.rounding_minutes),
+    double_time_hours: roundHours(work.double_time_hours, schedule.rounding_minutes),
+    travel_hours: roundHours(travelHours, schedule.rounding_minutes),
+    schedule_name: schedule.schedule_name
+  }
+}
+
+app.post("/job-cards/calculate-hours", asyncRoute(async (req, res) => {
+  res.json(await calculateJobCardTimeSummary(pool, req.body || {}, req.user.user_id))
+}))
+
 app.get("/job-cards/:id", asyncRoute(async (req, res) => {
   const card = await loadJobCard(req.params.id)
   if (!card) return res.status(404).json({ error: "Job card not found" })
@@ -14810,6 +14854,7 @@ async function saveJobCard(req, res) {
       return res.status(400).json({ error: "Capture the customer signature or provide an unavailable/refused reason" })
     }
     if (body.customer_signature_data) newSignaturePath = jobCardSignaturePath(body.customer_signature_data, jobcardid)
+    const calculatedHours = await calculateJobCardTimeSummary(client, body, req.user.user_id)
     const reference = body.jobcard_reference || `JC-${new Date().getFullYear()}-${String(jobcardid).padStart(5, "0")}`
     await client.query(`UPDATE atec.tbljobcard SET jobcard_reference=$1, clientid=$2, siteid=$3, sectionid=$4, visitid=$5,
       assigned_to_user_id=$6, job_type=$7, priority=$8, status=$9, customer_reference=$10, customer_contact_name=$11,
@@ -14822,16 +14867,16 @@ async function saveJobCard(req, res) {
       signature_unavailable_reason=$35, submitted_at=CASE WHEN $9='SUBMITTED' AND submitted_at IS NULL THEN now() ELSE submitted_at END,
       approved_at=CASE WHEN $9 IN ('APPROVED','INVOICED') AND approved_at IS NULL THEN now() ELSE approved_at END,
       approved_by_user_id=CASE WHEN $9 IN ('APPROVED','INVOICED') THEN $36 ELSE approved_by_user_id END,
-      invoice_reference=$37, updated_at=now() WHERE jobcardid=$38`, [reference, body.clientid, body.siteid, body.sectionid || null,
+      invoice_reference=$37, double_time_hours=$39, travel_hours=$40, updated_at=now() WHERE jobcardid=$38`, [reference, body.clientid, body.siteid, body.sectionid || null,
       body.visitid || null, body.assigned_to_user_id || (req.user.role === "INSPECTOR" ? req.user.user_id : null),
       String(body.job_type || "REPAIR").toUpperCase(), String(body.priority || "NORMAL").toUpperCase(), requestedStatus,
       acceloJobNumber, body.customer_contact_name || "", body.customer_contact_phone || "", body.reported_fault || "",
       body.findings || "", body.root_cause || "", body.work_performed || "", body.test_performed || "", body.test_result || "",
       body.recommendations || "", equipmentStatus, body.equipment_status_reason || "", body.planned_at || null, body.departed_at || null,
       body.arrived_at || null, body.work_started_at || null, body.work_completed_at || null, body.travel_completed_at || null,
-      nullableNumber(body.kilometres), nullableNumber(body.normal_hours), nullableNumber(body.overtime_hours), nullableNumber(body.standby_hours),
+      nullableNumber(body.kilometres), calculatedHours.normal_hours, calculatedHours.overtime_hours, nullableNumber(body.standby_hours),
       body.customer_signatory_name || "", body.customer_signatory_designation || "", newSignaturePath, body.signature_unavailable_reason || "",
-      req.user.user_id, body.invoice_reference || "", jobcardid])
+      req.user.user_id, body.invoice_reference || "", jobcardid, calculatedHours.double_time_hours, calculatedHours.travel_hours])
     const inspectedAssetIds = await inspectedAssetIdsForJob(client, body, req.user.user_id)
     const selectedAssetIds = [...new Set([...(body.assetids || []), ...inspectedAssetIds].map(Number).filter(Boolean))]
     await client.query("DELETE FROM atec.tbljobcardasset WHERE jobcardid=$1", [jobcardid])
@@ -15234,7 +15279,7 @@ function createJobCardPdfBuffer(card) {
   ])
 
   const totals = [
-    ["Normal hours", card.normal_hours], ["Overtime hours", card.overtime_hours], ["Standby hours", card.standby_hours], ["Distance", card.kilometres === null || card.kilometres === undefined || card.kilometres === "" ? "" : `${card.kilometres} km`]
+    ["Normal hours", card.normal_hours], ["Overtime hours", card.overtime_hours], ["Double-time hours", card.double_time_hours], ["Travel hours", card.travel_hours], ["Distance", card.kilometres === null || card.kilometres === undefined || card.kilometres === "" ? "" : `${card.kilometres} km`]
   ].filter(([, value]) => value !== "" && value !== null && value !== undefined)
   if (totals.length) {
     heading("Time and travel summary")

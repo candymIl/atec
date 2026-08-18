@@ -28,7 +28,7 @@ function overlapMilliseconds(startA, endA, startB, endB) {
   return Math.max(0, Math.min(endA.getTime(), endB.getTime()) - Math.max(startA.getTime(), startB.getTime()))
 }
 
-function splitIntervalBySchedule(startValue, endValue, activityType, schedule = {}, holidays = new Set()) {
+function splitIntervalBySchedule(startValue, endValue, activityType, schedule = {}, holidays = new Set(), options = {}) {
   const start = new Date(startValue)
   const end = new Date(endValue)
   if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start) {
@@ -37,20 +37,21 @@ function splitIntervalBySchedule(startValue, endValue, activityType, schedule = 
 
   const totalHours = (end - start) / 3600000
   if (!PAID_ACTIVITY_TYPES.has(activityType)) {
-    return { totalHours, normalHours: 0, overtimeHours: 0 }
+    return { totalHours, normalHours: 0, overtimeHours: 0, doubleTimeHours: 0 }
   }
 
   if (activityType === "TRAVEL" && schedule.travel_treatment === "ALWAYS_NORMAL") {
-    return { totalHours, normalHours: totalHours, overtimeHours: 0 }
+    return { totalHours, normalHours: totalHours, overtimeHours: 0, doubleTimeHours: 0 }
   }
   if (activityType === "TRAVEL" && schedule.travel_treatment === "ALWAYS_OVERTIME") {
-    return { totalHours, normalHours: 0, overtimeHours: totalHours }
+    return { totalHours, normalHours: 0, overtimeHours: totalHours, doubleTimeHours: 0 }
   }
 
   const days = schedule.days || {}
   let cursor = new Date(start)
   cursor.setHours(0, 0, 0, 0)
   let normalMilliseconds = 0
+  let doubleTimeMilliseconds = 0
 
   while (cursor < end) {
     const nextDay = new Date(cursor)
@@ -60,7 +61,9 @@ function splitIntervalBySchedule(startValue, endValue, activityType, schedule = 
     const dayRule = days[cursor.getDay()] || null
     const holiday = holidays.has(localDateKey(cursor))
 
-    if (dayRule && !dayRule.is_overtime_day && !holiday) {
+    if (options.doubleTime === true && (cursor.getDay() === 0 || holiday)) {
+      doubleTimeMilliseconds += Math.max(0, dayEnd.getTime() - dayStart.getTime())
+    } else if (dayRule && !dayRule.is_overtime_day && !holiday) {
       const normalStartMinutes = minutesFromTime(dayRule.normal_start)
       const normalEndMinutes = minutesFromTime(dayRule.normal_end)
       if (normalStartMinutes !== null && normalEndMinutes !== null && normalEndMinutes > normalStartMinutes) {
@@ -76,24 +79,27 @@ function splitIntervalBySchedule(startValue, endValue, activityType, schedule = 
   }
 
   const normalHours = Math.min(totalHours, normalMilliseconds / 3600000)
+  const doubleTimeHours = Math.min(totalHours - normalHours, doubleTimeMilliseconds / 3600000)
   return {
     totalHours,
     normalHours,
-    overtimeHours: Math.max(0, totalHours - normalHours)
+    overtimeHours: Math.max(0, totalHours - normalHours - doubleTimeHours),
+    doubleTimeHours
   }
 }
 
-function calculateTimeEntries(entries = [], schedule = {}, holidays = new Set()) {
+function calculateTimeEntries(entries = [], schedule = {}, holidays = new Set(), options = {}) {
   const roundingMinutes = schedule.rounding_minutes || 1
   const lines = entries.map((entry, index) => {
-    const split = splitIntervalBySchedule(entry.started_at, entry.ended_at, entry.activity_type, schedule, holidays)
+    const split = splitIntervalBySchedule(entry.started_at, entry.ended_at, entry.activity_type, schedule, holidays, options)
     const factor = entry.activity_type === "BREAK" ? -1 : 1
     return {
       ...entry,
       task_number: index + 1,
       total_hours: roundHours(split.totalHours, roundingMinutes),
       normal_hours: roundHours(split.normalHours * factor, roundingMinutes),
-      overtime_hours: roundHours(split.overtimeHours * factor, roundingMinutes)
+      overtime_hours: roundHours(split.overtimeHours * factor, roundingMinutes),
+      double_time_hours: roundHours(split.doubleTimeHours * factor, roundingMinutes)
     }
   })
 
@@ -106,7 +112,7 @@ function calculateTimeEntries(entries = [], schedule = {}, holidays = new Set())
     const lastEnd = new Date(Math.max(...paidLines.map(line => new Date(line.ended_at).getTime())))
     const dayRule = schedule.days?.[firstStart.getDay()]
     const scheduledBreakHours = Math.max(0,Number(dayRule?.unpaid_break_minutes || 0)) / 60
-    const span = splitIntervalBySchedule(firstStart,lastEnd,"WORK",schedule,holidays)
+    const span = splitIntervalBySchedule(firstStart,lastEnd,"WORK",schedule,holidays,options)
     const paidNormalHours = paidLines.reduce((total,line) => total + Math.max(0,line.normal_hours),0)
     const uncoveredNormalHours = Math.max(0,span.normalHours - paidNormalHours)
     if (span.totalHours >= 5 && scheduledBreakHours > uncoveredNormalHours) {
@@ -125,6 +131,7 @@ function calculateTimeEntries(entries = [], schedule = {}, holidays = new Set())
     lines,
     normal_hours: Math.max(0,summedNormalHours),
     overtime_hours: Math.max(0, sum(line => line.overtime_hours)),
+    double_time_hours: Math.max(0, sum(line => line.double_time_hours)),
     travel_hours: sum(line => line.activity_type === "TRAVEL" ? line.total_hours : 0),
     standby_hours: sum(line => line.activity_type === "STANDBY" ? line.total_hours : 0),
     underground_allowance: lines.some(line => line.underground),
