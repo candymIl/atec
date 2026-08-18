@@ -13,6 +13,7 @@ function assertIncludes(file, text, message) {
 }
 
 const frontendMain = read("frontend/src/main.js")
+const frontendStyles = read("frontend/src/style.css")
 const assetSetup = read("frontend/src/pages/AssetSetup.js")
 const inspections = read("frontend/src/pages/Inspections.js")
 const wizardRegistry = read("frontend/src/inspectionWizard/wizardRegistry.js")
@@ -46,6 +47,9 @@ assertIncludes(frontendMain, "Inspection Tag No <span class=\"optional-label\">(
 assert(!frontendMain.includes("Enter the inspection tag number before continuing."), "Crane wizard must not require inspection tag number")
 assertIncludes(wizardReview, "Not Issued", "Crane wizard review must display a blank tag as Not Issued")
 assertIncludes(frontendMain, "savedInspection.referenceId", "Inspection save errors must show server reference IDs")
+assertIncludes(frontendStyles, ".inspection-row.loadtest-measurement-row", "Mobile inspection rows must include load-test measurements")
+assertIncludes(frontendStyles, "grid-template-columns: minmax(0, 1fr) !important", "Mobile inspection criteria and result controls must stack within the viewport")
+assertIncludes(frontendStyles, ".inspection-result select", "Mobile inspection result controls must be constrained to the viewport")
 
 assertIncludes(frontendMain, "Use Generic Form", "Crane wizard must keep the internal generic form fallback")
 assert(!assetSetup.includes("Generic Inspect"), "Asset setup must not show a separate generic visual button for crane wizard assets")

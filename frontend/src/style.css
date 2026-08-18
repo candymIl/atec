@@ -5827,6 +5827,48 @@ tr:hover {
     border-radius: 8px 8px 0 0;
   }
 
+  .inspection-list {
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .inspection-header {
+    display: none;
+  }
+
+  .inspection-row,
+  .inspection-row.loadtest-measurement-row {
+    align-items: stretch;
+    grid-template-columns: minmax(0, 1fr) !important;
+    min-width: 0;
+    padding: 12px;
+    width: 100%;
+  }
+
+  .inspection-row > *,
+  .inspection-row .comparison-grid,
+  .inspection-row.loadtest-measurement-row .comparison-grid,
+  .inspection-row.loadtest-measurement-row .inspection-remarks,
+  .inspection-text-result {
+    grid-column: 1 / -1 !important;
+    min-width: 0;
+  }
+
+  .inspection-result,
+  .inspection-result select,
+  .inspection-text-result textarea,
+  .inspection-remarks,
+  .inspection-remarks input {
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .comparison-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   table,
   .dashboard-table,
   .asset-table,
