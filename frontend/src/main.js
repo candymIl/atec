@@ -11189,7 +11189,7 @@ window.openJobCard = async function (jobcardid = null) {
     jobCardEditing = await readApiResponse(response)
     if (!response.ok) { alert(jobCardEditing.error || 'Could not open job card'); return }
   } else {
-    jobCardEditing = { status: 'DRAFT', job_type: 'REPAIR', priority: 'NORMAL', equipment_status: 'NOT_TESTED', assets: [], materials: [], deviations: [], photos: [], assigned_to_user_id: currentUser.role === 'INSPECTOR' ? currentUser.user_id : '' }
+    jobCardEditing = { status: 'DRAFT', job_type: 'REPAIR', priority: 'NORMAL', equipment_status: 'NOT_TESTED', assets: [], materials: [], deviations: [], photos: [], assigned_to_user_id: ['ADMIN', 'INSPECTOR'].includes(currentUser.role) ? currentUser.user_id : '' }
   }
   renderJobCardForm()
 }
@@ -11265,6 +11265,7 @@ function jobCardTextarea(id,label,value) { return `<label>${label}<textarea id="
 function jobCardDateField(id,label,value) { return `<label>${label}<input id="${id}" type="datetime-local" value="${safeAttr(dateTimeLocalValue(value))}"></label>` }
 function renderJobCardWorkflow(card) {
   const status = card.status || 'DRAFT'
+  const adminSelfApproval = currentUser.role === 'ADMIN' && String(card.assigned_to_user_id || '') === String(currentUser.user_id)
   const descriptions = {
     DRAFT: 'The job card is being prepared and is not yet allocated as active work.',
     ASSIGNED: card.assignment_email_sent_at
@@ -11274,7 +11275,9 @@ function renderJobCardWorkflow(card) {
         : `Allocated to ${card.assigned_to_name || 'the selected technician'} and visible in the technician's ATEC Job Cards list.`,
     IN_PROGRESS: 'The technician has started travelling or working on this job.',
     AWAITING_SIGNATURE: 'The work is complete, but customer acknowledgement or a refusal reason is still required.',
-    SUBMITTED: 'The technician has completed the worksheet and submitted it to the office for review.',
+    SUBMITTED: adminSelfApproval
+      ? 'Your completed worksheet is ready for your own final approval. No separate Manager approval is required.'
+      : 'The technician has completed the worksheet and submitted it to the office for review.',
     APPROVED: 'An Admin or Manager has reviewed and accepted the completed job card.',
     INVOICED: 'The office has processed this job card for invoicing.',
     CANCELLED: 'This job card has been cancelled and is no longer active.'
@@ -11286,8 +11289,8 @@ function renderJobCardWorkflow(card) {
     else actions.push('<button type="button" onclick="saveJobCard(\'IN_PROGRESS\')">Save & Continue On-site</button>', '<button type="button" class="load-test-btn" onclick="saveJobCard(\'SUBMITTED\')">Save & Submit On-site</button>')
   }
   if (status === 'ASSIGNED') actions.push('<button type="button" class="load-test-btn" onclick="saveJobCard(\'IN_PROGRESS\')">Start Job</button>')
-  if (status === 'IN_PROGRESS') actions.push('<button type="button" onclick="saveJobCard(\'AWAITING_SIGNATURE\')">Request Customer Signature</button>', '<button type="button" class="load-test-btn" onclick="saveJobCard(\'SUBMITTED\')">Submit to Office</button>')
-  if (status === 'AWAITING_SIGNATURE') actions.push('<button type="button" onclick="saveJobCard(\'IN_PROGRESS\')">Continue Editing</button>', '<button type="button" class="load-test-btn" onclick="saveJobCard(\'SUBMITTED\')">Submit to Office</button>')
+  if (status === 'IN_PROGRESS') actions.push('<button type="button" onclick="saveJobCard(\'AWAITING_SIGNATURE\')">Request Customer Signature</button>', `<button type="button" class="load-test-btn" onclick="saveJobCard('SUBMITTED')">${adminSelfApproval ? 'Submit for My Approval' : 'Submit to Office'}</button>`)
+  if (status === 'AWAITING_SIGNATURE') actions.push('<button type="button" onclick="saveJobCard(\'IN_PROGRESS\')">Continue Editing</button>', `<button type="button" class="load-test-btn" onclick="saveJobCard('SUBMITTED')">${adminSelfApproval ? 'Submit for My Approval' : 'Submit to Office'}</button>`)
   if (status === 'SUBMITTED' && officeUser) actions.push('<button type="button" onclick="saveJobCard(\'IN_PROGRESS\')">Return for Changes</button>', '<button type="button" class="load-test-btn" onclick="saveJobCard(\'APPROVED\')">Approve Job Card</button>')
   if (status === 'APPROVED' && officeUser) actions.push('<button type="button" class="load-test-btn" onclick="saveJobCard(\'INVOICED\')">Mark as Invoiced</button>')
   if (officeUser && ['DRAFT','ASSIGNED','IN_PROGRESS','AWAITING_SIGNATURE'].includes(status)) actions.push('<button type="button" class="danger-btn" onclick="saveJobCard(\'CANCELLED\')">Cancel Job Card</button>')
@@ -11413,7 +11416,9 @@ window.saveJobCard = async function (forcedStatus = null) {
     ASSIGNED: assignedMessage,
     IN_PROGRESS: id ? 'Job started.' : 'On-site job created. You can now add photographs and continue working.',
     AWAITING_SIGNATURE: 'Job card is awaiting customer acknowledgement.',
-    SUBMITTED: managerEmail?.requested
+    SUBMITTED: managerEmail?.self_approval
+      ? `Job card submitted for your own approval${pendingFiles.length ? ` with ${pendingFiles.length} photograph(s) uploaded` : ''}. No separate Manager approval is required.`
+      : managerEmail?.requested
       ? (managerEmail.sent
         ? `Job card submitted and emailed to ${managerEmail.name || 'the assigned Manager'}${pendingFiles.length ? ` with ${pendingFiles.length} photograph(s) uploaded` : ''}.`
         : `Job card submitted, but the Manager email could not be sent: ${managerEmail.error}`)

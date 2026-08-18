@@ -14788,17 +14788,18 @@ async function saveJobCard(req, res) {
       jobcardid = inserted.rows[0].jobcardid
     }
     const leadUserId = Number(body.assigned_to_user_id || (req.user.role === "INSPECTOR" ? req.user.user_id : 0))
+    const adminSelfApproval = req.user.role === "ADMIN" && leadUserId === Number(req.user.user_id)
     if (requestedStatus === "SUBMITTED" && previousStatus !== "SUBMITTED") {
-      const manager = await client.query(`SELECT u.manager_user_id,
+      const manager = adminSelfApproval ? { rows: [] } : await client.query(`SELECT u.manager_user_id,
         COALESCE(NULLIF(m.fullname,''),m.username) AS manager_name,m.email AS manager_email
         FROM atec.tblusers u
         LEFT JOIN atec.tblusers m ON m.userid=u.manager_user_id AND COALESCE(m.is_active,true)=true
         WHERE u.userid=$1`, [leadUserId])
-      if (!manager.rows[0]?.manager_user_id) {
+      if (!adminSelfApproval && !manager.rows[0]?.manager_user_id) {
         await client.query("ROLLBACK")
         return res.status(400).json({ error: "The assigned technician must have a Manager assigned before the job card can be submitted" })
       }
-      if (!isValidEmailAddress(manager.rows[0].manager_email)) {
+      if (!adminSelfApproval && !isValidEmailAddress(manager.rows[0].manager_email)) {
         await client.query("ROLLBACK")
         return res.status(400).json({ error: `${manager.rows[0].manager_name || "The assigned Manager"} must have a valid email address before the job card can be submitted` })
       }
@@ -14894,8 +14895,11 @@ async function saveJobCard(req, res) {
       }
     }
     const savedCard = await loadJobCard(jobcardid)
-    let managerEmailNotification = { requested: false, sent: false }
-    if (requestedStatus === "SUBMITTED" && previousStatus !== "SUBMITTED") {
+    let managerEmailNotification = { requested: false, sent: false, self_approval: false }
+    if (requestedStatus === "SUBMITTED" && previousStatus !== "SUBMITTED" && adminSelfApproval) {
+      managerEmailNotification = { requested: false, sent: false, self_approval: true }
+      await req.logAudit("JOB_CARD_SELF_APPROVAL_REQUESTED", "job_cards", jobcardid, { assigned_to_user_id: leadUserId })
+    } else if (requestedStatus === "SUBMITTED" && previousStatus !== "SUBMITTED") {
       managerEmailNotification.requested = true
       try {
         await emailSubmittedJobCardToManager(savedCard)
