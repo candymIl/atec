@@ -59,7 +59,7 @@ const {
 } = require("./middleware/security")
 const { registerMpiRoutes } = require("./routes/mpi")
 const { registerWorkforceRoutes, copyJobCardTimeline } = require("./routes/workforce")
-const { calculateTimeEntries, roundHours } = require("./services/workforceTime")
+const { calculateTimeEntries, roundHours, splitIntervalBySchedule } = require("./services/workforceTime")
 
 const defaultFrontendOrigin = process.env.NODE_ENV === "production"
   ? "https://www.atecinspections.co.za"
@@ -14614,7 +14614,7 @@ async function calculateJobCardTimeSummary(client, body, fallbackUserId) {
   const workEnd = body.work_completed_at || null
   const dateValues = [body.departed_at, body.arrived_at, workStart, workEnd, body.travel_completed_at]
     .filter(Boolean).map(value => new Date(value)).filter(value => Number.isFinite(value.getTime()))
-  if (!dateValues.length) return { normal_hours: 0, overtime_hours: 0, double_time_hours: 0, travel_hours: 0 }
+  if (!dateValues.length) return { normal_hours: 0, overtime_hours: 0, double_time_hours: 0, normal_travel_hours: 0, overtime_travel_hours: 0, travel_hours: 0, total_calculated_hours: 0 }
   const firstDate = new Date(Math.min(...dateValues.map(value => value.getTime())))
   const lastDate = new Date(Math.max(...dateValues.map(value => value.getTime())))
   const scheduleResult = userId ? await client.query(`SELECT schedule.* FROM atec.tblworkschedule schedule
@@ -14633,18 +14633,26 @@ async function calculateJobCardTimeSummary(client, body, fallbackUserId) {
     ? calculateTimeEntries([{ activity_type: "WORK", started_at: workStart, ended_at: workEnd }], schedule, holidays, { doubleTime: true })
     : { normal_hours: 0, overtime_hours: 0, double_time_hours: 0 }
   const travelIntervals = [[body.departed_at, body.arrived_at], [body.work_completed_at, body.travel_completed_at]]
-  const travelHours = travelIntervals.reduce((total, [start, end]) => {
+  const travel = travelIntervals.reduce((total, [start, end]) => {
     const started = new Date(start)
     const ended = new Date(end)
-    return total + (Number.isFinite(started.getTime()) && Number.isFinite(ended.getTime()) && ended > started ? (ended - started) / 3600000 : 0)
-  }, 0)
-  return {
+    if (!Number.isFinite(started.getTime()) || !Number.isFinite(ended.getTime()) || ended <= started) return total
+    const split = splitIntervalBySchedule(start, end, "TRAVEL", schedule, holidays)
+    total.normal += split.normalHours
+    total.overtime += split.overtimeHours
+    return total
+  }, { normal: 0, overtime: 0 })
+  const summary = {
     normal_hours: roundHours(work.normal_hours, schedule.rounding_minutes),
     overtime_hours: roundHours(work.overtime_hours, schedule.rounding_minutes),
     double_time_hours: roundHours(work.double_time_hours, schedule.rounding_minutes),
-    travel_hours: roundHours(travelHours, schedule.rounding_minutes),
+    normal_travel_hours: roundHours(travel.normal, schedule.rounding_minutes),
+    overtime_travel_hours: roundHours(travel.overtime, schedule.rounding_minutes),
+    travel_hours: roundHours(travel.normal + travel.overtime, schedule.rounding_minutes),
     schedule_name: schedule.schedule_name
   }
+  summary.total_calculated_hours = roundHours(summary.normal_hours + summary.overtime_hours + summary.double_time_hours + summary.normal_travel_hours + summary.overtime_travel_hours, schedule.rounding_minutes)
+  return summary
 }
 
 app.post("/job-cards/calculate-hours", asyncRoute(async (req, res) => {
@@ -14765,6 +14773,27 @@ async function emailSubmittedJobCardToManager(card) {
   })
 }
 
+async function emailSubmittedJobCardToAccelo(card) {
+  const recipient = `job+${card.customer_reference}@fb-cranes.accelo.com`
+  const pdf = await createJobCardPdfBuffer(card)
+  await sendApplicationEmail({
+    from: process.env.MAIL_FROM,
+    to: recipient,
+    subject: `ATEC Job Card Submitted - ${card.jobcard_reference} - Job ${card.customer_reference}`,
+    text: [
+      `Submitted Job Card: ${card.jobcard_reference}`,
+      `Accelo Job Number: ${card.customer_reference}`,
+      `Customer: ${card.clientname}`,
+      `Site: ${card.sitename}`,
+      `Inspector: ${card.assigned_to_name}`,
+      "",
+      "The signed job-card PDF is attached. The full completion package will follow after approval and timesheet readiness."
+    ].join("\n"),
+    attachments: [{ filename: `${card.jobcard_reference}.pdf`, content: pdf, contentType: "application/pdf" }]
+  })
+  return recipient
+}
+
 async function saveJobCard(req, res) {
   const body = req.body || {}
   const requestedStatus = String(body.status || "DRAFT").toUpperCase()
@@ -14867,7 +14896,8 @@ async function saveJobCard(req, res) {
       signature_unavailable_reason=$35, submitted_at=CASE WHEN $9='SUBMITTED' AND submitted_at IS NULL THEN now() ELSE submitted_at END,
       approved_at=CASE WHEN $9 IN ('APPROVED','INVOICED') AND approved_at IS NULL THEN now() ELSE approved_at END,
       approved_by_user_id=CASE WHEN $9 IN ('APPROVED','INVOICED') THEN $36 ELSE approved_by_user_id END,
-      invoice_reference=$37, double_time_hours=$39, travel_hours=$40, updated_at=now() WHERE jobcardid=$38`, [reference, body.clientid, body.siteid, body.sectionid || null,
+      invoice_reference=$37, double_time_hours=$39, travel_hours=$40, normal_travel_hours=$41,
+      overtime_travel_hours=$42, customer_contact_email=$43, updated_at=now() WHERE jobcardid=$38`, [reference, body.clientid, body.siteid, body.sectionid || null,
       body.visitid || null, body.assigned_to_user_id || (req.user.role === "INSPECTOR" ? req.user.user_id : null),
       String(body.job_type || "REPAIR").toUpperCase(), String(body.priority || "NORMAL").toUpperCase(), requestedStatus,
       acceloJobNumber, body.customer_contact_name || "", body.customer_contact_phone || "", body.reported_fault || "",
@@ -14876,7 +14906,8 @@ async function saveJobCard(req, res) {
       body.arrived_at || null, body.work_started_at || null, body.work_completed_at || null, body.travel_completed_at || null,
       nullableNumber(body.kilometres), calculatedHours.normal_hours, calculatedHours.overtime_hours, nullableNumber(body.standby_hours),
       body.customer_signatory_name || "", body.customer_signatory_designation || "", newSignaturePath, body.signature_unavailable_reason || "",
-      req.user.user_id, body.invoice_reference || "", jobcardid, calculatedHours.double_time_hours, calculatedHours.travel_hours])
+      req.user.user_id, body.invoice_reference || "", jobcardid, calculatedHours.double_time_hours, calculatedHours.travel_hours,
+      calculatedHours.normal_travel_hours, calculatedHours.overtime_travel_hours, String(body.customer_contact_email || "").trim()])
     const inspectedAssetIds = await inspectedAssetIdsForJob(client, body, req.user.user_id)
     const selectedAssetIds = [...new Set([...(body.assetids || []), ...inspectedAssetIds].map(Number).filter(Boolean))]
     await client.query("DELETE FROM atec.tbljobcardasset WHERE jobcardid=$1", [jobcardid])
@@ -14956,7 +14987,20 @@ async function saveJobCard(req, res) {
         managerEmailNotification = { requested: true, sent: false, to: savedCard.manager_email || null, name: savedCard.manager_name, error: emailMessage }
       }
     }
-    res.status(req.params.id ? 200 : 201).json({ ...savedCard, email_notification: emailNotification, manager_email_notification: managerEmailNotification })
+    let acceloSubmissionNotification = { requested: false, sent: false }
+    if (requestedStatus === "SUBMITTED" && previousStatus !== "SUBMITTED" && req.user.role === "INSPECTOR") {
+      acceloSubmissionNotification.requested = true
+      try {
+        const recipient = await emailSubmittedJobCardToAccelo(savedCard)
+        await req.logAudit("JOB_CARD_SUBMISSION_ACCELO_EMAIL_SENT", "job_cards", jobcardid, { to: recipient })
+        acceloSubmissionNotification = { requested: true, sent: true, to: recipient }
+      } catch (emailError) {
+        const emailMessage = getMailErrorMessage(emailError)
+        await req.logAudit("JOB_CARD_SUBMISSION_ACCELO_EMAIL_FAILED", "job_cards", jobcardid, { error: emailMessage })
+        acceloSubmissionNotification = { requested: true, sent: false, error: emailMessage }
+      }
+    }
+    res.status(req.params.id ? 200 : 201).json({ ...savedCard, email_notification: emailNotification, manager_email_notification: managerEmailNotification, accelo_submission_notification: acceloSubmissionNotification })
   } catch (err) {
     await client.query("ROLLBACK")
     if (newSignaturePath) deleteUploadFileIfUnreferenced(newSignaturePath).catch(() => {})
@@ -14966,6 +15010,36 @@ async function saveJobCard(req, res) {
 
 app.post("/job-cards", asyncRoute(saveJobCard))
 app.put("/job-cards/:id", asyncRoute(saveJobCard))
+
+app.post("/job-cards/:id/email-customer", emailLimiter, asyncRoute(async (req, res) => {
+  const card = await loadJobCard(req.params.id)
+  if (!card) return res.status(404).json({ error: "Job card not found" })
+  if (req.user.role === "INSPECTOR" && ![card.assigned_to_user_id, card.created_by_user_id].map(String).includes(String(req.user.user_id))) {
+    return res.status(403).json({ error: "This job card is not assigned to you" })
+  }
+  if (!card.customer_signature_path) return res.status(409).json({ error: "Save the customer signature before emailing the signed job card" })
+  const recipient = String(req.body?.email || card.customer_contact_email || "").trim()
+  if (!isValidEmailAddress(recipient)) return res.status(400).json({ error: "Enter a valid customer email address" })
+  try {
+    const pdf = await createJobCardPdfBuffer(card)
+    await sendApplicationEmail({
+      from: process.env.MAIL_FROM,
+      to: recipient,
+      subject: `Signed ATEC Job Card - ${card.jobcard_reference}`,
+      text: [`Good day ${card.customer_signatory_name || "Customer"},`, "", `Please find the signed ATEC job card ${card.jobcard_reference} attached.`, "", "Regards,", "ATEC Inspection Platform"].join("\n"),
+      attachments: [{ filename: `${card.jobcard_reference}.pdf`, content: pdf, contentType: "application/pdf" }]
+    })
+    await pool.query(`UPDATE atec.tbljobcard SET customer_contact_email=$1,customer_email_to=$1,
+      customer_email_sent_at=now(),customer_email_error=NULL,updated_at=now() WHERE jobcardid=$2`, [recipient, card.jobcardid])
+    await req.logAudit("JOB_CARD_CUSTOMER_EMAIL_SENT", "job_cards", card.jobcardid, { to: recipient })
+    return res.json({ sent: true, to: recipient })
+  } catch (emailError) {
+    const message = getMailErrorMessage(emailError)
+    await pool.query("UPDATE atec.tbljobcard SET customer_email_to=$1,customer_email_error=$2 WHERE jobcardid=$3", [recipient, message, card.jobcardid])
+    await req.logAudit("JOB_CARD_CUSTOMER_EMAIL_FAILED", "job_cards", card.jobcardid, { to: recipient, error: message })
+    return res.status(502).json({ error: message })
+  }
+}))
 
 app.post("/job-cards/:id/photos", uploadLimiter, upload.array("jobCardPhotos", 20), validateUploadedImages, compressUploadedPhotos, asyncRoute(async (req, res) => {
   const card = await loadJobCard(req.params.id)
@@ -15279,7 +15353,7 @@ function createJobCardPdfBuffer(card) {
   ])
 
   const totals = [
-    ["Normal hours", card.normal_hours], ["Overtime hours", card.overtime_hours], ["Double-time hours", card.double_time_hours], ["Travel hours", card.travel_hours], ["Distance", card.kilometres === null || card.kilometres === undefined || card.kilometres === "" ? "" : `${card.kilometres} km`]
+    ["Normal work", card.normal_hours], ["Overtime work", card.overtime_hours], ["Double-time work", card.double_time_hours], ["Normal travel", card.normal_travel_hours], ["Overtime travel", card.overtime_travel_hours], ["Total calculated hours", [card.normal_hours,card.overtime_hours,card.double_time_hours,card.normal_travel_hours,card.overtime_travel_hours].reduce((total,value) => total + Number(value || 0),0)], ["Distance", card.kilometres === null || card.kilometres === undefined || card.kilometres === "" ? "" : `${card.kilometres} km`]
   ].filter(([, value]) => value !== "" && value !== null && value !== undefined)
   if (totals.length) {
     heading("Time and travel summary")

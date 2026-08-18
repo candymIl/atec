@@ -6052,7 +6052,7 @@ tr:hover {
 .job-card-repeat-row { display: grid; grid-template-columns: 90px 2fr 1fr 1fr 1fr auto; gap: 8px; margin-bottom: 8px; align-items: center; }
 .job-card-deviation { border: 1px solid #d7deea; border-left: 5px solid #e2a10b; border-radius: 9px; padding: 13px; margin-bottom: 12px; }
 .signature-pad-wrap { margin-top: 12px; }
-.signature-pad-wrap canvas { width: min(100%, 700px); height: 180px; display: block; background: #fff; border: 1px dashed #718096; border-radius: 8px; touch-action: none; }
+.signature-pad-wrap canvas { width: min(100%, 700px); height: 180px; display: block; margin: 6px 0; background: #fff; border: 2px solid #475569; border-radius: 8px; touch-action: none; cursor: crosshair; }
 .job-card-signature-image { width: 220px; max-height: 90px; object-fit: contain; border: 1px solid #d7deea; }
 .job-card-photo-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; margin-bottom: 16px; }
 .job-card-photo-grid figure { margin: 0; border: 1px solid #d7deea; border-radius: 8px; overflow: hidden; background: #fff; }

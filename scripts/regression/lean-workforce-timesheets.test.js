@@ -37,6 +37,10 @@ assert.strictEqual(publicHoliday.normalHours, 0)
 assert.strictEqual(publicHoliday.overtimeHours, 0)
 assert.strictEqual(publicHoliday.doubleTimeHours, 4, "Public-holiday work must be double time")
 
+const splitTravel = splitIntervalBySchedule("2026-07-27T06:00:00+02:00", "2026-07-27T08:00:00+02:00", "TRAVEL", schedule)
+assert.strictEqual(splitTravel.normalHours, 1, "Travel inside the schedule must be normal travel")
+assert.strictEqual(splitTravel.overtimeHours, 1, "Travel outside the schedule must be overtime travel")
+
 const agreedSchedule = {
   schedule_name: "Standard 06:30 schedule",
   rounding_minutes: 1,
