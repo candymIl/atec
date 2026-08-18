@@ -11165,18 +11165,31 @@ window.clearJobCardListFilters = function () {
 }
 window.changeJobCardListPage = function (change) { jobCardListPage += change; renderJobCardList(); document.querySelector('#jobCardList')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
 
-async function loadJobCardFormData() {
-  const assetPageUrl = page => `${API_BASE}/assets?limit=250&page=${page}&sortKey=clientname&sortDir=asc`
-  const [assetResponse, techResponse] = await Promise.all([fetch(assetPageUrl(1)), fetch(`${API_BASE}/job-cards-technicians`)])
+async function loadJobCardAssets(clientid = '', siteid = '') {
+  if (!clientid) { jobCardAssets = []; return }
+  const assetPageUrl = page => {
+    const params = new URLSearchParams({ limit:'250', page:String(page), sortKey:'clientname', sortDir:'asc', clientid:String(clientid) })
+    if (siteid) params.set('siteid', String(siteid))
+    return `${API_BASE}/assets?${params.toString()}`
+  }
+  const assetResponse = await fetch(assetPageUrl(1))
   const assetPayload = await readApiResponse(assetResponse)
+  if (!assetResponse.ok) throw new Error(assetPayload.error || 'Could not load equipment for the selected customer and site')
   jobCardAssets = Array.isArray(assetPayload) ? assetPayload : (assetPayload.rows || [])
   const totalAssets = Number(assetPayload.total || jobCardAssets.length)
   const remainingPages = Math.ceil(totalAssets / 250)
   if (assetResponse.ok && remainingPages > 1) {
-    const pageResponses = await Promise.all(Array.from({ length: remainingPages - 1 }, (_, index) => fetch(assetPageUrl(index + 2))))
-    const pagePayloads = await Promise.all(pageResponses.map(response => readApiResponse(response)))
-    jobCardAssets.push(...pagePayloads.flatMap(payload => Array.isArray(payload) ? payload : (payload.rows || [])))
+    for (let page = 2; page <= remainingPages; page += 1) {
+      const response = await fetch(assetPageUrl(page))
+      const payload = await readApiResponse(response)
+      if (!response.ok) throw new Error(payload.error || `Could not load equipment page ${page}`)
+      jobCardAssets.push(...(Array.isArray(payload) ? payload : (payload.rows || [])))
+    }
   }
+}
+
+async function loadJobCardFormData() {
+  const techResponse = await fetch(`${API_BASE}/job-cards-technicians`)
   jobCardTechnicians = techResponse.ok ? await techResponse.json() : [{ user_id: currentUser.user_id, full_name: currentUser.full_name }]
 }
 
@@ -11188,6 +11201,8 @@ window.openJobCard = async function (jobcardid = null) {
     const response = await fetch(`${API_BASE}/job-cards/${jobcardid}`)
     jobCardEditing = await readApiResponse(response)
     if (!response.ok) { alert(jobCardEditing.error || 'Could not open job card'); return }
+    try { await loadJobCardAssets(jobCardEditing.clientid, jobCardEditing.siteid) }
+    catch (error) { alert(error.message); jobCardAssets = [] }
   } else {
     jobCardEditing = { status: 'DRAFT', job_type: 'REPAIR', priority: 'NORMAL', equipment_status: 'NOT_TESTED', assets: [], materials: [], deviations: [], photos: [], assigned_to_user_id: ['ADMIN', 'INSPECTOR'].includes(currentUser.role) ? currentUser.user_id : '' }
   }
@@ -11341,8 +11356,18 @@ function renderJobCardMaterialRow(row = {}) { return `<div class="job-card-repea
 function renderJobCardDeviationRow(row = {}) { return `<div class="job-card-deviation jc-deviation" data-id="${safeAttr(row.deviationid || '')}"><div class="job-card-grid"><label>Category<select class="jc-dev-category">${['ELECTRICAL','MECHANICAL','STRUCTURAL','CONTROLS','SAFETY','HOUSEKEEPING','OTHER'].map(value => jobCardOption(value,value,row.category)).join('')}</select></label><label>Severity<select class="jc-dev-severity">${['OBSERVATION','MINOR','MAJOR','CRITICAL'].map(value => jobCardOption(value,value,row.severity)).join('')}</select></label><label>Status<select class="jc-dev-status">${['OPEN','CLOSED'].map(value => jobCardOption(value,value,row.deviation_status)).join('')}</select></label><label>Target date<input class="jc-dev-date" type="date" value="${safeAttr(row.target_date ? String(row.target_date).slice(0,10) : '')}"></label><label class="job-card-wide">Deviation description<textarea class="jc-dev-desc">${escapeHtml(row.description || '')}</textarea></label><label>Immediate action<textarea class="jc-dev-action">${escapeHtml(row.immediate_action || '')}</textarea></label><label>Further work required<textarea class="jc-dev-further">${escapeHtml(row.further_work_required || '')}</textarea></label></div><button type="button" onclick="this.parentElement.remove()">Remove Deviation</button></div>` }
 window.addJobCardMaterialRow = () => document.querySelector('#jcMaterials').insertAdjacentHTML('beforeend', renderJobCardMaterialRow())
 window.addJobCardDeviationRow = () => document.querySelector('#jcDeviations').insertAdjacentHTML('beforeend', renderJobCardDeviationRow())
-window.jobCardCustomerChanged = function () { jobCardEditing = { ...jobCardEditing, clientid: document.querySelector('#jcClient').value, siteid: '', sectionid: '' }; renderJobCardForm() }
-window.jobCardSiteChanged = function () { jobCardEditing = { ...jobCardEditing, clientid: document.querySelector('#jcClient').value, siteid: document.querySelector('#jcSite').value, sectionid: '' }; renderJobCardForm() }
+window.jobCardCustomerChanged = async function () {
+  jobCardEditing = { ...jobCardEditing, clientid: document.querySelector('#jcClient').value, siteid: '', sectionid: '' }
+  try { await loadJobCardAssets(jobCardEditing.clientid) }
+  catch (error) { alert(error.message); jobCardAssets = [] }
+  renderJobCardForm()
+}
+window.jobCardSiteChanged = async function () {
+  jobCardEditing = { ...jobCardEditing, clientid: document.querySelector('#jcClient').value, siteid: document.querySelector('#jcSite').value, sectionid: '' }
+  try { await loadJobCardAssets(jobCardEditing.clientid, jobCardEditing.siteid) }
+  catch (error) { alert(error.message); jobCardAssets = [] }
+  renderJobCardForm()
+}
 
 window.filterJobCardAssets = function () {
   const group = document.querySelector('#jcAssetGroup')?.value || ''

@@ -3606,6 +3606,19 @@ app.get("/assets/qr/:code", searchLimiter, async (req, res) => {
     console.error("QR asset lookup error:", err)
     res.status(500).json({ error: "An unexpected server error occurred" })
   }
+
+  for (const [queryKey, column] of [["clientid", "a.clientid"], ["siteid", "a.siteid"]]) {
+    if (req.query[queryKey] !== undefined && req.query[queryKey] !== "") {
+      const id = Number(req.query[queryKey])
+      if (!Number.isInteger(id) || id <= 0) {
+        const error = new Error(`Invalid ${queryKey}`)
+        error.statusCode = 400
+        throw error
+      }
+      values.push(id)
+      where.push(`${column} = $${values.length}`)
+    }
+  }
 })
 
 app.get("/assets/nfc/:token", searchLimiter, asyncRoute(async (req, res) => {
