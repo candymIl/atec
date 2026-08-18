@@ -1,0 +1,31 @@
+01. ATEC Systems brings customers, assets, field inspections, workforce activity, certificates and management reporting into one connected platform.
+
+02. The dashboard gives management a clear operational view, including registered assets, current and expiring certificates, overdue work, failed equipment and notifications that need attention.
+
+03. ATEC organises each customer, site, section, responsible person and asset in a consistent hierarchy. Equipment details, locations and inspection history stay connected to the correct record.
+
+04. Office teams can plan on-site visits and create technician job cards. Each card connects the customer, site, equipment, assigned technician, supporting crew, priority and planned work.
+
+05. In the field, the job card records travel and work milestones, work performed, materials used, findings, deviations, equipment status, supporting evidence and customer acknowledgement.
+
+06. Inspectors use guided workflows for supported equipment types. The system captures controlled criteria, findings, photographs and results for inspections and load tests, reducing missed steps and inconsistent records.
+
+07. Safety controls connect critical inspection failures to a not safe outcome. Deviations, immediate actions, follow-up work and equipment status remain visible and traceable.
+
+08. NFC and QR labels provide fast access at the physical asset. A tap or scan can open the correct asset, show its status and history, provide available certificates, or begin authorised work.
+
+09. Completed inspection evidence remains connected to the asset and its certificate history. Authorised users can search, review, download and share the available inspection and load-test records.
+
+10. Job activity flows into employee time records. Employees review and submit their time, managers can return or correct it with an audit reason, and approved records move toward HR and payroll readiness.
+
+11. When workflow checks pass, the platform can assemble the approved job card, crew timesheets and linked certificates into a controlled completion package for the next business process.
+
+12. Customer portal users receive role-controlled access to their own information, including available certificates, MPI and NDT records, and customer reporting without exposing other customers data.
+
+13. ATEC also supports SLAMM risk assessments and reporting, bringing safety observations and decisions into the same controlled digital environment.
+
+14. Role-based permissions separate customer access, field execution, approval and administration. History, notifications and system health tools help teams manage the platform responsibly.
+
+15. The result is one connected workflow: organise the asset base, plan the work, execute in the field, inspect and test, approve the records, issue evidence and give management and customers clear visibility.
+
+16. ATEC Systems. Digital control for real inspection operations. Book a live demonstration at atec inspections dot co dot z a.
