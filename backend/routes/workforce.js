@@ -215,6 +215,15 @@ async function rebuildTimesheet(client, userId, date, options = {}) {
     }
   }
   const { schedule, calculation } = await calculateDay(client, userId, date)
+  if (!calculation.lines.length && (!existing.rows[0] || existing.rows[0].status === "DRAFT")) {
+    if (existing.rows[0]?.status === "DRAFT") {
+      await client.query(`DELETE FROM atec.tbldailytimesheet t
+        WHERE t.timesheetid=$1
+          AND NOT EXISTS (SELECT 1 FROM atec.tbltimeentry entry
+            WHERE entry.user_id=t.user_id AND entry.activity_date=t.timesheet_date)`, [existing.rows[0].timesheetid])
+    }
+    return { timesheet:null, ...calculation, schedule }
+  }
   const header = await client.query(`
     INSERT INTO atec.tbldailytimesheet
       (user_id,timesheet_date,status,schedule_snapshot,calculated_normal_hours,calculated_overtime_hours,

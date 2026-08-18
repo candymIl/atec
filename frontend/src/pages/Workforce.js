@@ -45,7 +45,7 @@ export async function renderMyDay() {
         <label class="job-card-wide">Details<input id="timeDetails"></label><label><span><input id="timeUnderground" type="checkbox"> Underground allowance</span></label>
         <button type="button" onclick="addWorkforceTime()">Add time</button></div></details>`}
       <div class="form-actions">${locked ? '' : `<button class="load-test-btn" type="button" onclick="submitMyDay('${safeAttr(date)}')">Confirm and submit to manager</button>`}${data.timesheet?.timesheetid ? `<button type="button" onclick="window.open('${API_BASE}/workforce/timesheets/${data.timesheet.timesheetid}/pdf','_blank','noopener')">Open FBC009-10 PDF</button>` : ''}</div>
-      <hr><h3>My submitted timesheet history</h3><div id="myTimesheetHistory">Loading history...</div>`
+      <hr><h3>My timesheet history</h3><div id="myTimesheetHistory">Loading history...</div>`
     const history = await api(`/workforce/timesheets/history?mine=true&limit=31`)
     document.querySelector('#myTimesheetHistory').innerHTML = renderHistoryTable(history, false)
   } catch (error) {

@@ -38,6 +38,7 @@
     "2026-07-30-inspection-snapshot-runtime-permissions.sql",
     "2026-08-18-job-card-automatic-time-categories.sql",
     "2026-08-18-job-card-travel-hour-split.sql",
-    "2026-08-18-job-card-delivery-emails.sql"
+    "2026-08-18-job-card-delivery-emails.sql",
+    "2026-08-18-remove-empty-timesheet-drafts.sql"
   ]
 }
