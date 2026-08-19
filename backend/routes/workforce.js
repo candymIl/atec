@@ -938,7 +938,7 @@ function registerWorkforceRoutes(app, {
     }
     const [status,dateColumn,userColumn] = transitions[action]
     const expectedStatuses = {
-      APPROVE: ["EMPLOYEE_SUBMITTED"],
+      APPROVE: req.user.role === "ADMIN" ? ["EMPLOYEE_SUBMITTED","RETURNED"] : ["EMPLOYEE_SUBMITTED"],
       ACCEPT: ["MANAGER_APPROVED"],
       EXPORT: ["HR_ACCEPTED"],
       RETURN: req.user.role === "MANAGER" ? ["EMPLOYEE_SUBMITTED"] : ["EMPLOYEE_SUBMITTED","MANAGER_APPROVED","HR_ACCEPTED"]

@@ -16,6 +16,7 @@ import { renderSystemHealthPage } from './pages/SystemHealth.js'
 import { renderMpiReportsPage } from './pages/MpiReports.js'
 import {
   addWorkforceTime,
+  approveCorrectedTimesheet,
   closeEmployeeTimeEditor,
   deleteEmployeeTimeEntry,
   deleteMyTimeEntry,
@@ -1616,6 +1617,7 @@ window.deleteMyTimeEntry = deleteMyTimeEntry
 window.submitMyDay = submitMyDay
 window.showTimesheetApprovals = function () { setCurrentPage('timesheet-approvals'); return renderTimesheetApprovals() }
 window.workforceAction = workforceAction
+window.approveCorrectedTimesheet = approveCorrectedTimesheet
 window.editEmployeeTimes = editEmployeeTimes
 window.saveEmployeeTimeEdit = saveEmployeeTimeEdit
 window.deleteEmployeeTimeEntry = deleteEmployeeTimeEntry
