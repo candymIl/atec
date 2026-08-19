@@ -85,6 +85,7 @@ const server = read("backend/server.js")
 const manifest = JSON.parse(read("deployment/production-migrations.json"))
 const snapshotPermissions = read("database/2026-07-30-inspection-snapshot-runtime-permissions.sql")
 
+assert.ok(routes.includes("result.rows[0] || standardFallbackSchedule()"),"Timesheet rebuilds without an assigned schedule must use the standard weekday schedule")
 for (const table of ["tbljobcardcrew","tbltimeentry","tbldailytimesheet","tbltimesheetaudit","tblaccelodelivery"]) {
   assert.ok(migration.includes(table), `Migration must create ${table}`)
 }
@@ -156,6 +157,9 @@ assert.ok(frontend.includes("View payroll preview"),"Payroll users must be able 
 assert.ok(frontend.includes("filterTimesheetHistoryResults"),"Timesheet history must support live result filtering")
 assert.ok(frontend.includes("Highest overtime"),"Timesheet history must provide useful sorting choices")
 assert.ok(frontend.includes("Review / correct entries"),"The approval queue must expose controlled time review and correction")
+assert.ok(routes.includes('router.post("/timesheets/recalculate-awaiting"'),"Admin must be able to bulk recalculate awaiting timesheets")
+assert.ok(routes.includes("'ADMIN_RECALCULATED'"),"Bulk timesheet recalculation must be audited")
+assert.ok(frontend.includes("Recalculate awaiting timesheets"),"The Admin approval queue must expose the controlled recalculation action")
 assert.ok(routes.includes('"SUBMIT_EMPLOYEE"'),"Admin must be able to submit an awaiting timesheet on behalf of an employee")
 assert.ok(routes.includes('action === "SUBMIT_EMPLOYEE" && reason.length < 5'),"Admin submission on behalf must require an audit reason")
 assert.ok(routes.includes("This timesheet has no time entries to submit."),"Admin must not submit an empty employee timesheet")

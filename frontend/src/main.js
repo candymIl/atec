@@ -31,6 +31,7 @@ import {
   setPayrollPeriod,
   renderHrTimesheets,
   renderMyDay,
+  recalculateAwaitingTimesheets,
   renderTimesheetApprovals,
   renderTimesheetHistory,
   renderWorkSchedules,
@@ -1687,6 +1688,7 @@ window.editMyTimeEntry = editMyTimeEntry
 window.deleteMyTimeEntry = deleteMyTimeEntry
 window.submitMyDay = submitMyDay
 window.showTimesheetApprovals = function () { setCurrentPage('timesheet-approvals'); return renderTimesheetApprovals() }
+window.recalculateAwaitingTimesheets = recalculateAwaitingTimesheets
 window.workforceAction = workforceAction
 window.approveCorrectedTimesheet = approveCorrectedTimesheet
 window.editEmployeeTimes = editEmployeeTimes

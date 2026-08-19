@@ -292,7 +292,8 @@ export async function submitMyDay(date) {
 
 export async function renderTimesheetApprovals() {
   const page = document.querySelector('#page')
-  page.innerHTML = `<div class="page-heading"><div><h2>Timesheet Approvals</h2><p>Review exceptions, correct assigned employee time with an audit reason, then approve or return it.</p></div></div><section id="approvalList" class="filter-card">Loading...</section><section id="managerTimeEditor" class="filter-card" hidden></section>`
+  const adminRecalculate = window.currentUser?.role === 'ADMIN' ? `<button type="button" onclick="recalculateAwaitingTimesheets()">Recalculate awaiting timesheets</button>` : ''
+  page.innerHTML = `<div class="page-heading"><div><h2>Timesheet Approvals</h2><p>Review exceptions, correct assigned employee time with an audit reason, then approve or return it.</p></div>${adminRecalculate}</div><section id="approvalList" class="filter-card">Loading...</section><section id="managerTimeEditor" class="filter-card" hidden></section>`
   try {
     const rows = await api('/workforce/approvals')
     const role = window.currentUser?.role
@@ -304,6 +305,19 @@ export async function renderTimesheetApprovals() {
       ${rows.map(row => `<tr><td>${escapeHtml(String(row.timesheet_date).slice(0,10))}</td><td>${escapeHtml(row.employee_name)}</td><td>${escapeHtml(row.status.replaceAll('_',' '))}</td><td>${hours(row.final_normal_hours)}</td><td>${hours(row.final_overtime_hours)}</td><td>${hours(row.final_travel_hours)}</td><td>${hours(row.final_standby_hours)}</td><td><button onclick="window.open('${API_BASE}/workforce/timesheets/${row.timesheetid}/pdf','_blank','noopener')">PDF</button>${canEditTime && editableStatuses.includes(row.status) ? `<button onclick="editEmployeeTimes(${row.timesheetid})">Review / correct entries</button>` : ''}${row.status === 'AWAITING_EMPLOYEE' && role === 'ADMIN' ? `<button class="load-test-btn" onclick="workforceAction(${row.timesheetid},'SUBMIT_EMPLOYEE')">Submit for employee</button>` : ''}${row.status === 'EMPLOYEE_SUBMITTED' && ['ADMIN','MANAGER'].includes(role) ? `<button onclick="workforceAction(${row.timesheetid},'APPROVE')">Approve</button>` : ''}${row.status === 'RETURNED' && role === 'ADMIN' ? `<button class="load-test-btn" onclick="approveCorrectedTimesheet(${row.timesheetid})">Approve corrected timesheet</button>` : ''}${row.status === 'MANAGER_APPROVED' && ['ADMIN','HR'].includes(role) ? `<button onclick="workforceAction(${row.timesheetid},'ACCEPT')">HR accept</button>` : ''}${!['AWAITING_EMPLOYEE','RETURNED'].includes(row.status) ? `<button onclick="workforceAction(${row.timesheetid},'RETURN')">Return</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="8">No timesheets need attention.</td></tr>'}
     </tbody></table></div>`
   } catch (error) { document.querySelector('#approvalList').innerHTML = `<p class="login-error">${escapeHtml(error.message)}</p>` }
+}
+
+export async function recalculateAwaitingTimesheets() {
+  const reason = window.prompt('Reason for recalculating all Awaiting Employee timesheets:','Correct normal and overtime allocation using assigned work schedules')
+  if (!reason || reason.trim().length < 5) return
+  if (!window.confirm('Recalculate every Awaiting Employee timesheet from its original time entries? Manually adjusted timesheets will be skipped.')) return
+  try {
+    const result = await api('/workforce/timesheets/recalculate-awaiting', {
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ reason })
+    })
+    alert(`${result.recalculated} timesheet(s) recalculated.${result.skipped_adjusted ? ` ${result.skipped_adjusted} manually adjusted timesheet(s) were skipped.` : ''}`)
+    await renderTimesheetApprovals()
+  } catch (error) { alert(error.message) }
 }
 
 function datetimeLocalValue(value) {

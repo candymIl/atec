@@ -1,5 +1,5 @@
 const express = require("express")
-const { calculateTimeEntries } = require("../services/workforceTime")
+const { calculateTimeEntries, standardFallbackSchedule } = require("../services/workforceTime")
 const { createTimesheetPdfBuffer } = require("../services/workforceTimesheetRenderer")
 
 const ACTIVITY_TYPES = new Set(["TRAVEL","WORK","STANDBY","BREAK","WORKSHOP","TRAINING","MEETING","ADMIN","WAITING","LEAVE","SICK_LEAVE","UNPAID","OTHER"])
@@ -159,15 +159,11 @@ async function loadSchedule(client, userId, date) {
       AND (schedule.effective_to IS NULL OR schedule.effective_to >= $2::date)
     ORDER BY schedule.effective_from DESC, schedule.scheduleid DESC
     LIMIT 1`, [userId, date])
-  const schedule = result.rows[0] || {
-    schedule_name: "No assigned schedule",
-    travel_treatment: "SPLIT_BY_SCHEDULE",
-    rounding_minutes: 1
-  }
+  const schedule = result.rows[0] || standardFallbackSchedule()
   const days = schedule.scheduleid
     ? await client.query("SELECT * FROM atec.tblworkscheduleday WHERE scheduleid=$1 ORDER BY weekday", [schedule.scheduleid])
     : { rows: [] }
-  schedule.days = Object.fromEntries(days.rows.map(row => [Number(row.weekday), row]))
+  if (schedule.scheduleid) schedule.days = Object.fromEntries(days.rows.map(row => [Number(row.weekday), row]))
   return schedule
 }
 
@@ -667,6 +663,53 @@ function registerWorkforceRoutes(app, {
       FROM atec.tbldailytimesheet t JOIN atec.tblusers u ON u.userid=t.user_id ${where}
       ORDER BY t.timesheet_date DESC,employee_name`, values)
     res.json(result.rows)
+  }))
+
+  router.post("/timesheets/recalculate-awaiting", asyncRoute(async (req, res) => {
+    if (req.user.role !== "ADMIN") return res.status(403).json({ error:"Access denied" })
+    const reason = String(req.body?.reason || "").trim()
+    if (reason.length < 5) throw badRequest("Enter a clear audit reason for recalculating awaiting timesheets.")
+    const client = await pool.connect()
+    try {
+      await client.query("BEGIN")
+      const result = await client.query(`SELECT timesheetid,user_id,timesheet_date::text AS timesheet_date,
+        final_normal_hours,final_overtime_hours,final_travel_hours,final_standby_hours,adjustment_reason
+        FROM atec.tbldailytimesheet
+        WHERE status='AWAITING_EMPLOYEE'
+        ORDER BY timesheet_date,user_id FOR UPDATE`)
+      let recalculated = 0
+      let skippedAdjusted = 0
+      for (const sheet of result.rows) {
+        if (String(sheet.adjustment_reason || "").trim()) {
+          skippedAdjusted += 1
+          continue
+        }
+        const before = {
+          normal_hours:Number(sheet.final_normal_hours || 0),
+          overtime_hours:Number(sheet.final_overtime_hours || 0),
+          travel_hours:Number(sheet.final_travel_hours || 0),
+          standby_hours:Number(sheet.final_standby_hours || 0)
+        }
+        const rebuilt = await rebuildTimesheet(client,sheet.user_id,sheet.timesheet_date,{ force:true })
+        if (!rebuilt.timesheet) continue
+        const after = {
+          normal_hours:Number(rebuilt.timesheet.final_normal_hours || 0),
+          overtime_hours:Number(rebuilt.timesheet.final_overtime_hours || 0),
+          travel_hours:Number(rebuilt.timesheet.final_travel_hours || 0),
+          standby_hours:Number(rebuilt.timesheet.final_standby_hours || 0)
+        }
+        await client.query(`INSERT INTO atec.tbltimesheetaudit(timesheetid,actor_user_id,action,details)
+          VALUES($1,$2,'ADMIN_RECALCULATED',$3::jsonb)`, [sheet.timesheetid,req.user.user_id,JSON.stringify({
+          reason,before,after,schedule:rebuilt.schedule?.schedule_name || "Standard 06:30 schedule"
+        })])
+        recalculated += 1
+      }
+      await client.query("COMMIT")
+      res.json({ success:true,recalculated,skipped_adjusted:skippedAdjusted })
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {})
+      throw error
+    } finally { client.release() }
   }))
 
   router.get("/timesheets/:id/manager-edit", asyncRoute(async (req, res) => {
