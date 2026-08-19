@@ -935,8 +935,8 @@ window.showUserManagement = async function () {
             <input id="newUserEmployeeNumber" type="text">
           </div>
           <div class="form-group">
-            <label>Approving Manager</label>
-            <select id="newUserManager"><option value="">Not assigned</option>${users.filter(user => ['ADMIN','MANAGER'].includes(user.role)).map(user => `<option value="${safeAttr(user.user_id)}">${escapeHtml(user.full_name)}</option>`).join('')}</select>
+            <label>Approving Managers <small>(select up to 3)</small></label>
+            <select id="newUserManager" multiple size="3">${users.filter(user => ['ADMIN','MANAGER'].includes(user.role)).map(user => `<option value="${safeAttr(user.user_id)}">${escapeHtml(user.full_name)}</option>`).join('')}</select>
           </div>
         ` : ''}
         ${managementMode === 'customers' ? `
@@ -1017,7 +1017,7 @@ window.showUserManagement = async function () {
                 `).join('')}
               </select>
             </td>
-            ${managementMode === 'internal' ? `<td><input id="user-lmi-${safeAttr(user.user_id)}" value="${safeAttr(user.lmi_number || '')}"></td><td><input id="user-employee-${safeAttr(user.user_id)}" value="${safeAttr(user.employee_number || '')}"></td><td><select id="user-manager-${safeAttr(user.user_id)}"><option value="">Not assigned</option>${users.filter(manager => ['ADMIN','MANAGER'].includes(manager.role) && String(manager.user_id) !== String(user.user_id)).map(manager => `<option value="${safeAttr(manager.user_id)}" ${String(manager.user_id) === String(user.manager_user_id || '') ? 'selected' : ''}>${escapeHtml(manager.full_name)}</option>`).join('')}</select></td>` : ''}
+            ${managementMode === 'internal' ? `<td><input id="user-lmi-${safeAttr(user.user_id)}" value="${safeAttr(user.lmi_number || '')}"></td><td><input id="user-employee-${safeAttr(user.user_id)}" value="${safeAttr(user.employee_number || '')}"></td><td><select id="user-manager-${safeAttr(user.user_id)}" multiple size="3">${users.filter(manager => ['ADMIN','MANAGER'].includes(manager.role) && String(manager.user_id) !== String(user.user_id)).map(manager => `<option value="${safeAttr(manager.user_id)}" ${(user.manager_user_ids || [user.manager_user_id]).map(String).includes(String(manager.user_id)) ? 'selected' : ''}>${escapeHtml(manager.full_name)}</option>`).join('')}</select></td>` : ''}
             ${managementMode === 'customers' ? `
               <td>
                 <select id="user-client-${user.user_id}" onchange="filterCustomerUserSites(${user.user_id})">
@@ -1109,9 +1109,9 @@ window.createUser = async function () {
         employee_number: managementMode === 'internal'
           ? document.querySelector('#newUserEmployeeNumber')?.value || ''
           : '',
-        manager_user_id: managementMode === 'internal'
-          ? document.querySelector('#newUserManager')?.value || null
-          : null,
+        manager_user_ids: managementMode === 'internal'
+          ? [...document.querySelector('#newUserManager').selectedOptions].map(option => Number(option.value))
+          : [],
         clientid,
         siteid: managementMode === 'customers'
           ? document.querySelector('#newUserSiteId').value
@@ -1162,9 +1162,9 @@ window.saveUser = async function (userId) {
       employee_number: managementMode === 'internal'
         ? document.querySelector(`#user-employee-${userId}`)?.value || ''
         : '',
-      manager_user_id: managementMode === 'internal'
-        ? document.querySelector(`#user-manager-${userId}`)?.value || null
-        : null,
+      manager_user_ids: managementMode === 'internal'
+        ? [...document.querySelector(`#user-manager-${userId}`).selectedOptions].map(option => Number(option.value))
+        : [],
       clientid: managementMode === 'customers'
         ? document.querySelector(`#user-client-${userId}`).value
         : null,

@@ -32,7 +32,9 @@ async function assertWorkScheduleEmployeeAccess(pool, user, employeeUserId) {
     throw error
   }
   const assigned = await pool.query(
-    "SELECT 1 FROM atec.tblusers WHERE userid=$1 AND manager_user_id=$2 AND COALESCE(is_active,true)=true",
+    `SELECT 1 FROM atec.tblusers employee WHERE employee.userid=$1 AND COALESCE(employee.is_active,true)=true
+      AND EXISTS (SELECT 1 FROM atec.tblusermanagerassignment assignment
+        WHERE assignment.employee_user_id=employee.userid AND assignment.manager_user_id=$2)`,
     [employeeUserId, user.user_id]
   )
   if (!assigned.rows[0]) {
@@ -435,7 +437,8 @@ function registerWorkforceRoutes(app, {
     let managerScope = ""
     if (scheduleScope && req.user.role === "MANAGER") {
       values.push(req.user.user_id)
-      managerScope = ` AND manager_user_id=$${values.length}`
+      managerScope = ` AND EXISTS (SELECT 1 FROM atec.tblusermanagerassignment assignment
+        WHERE assignment.employee_user_id=userid AND assignment.manager_user_id=$${values.length})`
     }
     const result = await pool.query(`
       SELECT userid AS user_id,COALESCE(NULLIF(fullname,''),username) AS full_name,role,manager_user_id,employee_number
@@ -453,7 +456,8 @@ function registerWorkforceRoutes(app, {
     let managerScope = ""
     if (req.user.role === "MANAGER") {
       values.push(req.user.user_id)
-      managerScope = ` AND u.manager_user_id=$${values.length}`
+      managerScope = ` AND EXISTS (SELECT 1 FROM atec.tblusermanagerassignment assignment
+        WHERE assignment.employee_user_id=u.userid AND assignment.manager_user_id=$${values.length})`
     }
     const result = await pool.query(`SELECT u.userid AS user_id,
       COALESCE(NULLIF(u.fullname,''),u.username) AS employee_name,u.employee_number,u.role,
@@ -687,7 +691,8 @@ function registerWorkforceRoutes(app, {
       : "WHERE t.status IN ('EMPLOYEE_SUBMITTED','MANAGER_APPROVED','RETURNED')"
     if (req.user.role === "MANAGER") {
       values.push(req.user.user_id)
-      where += ` AND u.manager_user_id=$${values.length}`
+      where += ` AND EXISTS (SELECT 1 FROM atec.tblusermanagerassignment assignment
+        WHERE assignment.employee_user_id=u.userid AND assignment.manager_user_id=$${values.length})`
     }
     const result = await pool.query(`SELECT t.*,t.timesheet_date::text AS timesheet_date,
       COALESCE(NULLIF(u.fullname,''),u.username) AS employee_name,u.employee_number
@@ -749,7 +754,8 @@ function registerWorkforceRoutes(app, {
     let managerScope = ""
     if (req.user.role === "MANAGER") {
       values.push(req.user.user_id)
-      managerScope = ` AND u.manager_user_id=$${values.length} AND t.manager_user_id=$${values.length}`
+      managerScope = ` AND EXISTS (SELECT 1 FROM atec.tblusermanagerassignment assignment
+        WHERE assignment.employee_user_id=u.userid AND assignment.manager_user_id=$${values.length})`
     }
     const sheetResult = await pool.query(`SELECT t.timesheetid,t.user_id,t.timesheet_date,t.status,
       COALESCE(NULLIF(u.fullname,''),u.username) AS employee_name
@@ -795,7 +801,8 @@ function registerWorkforceRoutes(app, {
       let managerScope = ""
       if (req.user.role === "MANAGER") {
         values.push(req.user.user_id)
-        managerScope = ` AND u.manager_user_id=$${values.length} AND t.manager_user_id=$${values.length}`
+        managerScope = ` AND EXISTS (SELECT 1 FROM atec.tblusermanagerassignment assignment
+          WHERE assignment.employee_user_id=u.userid AND assignment.manager_user_id=$${values.length})`
       }
       const result = await client.query(`SELECT t.timesheetid,t.user_id,t.timesheet_date,t.status,
         entry.timeentryid,entry.started_at,entry.ended_at
@@ -855,7 +862,8 @@ function registerWorkforceRoutes(app, {
       let managerScope = ""
       if (req.user.role === "MANAGER") {
         values.push(req.user.user_id)
-        managerScope = ` AND u.manager_user_id=$${values.length} AND t.manager_user_id=$${values.length}`
+        managerScope = ` AND EXISTS (SELECT 1 FROM atec.tblusermanagerassignment assignment
+          WHERE assignment.employee_user_id=u.userid AND assignment.manager_user_id=$${values.length})`
       }
       const result = await client.query(`SELECT t.timesheetid,t.user_id,t.timesheet_date,t.status,
         entry.timeentryid,entry.activity_type,entry.started_at,entry.ended_at,entry.job_number_snapshot
@@ -903,7 +911,8 @@ function registerWorkforceRoutes(app, {
       where.push(`t.user_id=$${values.length}`)
     } else if (req.user.role === "MANAGER") {
       values.push(req.user.user_id)
-      where.push(`u.manager_user_id=$${values.length}`)
+      where.push(`EXISTS (SELECT 1 FROM atec.tblusermanagerassignment assignment
+        WHERE assignment.employee_user_id=u.userid AND assignment.manager_user_id=$${values.length})`)
     } else if (!["ADMIN","HR"].includes(req.user.role)) {
       return res.status(403).json({ error:"Access denied" })
     } else if (requestedUserId) {
@@ -963,7 +972,8 @@ function registerWorkforceRoutes(app, {
     const where = ["t.timesheet_date BETWEEN $1::date AND $2::date","t.status=ANY($3::text[])","t.user_id=ANY($4::int[])"]
     if (req.user.role === "MANAGER") {
       values.push(req.user.user_id)
-      where.push(`u.manager_user_id=$${values.length}`)
+      where.push(`EXISTS (SELECT 1 FROM atec.tblusermanagerassignment assignment
+        WHERE assignment.employee_user_id=u.userid AND assignment.manager_user_id=$${values.length})`)
     }
     const result = await pool.query(`SELECT t.timesheetid,t.timesheet_date::text AS timesheet_date,t.status,
       t.final_normal_hours::float8 AS normal_hours,t.final_overtime_hours::float8 AS overtime_hours,
@@ -1002,7 +1012,8 @@ function registerWorkforceRoutes(app, {
     const where = ["t.timesheet_date BETWEEN $1::date AND $2::date","t.status=ANY($3::text[])"]
     if (req.user.role === "MANAGER") {
       values.push(req.user.user_id)
-      where.push(`u.manager_user_id=$${values.length}`)
+      where.push(`EXISTS (SELECT 1 FROM atec.tblusermanagerassignment assignment
+        WHERE assignment.employee_user_id=u.userid AND assignment.manager_user_id=$${values.length})`)
     }
     if (employeeIds.length) {
       values.push(employeeIds)
@@ -1100,7 +1111,8 @@ function registerWorkforceRoutes(app, {
     let managerScope = ""
     if (req.user.role === "MANAGER") {
       params.push(req.user.user_id)
-      managerScope = ` AND manager_user_id=$${params.length}`
+      managerScope = ` AND EXISTS (SELECT 1 FROM atec.tblusermanagerassignment assignment
+        WHERE assignment.employee_user_id=atec.tbldailytimesheet.user_id AND assignment.manager_user_id=$${params.length})`
     }
     const result = await pool.query(`UPDATE atec.tbldailytimesheet SET ${updates.join(",")}
       WHERE timesheetid=${idParam} AND status=ANY(${stateParam}::text[])${managerScope} RETURNING *`, params)
@@ -1202,8 +1214,10 @@ function registerWorkforceRoutes(app, {
     if (Number(sheet.user_id) !== Number(req.user.user_id) && !["ADMIN","MANAGER","HR"].includes(req.user.role)) {
       return res.status(403).json({ error:"Access denied" })
     }
-    if (req.user.role === "MANAGER" && Number(sheet.manager_user_id) !== Number(req.user.user_id)) {
-      return res.status(403).json({ error:"This timesheet is not assigned to you" })
+    if (req.user.role === "MANAGER") {
+      const assigned = await pool.query(`SELECT 1 FROM atec.tblusermanagerassignment
+        WHERE employee_user_id=$1 AND manager_user_id=$2`, [sheet.user_id,req.user.user_id])
+      if (!assigned.rows[0]) return res.status(403).json({ error:"This timesheet is not assigned to you" })
     }
     const buffer = await createTimesheetPdfBuffer(sheet, { brandRoot })
     const filename = `FBC009-10-${String(sheet.timesheet_date).slice(0,10)}-${sheet.user_id}.pdf`

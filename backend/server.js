@@ -2289,6 +2289,39 @@ app.use((req, res, next) => {
   next()
 })
 
+function requestedManagerIds(body = {}) {
+  const supplied = Array.isArray(body.manager_user_ids) ? body.manager_user_ids : [body.manager_user_id]
+  return [...new Set(supplied.map(Number).filter(value => Number.isInteger(value) && value > 0))]
+}
+
+async function validateManagerAssignments(employeeUserId, managerIds) {
+  if (managerIds.length > 3) throw Object.assign(new Error("Select no more than three approving Managers"), { statusCode:400 })
+  if (managerIds.some(id => Number(id) === Number(employeeUserId))) throw Object.assign(new Error("A user cannot approve their own employee records"), { statusCode:400 })
+  if (!managerIds.length) return
+  const result = await pool.query(`SELECT userid FROM atec.tblusers
+    WHERE userid=ANY($1::int[]) AND role IN ('ADMIN','MANAGER') AND COALESCE(is_active,true)=true`, [managerIds])
+  if (result.rows.length !== managerIds.length) throw Object.assign(new Error("Select active Admin or Manager accounts only"), { statusCode:400 })
+}
+
+async function syncManagerAssignments(employeeUserId, managerIds, actorUserId) {
+  await validateManagerAssignments(employeeUserId,managerIds)
+  const client = await pool.connect()
+  try {
+    await client.query("BEGIN")
+    await client.query("DELETE FROM atec.tblusermanagerassignment WHERE employee_user_id=$1", [employeeUserId])
+    for (let index=0; index<managerIds.length; index+=1) {
+      await client.query(`INSERT INTO atec.tblusermanagerassignment
+        (employee_user_id,manager_user_id,is_primary,created_by_user_id) VALUES($1,$2,$3,$4)`,
+      [employeeUserId,managerIds[index],index===0,actorUserId])
+    }
+    await client.query("UPDATE atec.tblusers SET manager_user_id=$1 WHERE userid=$2", [managerIds[0] || null,employeeUserId])
+    await client.query("COMMIT")
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {})
+    throw error
+  } finally { client.release() }
+}
+
 app.get("/users", asyncRoute(async (req, res) => {
   await ensureTblUsersHaveIds()
 
@@ -2328,6 +2361,9 @@ app.get("/users", asyncRoute(async (req, res) => {
       siteid,
       sectionid,
       manager_user_id,
+      ARRAY(SELECT assignment.manager_user_id FROM atec.tblusermanagerassignment assignment
+        WHERE assignment.employee_user_id=tblusers.userid
+        ORDER BY assignment.is_primary DESC,assignment.created_at,assignment.manager_user_id) AS manager_user_ids,
       employee_number,
       is_active,
       created_at,
@@ -2437,6 +2473,7 @@ app.post("/users", asyncRoute(async (req, res) => {
     role,
     lmi_number,
     manager_user_id,
+    manager_user_ids,
     employee_number,
     clientid,
     siteid,
@@ -2480,6 +2517,8 @@ app.post("/users", asyncRoute(async (req, res) => {
     return res.status(400).json({ error: "The selected site does not belong to this customer" })
   }
 
+  const managerIds = role === "CUSTOMER" ? [] : requestedManagerIds({manager_user_ids,manager_user_id})
+  await validateManagerAssignments(null,managerIds)
   const passwordHash = await bcrypt.hash(String(password), 12)
 
   const result = await pool.query(
@@ -2515,11 +2554,13 @@ app.post("/users", asyncRoute(async (req, res) => {
       role === "CUSTOMER" ? siteid || null : null,
       null,
       is_active,
-      role === "CUSTOMER" ? null : manager_user_id || null,
+      managerIds[0] || null,
       role === "CUSTOMER" ? "" : String(employee_number || "").trim()
     ]
   )
 
+  await syncManagerAssignments(result.rows[0].user_id,managerIds,req.user.user_id)
+  result.rows[0].manager_user_ids = managerIds
   await req.logAudit("CREATE", "users", result.rows[0].user_id)
   res.status(201).json(result.rows[0])
 }))
@@ -2532,6 +2573,7 @@ app.put("/users/:id", asyncRoute(async (req, res) => {
     role,
     lmi_number,
     manager_user_id,
+    manager_user_ids,
     employee_number,
     clientid,
     siteid,
@@ -2539,6 +2581,8 @@ app.put("/users/:id", asyncRoute(async (req, res) => {
     is_active
   } = req.body
   const trimmedEmail = String(email || "").trim()
+  const managerIds = role === "CUSTOMER" ? [] : requestedManagerIds({manager_user_ids,manager_user_id})
+  await validateManagerAssignments(req.params.id,managerIds)
 
   if (!full_name || !role) {
     return res.status(400).json({ error: "Full name and role are required" })
@@ -2604,7 +2648,7 @@ app.put("/users/:id", asyncRoute(async (req, res) => {
     role === "CUSTOMER" ? siteid || null : null,
     null,
     is_active === false ? false : true,
-    role === "CUSTOMER" ? null : manager_user_id || null,
+    managerIds[0] || null,
     role === "CUSTOMER" ? "" : String(employee_number || "").trim(),
     req.params.id
   ]
@@ -2661,6 +2705,9 @@ app.put("/users/:id", asyncRoute(async (req, res) => {
     return res.status(404).json({ error: "User not found" })
   }
 
+  await syncManagerAssignments(result.rows[0].user_id,managerIds,req.user.user_id)
+  result.rows[0].manager_user_ids = managerIds
+
   // Keep open approval work aligned when an employee's approving Manager changes.
   // Completed/payroll-stage timesheets retain their historical Manager snapshot.
   await pool.query(
@@ -2668,7 +2715,7 @@ app.put("/users/:id", asyncRoute(async (req, res) => {
      SET manager_user_id = $1, updated_at = now()
      WHERE user_id = $2
        AND status IN ('DRAFT','AWAITING_EMPLOYEE','EMPLOYEE_SUBMITTED','RETURNED')`,
-    [result.rows[0].manager_user_id, result.rows[0].user_id]
+    [managerIds[0] || null, result.rows[0].user_id]
   )
 
   await req.logAudit("UPDATE", "users", req.params.id)
@@ -14584,7 +14631,7 @@ async function loadJobCard(jobcardid) {
     WHERE j.jobcardid = $1
   `, [jobcardid])
   if (!header.rows[0]) return null
-  const [assets, materials, deviations, photos, crew] = await Promise.all([
+  const [assets, materials, deviations, photos, crew, managers] = await Promise.all([
     pool.query(`SELECT ja.*, a.serialno, a.assettagno, a.description, a.manufacturer, a.wll,
       et.description AS equipmenttype FROM atec.tbljobcardasset ja LEFT JOIN atec.tblasset a ON a.assetid = ja.assetid
       LEFT JOIN atec.tblequiptype et ON et.equiptypeid = a.equiptypeid WHERE ja.jobcardid = $1 ORDER BY ja.jobcardassetid`, [jobcardid]),
@@ -14594,9 +14641,22 @@ async function loadJobCard(jobcardid) {
     pool.query(`SELECT crew.*,COALESCE(NULLIF(u.fullname,''),u.username) AS full_name,u.role
       FROM atec.tbljobcardcrew crew JOIN atec.tblusers u ON u.userid=crew.user_id
       WHERE crew.jobcardid=$1
-      ORDER BY CASE crew.crew_role WHEN 'LEAD_TECHNICIAN' THEN 0 ELSE 1 END,full_name`, [jobcardid])
+      ORDER BY CASE crew.crew_role WHEN 'LEAD_TECHNICIAN' THEN 0 ELSE 1 END,full_name`, [jobcardid]),
+    pool.query(`SELECT m.userid AS manager_user_id,
+        COALESCE(NULLIF(m.fullname,''),m.username) AS manager_name,m.email AS manager_email,
+        assignment.is_primary
+      FROM atec.tblusermanagerassignment assignment
+      JOIN atec.tblusers m ON m.userid=assignment.manager_user_id AND COALESCE(m.is_active,true)=true
+      WHERE assignment.employee_user_id=$1
+      ORDER BY assignment.is_primary DESC,assignment.created_at,assignment.manager_user_id`, [header.rows[0].assigned_to_user_id])
   ])
-  return { ...header.rows[0], assets: assets.rows, materials: materials.rows, deviations: deviations.rows, photos: photos.rows, crew: crew.rows }
+  return { ...header.rows[0], assets: assets.rows, materials: materials.rows, deviations: deviations.rows, photos: photos.rows, crew: crew.rows, managers: managers.rows }
+}
+
+async function managerMayAccessEmployee(managerUserId, employeeUserId, client = pool) {
+  const result = await client.query(`SELECT 1 FROM atec.tblusermanagerassignment
+    WHERE manager_user_id=$1 AND employee_user_id=$2`, [managerUserId, employeeUserId])
+  return Boolean(result.rows[0])
 }
 
 app.get("/job-cards", asyncRoute(async (req, res) => {
@@ -14605,6 +14665,11 @@ app.get("/job-cards", asyncRoute(async (req, res) => {
   if (req.user.role === "INSPECTOR") {
     values.push(req.user.user_id)
     where.push(`(j.assigned_to_user_id = $${values.length} OR j.created_by_user_id = $${values.length})`)
+  }
+  if (req.user.role === "MANAGER") {
+    values.push(req.user.user_id)
+    where.push(`EXISTS (SELECT 1 FROM atec.tblusermanagerassignment assignment
+      WHERE assignment.employee_user_id=j.assigned_to_user_id AND assignment.manager_user_id=$${values.length})`)
   }
   if (req.query.status) {
     values.push(String(req.query.status).toUpperCase())
@@ -14711,6 +14776,9 @@ app.get("/job-cards/:id", asyncRoute(async (req, res) => {
   if (req.user.role === "INSPECTOR" && ![card.assigned_to_user_id, card.created_by_user_id].map(String).includes(String(req.user.user_id))) {
     return res.status(403).json({ error: "This job card is not assigned to you" })
   }
+  if (req.user.role === "MANAGER" && !(await managerMayAccessEmployee(req.user.user_id, card.assigned_to_user_id))) {
+    return res.status(403).json({ error: "This job card is not assigned to one of your employees" })
+  }
   res.json(card)
 }))
 
@@ -14779,12 +14847,11 @@ async function emailAssignedTechnician(card) {
 }
 
 async function emailSubmittedJobCardToManager(card) {
-  if (!card.manager_user_id) {
-    throw new Error(`${card.assigned_to_name || "The assigned technician"} does not have a Manager assigned in ATEC`)
-  }
-  if (!isValidEmailAddress(card.manager_email)) {
-    throw new Error(`${card.manager_name || "The assigned Manager"} does not have a valid email address in ATEC`)
-  }
+  const managers = Array.isArray(card.managers) ? card.managers : []
+  if (!managers.length) throw new Error(`${card.assigned_to_name || "The assigned technician"} does not have a Manager assigned in ATEC`)
+  const invalidManagers = managers.filter(manager => !isValidEmailAddress(manager.manager_email))
+  if (invalidManagers.length) throw new Error(`${invalidManagers.map(manager => manager.manager_name || "Assigned Manager").join(", ")} must have a valid email address in ATEC`)
+  const recipients = managers.map(manager => manager.manager_email)
   const mailConfigIssues = getMailConfigIssues()
   if (mailConfigIssues.length) {
     throw new Error(`Email is not configured. Missing: ${mailConfigIssues.join(", ")}`)
@@ -14792,10 +14859,10 @@ async function emailSubmittedJobCardToManager(card) {
   const pdf = await createJobCardPdfBuffer(card)
   await sendApplicationEmail({
     from: process.env.MAIL_FROM,
-    to: card.manager_email,
+    to: recipients,
     subject: `ATEC Job Card Submitted - ${card.jobcard_reference}`,
     text: [
-      `Good day ${card.manager_name || "Manager"},`,
+      "Good day Managers,",
       "",
       `${card.assigned_to_name || "A technician"} has submitted a job card for your review.`,
       "",
@@ -14817,6 +14884,7 @@ async function emailSubmittedJobCardToManager(card) {
       contentType: "application/pdf"
     }]
   })
+  return { recipients, managerNames: managers.map(manager => manager.manager_name) }
 }
 
 async function emailSubmittedJobCardToAccelo(card) {
@@ -14885,6 +14953,9 @@ async function saveJobCard(req, res) {
       if (req.user.role === "INSPECTOR" && ![owner.rows[0].assigned_to_user_id, owner.rows[0].created_by_user_id].map(String).includes(String(req.user.user_id))) {
         await client.query("ROLLBACK"); return res.status(403).json({ error: "This job card is not assigned to you" })
       }
+      if (req.user.role === "MANAGER" && !(await managerMayAccessEmployee(req.user.user_id, owner.rows[0].assigned_to_user_id, client))) {
+        await client.query("ROLLBACK"); return res.status(403).json({ error: "This job card is not assigned to one of your employees" })
+      }
       existingSignaturePath = owner.rows[0].customer_signature_path
       previousStatus = owner.rows[0].status
       const allowedTransitions = {
@@ -14907,20 +14978,26 @@ async function saveJobCard(req, res) {
       jobcardid = inserted.rows[0].jobcardid
     }
     const leadUserId = Number(body.assigned_to_user_id || (req.user.role === "INSPECTOR" ? req.user.user_id : 0))
+    if (req.user.role === "MANAGER" && (!leadUserId || !(await managerMayAccessEmployee(req.user.user_id,leadUserId,client)))) {
+      await client.query("ROLLBACK")
+      return res.status(403).json({ error:"Select one of your linked employees for this job card" })
+    }
     const adminSelfApproval = req.user.role === "ADMIN" && leadUserId === Number(req.user.user_id)
     if (requestedStatus === "SUBMITTED" && previousStatus !== "SUBMITTED") {
-      const manager = adminSelfApproval ? { rows: [] } : await client.query(`SELECT u.manager_user_id,
+      const managers = adminSelfApproval ? { rows: [] } : await client.query(`SELECT assignment.manager_user_id,
         COALESCE(NULLIF(m.fullname,''),m.username) AS manager_name,m.email AS manager_email
-        FROM atec.tblusers u
-        LEFT JOIN atec.tblusers m ON m.userid=u.manager_user_id AND COALESCE(m.is_active,true)=true
-        WHERE u.userid=$1`, [leadUserId])
-      if (!adminSelfApproval && !manager.rows[0]?.manager_user_id) {
+        FROM atec.tblusermanagerassignment assignment
+        JOIN atec.tblusers m ON m.userid=assignment.manager_user_id AND COALESCE(m.is_active,true)=true
+        WHERE assignment.employee_user_id=$1
+        ORDER BY assignment.is_primary DESC,assignment.created_at,assignment.manager_user_id`, [leadUserId])
+      if (!adminSelfApproval && !managers.rows.length) {
         await client.query("ROLLBACK")
         return res.status(400).json({ error: "The assigned technician must have a Manager assigned before the job card can be submitted" })
       }
-      if (!adminSelfApproval && !isValidEmailAddress(manager.rows[0].manager_email)) {
+      const invalidManagers = managers.rows.filter(manager => !isValidEmailAddress(manager.manager_email))
+      if (!adminSelfApproval && invalidManagers.length) {
         await client.query("ROLLBACK")
-        return res.status(400).json({ error: `${manager.rows[0].manager_name || "The assigned Manager"} must have a valid email address before the job card can be submitted` })
+        return res.status(400).json({ error: `${invalidManagers.map(manager => manager.manager_name || "The assigned Manager").join(", ")} must have a valid email address before the job card can be submitted` })
       }
     }
     if (["SUBMITTED", "APPROVED", "INVOICED"].includes(requestedStatus) &&
@@ -15024,13 +15101,15 @@ async function saveJobCard(req, res) {
     } else if (requestedStatus === "SUBMITTED" && previousStatus !== "SUBMITTED") {
       managerEmailNotification.requested = true
       try {
-        await emailSubmittedJobCardToManager(savedCard)
-        await req.logAudit("JOB_CARD_SUBMISSION_EMAIL_SENT", "job_cards", jobcardid, { to: savedCard.manager_email })
-        managerEmailNotification = { requested: true, sent: true, to: savedCard.manager_email, name: savedCard.manager_name }
+        const managerDelivery = await emailSubmittedJobCardToManager(savedCard)
+        await req.logAudit("JOB_CARD_SUBMISSION_EMAIL_SENT", "job_cards", jobcardid, { to: managerDelivery.recipients })
+        managerEmailNotification = { requested: true, sent: true, to: managerDelivery.recipients, name: managerDelivery.managerNames.join(", ") }
       } catch (emailError) {
         const emailMessage = getMailErrorMessage(emailError)
-        await req.logAudit("JOB_CARD_SUBMISSION_EMAIL_FAILED", "job_cards", jobcardid, { to: savedCard.manager_email || null, error: emailMessage })
-        managerEmailNotification = { requested: true, sent: false, to: savedCard.manager_email || null, name: savedCard.manager_name, error: emailMessage }
+        const recipients = (savedCard.managers || []).map(manager => manager.manager_email).filter(Boolean)
+        const managerNames = (savedCard.managers || []).map(manager => manager.manager_name).filter(Boolean)
+        await req.logAudit("JOB_CARD_SUBMISSION_EMAIL_FAILED", "job_cards", jobcardid, { to: recipients, error: emailMessage })
+        managerEmailNotification = { requested: true, sent: false, to: recipients, name: managerNames.join(", "), error: emailMessage }
       }
     }
     let acceloSubmissionNotification = { requested: false, sent: false }
@@ -15063,6 +15142,9 @@ app.post("/job-cards/:id/email-customer", emailLimiter, asyncRoute(async (req, r
   if (req.user.role === "INSPECTOR" && ![card.assigned_to_user_id, card.created_by_user_id].map(String).includes(String(req.user.user_id))) {
     return res.status(403).json({ error: "This job card is not assigned to you" })
   }
+  if (req.user.role === "MANAGER" && !(await managerMayAccessEmployee(req.user.user_id, card.assigned_to_user_id))) {
+    return res.status(403).json({ error: "This job card is not assigned to one of your employees" })
+  }
   if (!card.customer_signature_path) return res.status(409).json({ error: "Save the customer signature before emailing the signed job card" })
   const recipient = String(req.body?.email || card.customer_contact_email || "").trim()
   if (!isValidEmailAddress(recipient)) return res.status(400).json({ error: "Enter a valid customer email address" })
@@ -15092,6 +15174,9 @@ app.post("/job-cards/:id/photos", uploadLimiter, upload.array("jobCardPhotos", 2
   if (!card) { removeUploadedFiles(req.files); return res.status(404).json({ error: "Job card not found" }) }
   if (req.user.role === "INSPECTOR" && ![card.assigned_to_user_id, card.created_by_user_id].map(String).includes(String(req.user.user_id))) {
     removeUploadedFiles(req.files); return res.status(403).json({ error: "This job card is not assigned to you" })
+  }
+  if (req.user.role === "MANAGER" && !(await managerMayAccessEmployee(req.user.user_id, card.assigned_to_user_id))) {
+    removeUploadedFiles(req.files); return res.status(403).json({ error: "This job card is not assigned to one of your employees" })
   }
   const files = req.files || []
   const captions = Array.isArray(req.body.photoCaptions) ? req.body.photoCaptions : [req.body.photoCaptions || ""]
@@ -15494,6 +15579,9 @@ app.get("/job-cards/:id/pdf", pdfLimiter, asyncRoute(async (req, res) => {
   if (!card) return res.status(404).json({ error: "Job card not found" })
   if (req.user.role === "INSPECTOR" && ![card.assigned_to_user_id, card.created_by_user_id].map(String).includes(String(req.user.user_id))) {
     return res.status(403).json({ error: "This job card is not assigned to you" })
+  }
+  if (req.user.role === "MANAGER" && !(await managerMayAccessEmployee(req.user.user_id, card.assigned_to_user_id))) {
+    return res.status(403).json({ error: "This job card is not assigned to one of your employees" })
   }
   const buffer = await createJobCardPdfBuffer(card)
   res.type("application/pdf").setHeader("Content-Disposition", `inline; filename=${card.jobcard_reference}.pdf`)
