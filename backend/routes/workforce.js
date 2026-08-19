@@ -653,7 +653,7 @@ function registerWorkforceRoutes(app, {
   }))
 
   router.get("/timesheets/:id/manager-edit", asyncRoute(async (req, res) => {
-    if (!["ADMIN","MANAGER"].includes(req.user.role)) return res.status(403).json({ error:"Access denied" })
+    if (!["ADMIN","MANAGER","HR"].includes(req.user.role)) return res.status(403).json({ error:"Access denied" })
     const values = [req.params.id]
     let managerScope = ""
     if (req.user.role === "MANAGER") {
@@ -666,8 +666,11 @@ function registerWorkforceRoutes(app, {
       WHERE t.timesheetid=$1${managerScope}`, values)
     const sheet = sheetResult.rows[0]
     if (!sheet) return res.status(404).json({ error:"Timesheet not found or not assigned to you" })
-    if (sheet.status !== "EMPLOYEE_SUBMITTED") {
-      return res.status(409).json({ error:"Only employee-submitted timesheets awaiting Manager approval can be edited" })
+    const editableStatuses = req.user.role === "MANAGER"
+      ? ["EMPLOYEE_SUBMITTED"]
+      : ["EMPLOYEE_SUBMITTED","MANAGER_APPROVED","RETURNED"]
+    if (!editableStatuses.includes(sheet.status)) {
+      return res.status(409).json({ error:"This timesheet is not at an editable stage. HR-accepted and exported records remain locked." })
     }
     const entries = await pool.query(`SELECT timeentryid,activity_type,started_at,ended_at,
       customer_name_snapshot,job_number_snapshot,brief_details,adjustment_reason
@@ -676,13 +679,13 @@ function registerWorkforceRoutes(app, {
     const audits = await pool.query(`SELECT audit.created_at,audit.details,
       COALESCE(NULLIF(actor.fullname,''),actor.username) AS actor_name
       FROM atec.tbltimesheetaudit audit LEFT JOIN atec.tblusers actor ON actor.userid=audit.actor_user_id
-      WHERE audit.timesheetid=$1 AND audit.action='MANAGER_TIME_EDIT'
+      WHERE audit.timesheetid=$1 AND audit.action IN ('MANAGER_TIME_EDIT','MANAGER_TIME_DELETE')
       ORDER BY audit.created_at DESC`, [sheet.timesheetid])
     res.json({ timesheet:sheet, entries:entries.rows, audits:audits.rows })
   }))
 
   router.put("/timesheets/:id/time-entries/:entryId", asyncRoute(async (req, res) => {
-    if (!["ADMIN","MANAGER"].includes(req.user.role)) return res.status(403).json({ error:"Access denied" })
+    if (!["ADMIN","MANAGER","HR"].includes(req.user.role)) return res.status(403).json({ error:"Access denied" })
     const reason = String(req.body.reason || "").trim()
     if (reason.length < 5) throw badRequest("Enter a clear reason of at least 5 characters for changing the employee's time.")
     const startedAt = new Date(req.body.started_at)
@@ -713,8 +716,11 @@ function registerWorkforceRoutes(app, {
         error.statusCode = 404
         throw error
       }
-      if (current.status !== "EMPLOYEE_SUBMITTED") {
-        const error = new Error("Only employee-submitted timesheets awaiting Manager approval can be edited")
+      const editableStatuses = req.user.role === "MANAGER"
+        ? ["EMPLOYEE_SUBMITTED"]
+        : ["EMPLOYEE_SUBMITTED","MANAGER_APPROVED","RETURNED"]
+      if (!editableStatuses.includes(current.status)) {
+        const error = new Error("This timesheet is not at an editable stage. HR-accepted and exported records remain locked.")
         error.statusCode = 409
         throw error
       }
@@ -737,6 +743,54 @@ function registerWorkforceRoutes(app, {
       })])
       await client.query("COMMIT")
       res.json({ success:true, timesheetid:current.timesheetid, timeentryid:current.timeentryid })
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {})
+      throw error
+    } finally { client.release() }
+  }))
+
+  router.delete("/timesheets/:id/time-entries/:entryId", asyncRoute(async (req, res) => {
+    if (!["ADMIN","MANAGER","HR"].includes(req.user.role)) return res.status(403).json({ error:"Access denied" })
+    const reason = String(req.body?.reason || "").trim()
+    if (reason.length < 5) throw badRequest("Enter a clear reason of at least 5 characters for deleting the employee's time entry.")
+    const client = await pool.connect()
+    try {
+      await client.query("BEGIN")
+      const values = [req.params.id,req.params.entryId]
+      let managerScope = ""
+      if (req.user.role === "MANAGER") {
+        values.push(req.user.user_id)
+        managerScope = ` AND u.manager_user_id=$${values.length} AND t.manager_user_id=$${values.length}`
+      }
+      const result = await client.query(`SELECT t.timesheetid,t.user_id,t.timesheet_date,t.status,
+        entry.timeentryid,entry.activity_type,entry.started_at,entry.ended_at,entry.job_number_snapshot
+        FROM atec.tbldailytimesheet t
+        JOIN atec.tblusers u ON u.userid=t.user_id
+        JOIN atec.tbltimeentry entry ON entry.user_id=t.user_id AND entry.activity_date=t.timesheet_date
+        WHERE t.timesheetid=$1 AND entry.timeentryid=$2${managerScope} FOR UPDATE OF entry`, values)
+      const current = result.rows[0]
+      if (!current) {
+        const error = new Error("Time entry not found or not assigned to you")
+        error.statusCode = 404
+        throw error
+      }
+      const editableStatuses = req.user.role === "MANAGER"
+        ? ["EMPLOYEE_SUBMITTED"]
+        : ["EMPLOYEE_SUBMITTED","MANAGER_APPROVED","RETURNED"]
+      if (!editableStatuses.includes(current.status)) {
+        const error = new Error("This timesheet is not at an editable stage. HR-accepted and exported records remain locked.")
+        error.statusCode = 409
+        throw error
+      }
+      await client.query("DELETE FROM atec.tbltimeentry WHERE timeentryid=$1", [current.timeentryid])
+      await rebuildTimesheet(client,current.user_id,current.timesheet_date,{ force:true })
+      await client.query(`INSERT INTO atec.tbltimesheetaudit(timesheetid,actor_user_id,action,details)
+        VALUES($1,$2,'MANAGER_TIME_DELETE',$3::jsonb)`, [current.timesheetid,req.user.user_id,JSON.stringify({
+        timeentryid:current.timeentryid,reason,actor_role:req.user.role,
+        deleted:{ activity_type:current.activity_type,started_at:current.started_at,ended_at:current.ended_at,job_number:current.job_number_snapshot }
+      })])
+      await client.query("COMMIT")
+      res.json({ success:true,timesheetid:current.timesheetid,timeentryid:current.timeentryid })
     } catch (error) {
       await client.query("ROLLBACK").catch(() => {})
       throw error

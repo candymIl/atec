@@ -6122,6 +6122,8 @@ tr:hover {
 .job-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; }
 .job-card-grid label,
 .job-card-text-grid label { display: grid; gap: 6px; font-weight: 600; }
+.job-card-customer-picker small { color: #667085; font-weight: 400; }
+.job-card-customer-picker input[type="search"] { min-width: 0; }
 .job-card-email-option span { display: flex; align-items: center; gap: 8px; }
 .job-card-email-option small { color: #667085; font-weight: 400; }
 .job-card-wide { grid-column: span 2; }

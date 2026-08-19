@@ -17,6 +17,7 @@ import { renderMpiReportsPage } from './pages/MpiReports.js'
 import {
   addWorkforceTime,
   closeEmployeeTimeEditor,
+  deleteEmployeeTimeEntry,
   deleteMyTimeEntry,
   editMyTimeEntry,
   editEmployeeTimes,
@@ -1617,6 +1618,7 @@ window.showTimesheetApprovals = function () { setCurrentPage('timesheet-approval
 window.workforceAction = workforceAction
 window.editEmployeeTimes = editEmployeeTimes
 window.saveEmployeeTimeEdit = saveEmployeeTimeEdit
+window.deleteEmployeeTimeEntry = deleteEmployeeTimeEntry
 window.closeEmployeeTimeEditor = closeEmployeeTimeEditor
 window.showTimesheetHistory = function () { setCurrentPage('timesheet-history'); return renderTimesheetHistory() }
 window.loadTimesheetHistory = loadTimesheetHistory
@@ -11229,7 +11231,7 @@ function renderJobCardForm() {
     <div class="page-heading"><div><h2>${escapeHtml(card.jobcard_reference || 'New Technician Job Card')}</h2><p>Complete this worksheet on site. Fields are saved when you use a save button below.</p></div><div class="form-actions"><button onclick="showJobCards()">Back</button>${card.jobcardid ? `<button onclick="window.open('${API_BASE}/job-cards/${card.jobcardid}/pdf','_blank')">PDF</button>` : ''}</div></div>
     <form id="jobCardForm" class="job-card-form" onsubmit="return false">
       <section class="filter-card"><h3>Job and Customer</h3><div class="job-card-grid">
-        <label>Customer *<select id="jcClient" onchange="jobCardCustomerChanged()"><option value="">Select customer</option>${customers.map(row => jobCardOption(row.clientid,row.clientname,card.clientid)).join('')}</select></label>
+        <label class="job-card-customer-picker">Customer *<input id="jcCustomerSearch" type="search" placeholder="Search company name" autocomplete="off" oninput="filterJobCardCustomers()"><small>Type a company name, then open the filtered customer list.</small><select id="jcClient" onchange="jobCardCustomerChanged()"><option value="">Select customer</option>${customers.map(row => jobCardOption(row.clientid,row.clientname,card.clientid)).join('')}</select></label>
         <label>Site *<select id="jcSite" onchange="jobCardSiteChanged()"><option value="">Select site</option>${relevantSites.map(row => jobCardOption(row.siteid,row.sitename,card.siteid)).join('')}</select></label>
         <label>Section<select id="jcSection"><option value="">All / not specified</option>${relevantSections.map(row => jobCardOption(row.sectionid,row.sectionname,card.sectionid)).join('')}</select></label>
         <label>Assigned technician<select id="jcAssigned" onchange="refreshJobCardHours()"><option value="">Unassigned</option>${jobCardTechnicians.filter(row => row.role !== 'ASSISTANT').map(row => jobCardOption(row.user_id,row.full_name,card.assigned_to_user_id)).join('')}</select></label>
@@ -11366,6 +11368,23 @@ window.jobCardCustomerChanged = async function () {
   try { await loadJobCardAssets(jobCardEditing.clientid) }
   catch (error) { alert(error.message); jobCardAssets = [] }
   renderJobCardForm()
+}
+
+window.filterJobCardCustomers = function () {
+  const searchInput = document.querySelector('#jcCustomerSearch')
+  const select = document.querySelector('#jcClient')
+  if (!searchInput || !select) return
+  const query = searchInput.value.trim().toLowerCase()
+  const selectedId = select.value || String(jobCardEditing?.clientid || '')
+  const matches = customers.filter(row =>
+    !query || String(row.clientname || '').toLowerCase().includes(query)
+  )
+  const selectedCustomer = customers.find(row => String(row.clientid) === String(selectedId))
+  if (selectedCustomer && !matches.some(row => String(row.clientid) === String(selectedId))) {
+    matches.unshift(selectedCustomer)
+  }
+  select.innerHTML = `<option value="">${matches.length ? 'Select customer' : 'No companies match your search'}</option>${matches.map(row => jobCardOption(row.clientid,row.clientname,selectedId)).join('')}`
+  select.value = selectedId
 }
 window.jobCardSiteChanged = async function () {
   jobCardEditing = { ...jobCardEditing, clientid: document.querySelector('#jcClient').value, siteid: document.querySelector('#jcSite').value, sectionid: '' }
