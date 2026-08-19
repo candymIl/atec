@@ -6001,6 +6001,52 @@ tr:hover {
 .page-heading p,
 .section-heading p { margin: 0; }
 
+.workforce-entry-disclosure {
+  margin: 12px 0;
+  border: 1px solid #b9c9e5;
+  border-radius: 10px;
+  background: #f7faff;
+  overflow: hidden;
+}
+.workforce-entry-disclosure summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 64px;
+  padding: 11px 16px;
+  color: #183153;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.workforce-entry-disclosure summary::-webkit-details-marker { display: none; }
+.workforce-entry-disclosure summary:hover,
+.workforce-entry-disclosure summary:focus-visible { background: #edf3ff; }
+.workforce-entry-summary-copy { display: grid; gap: 3px; }
+.workforce-entry-summary-copy strong { font-size: 15px; }
+.workforce-entry-summary-copy small { color: #5c6f8f; font-weight: 500; }
+.workforce-entry-open-copy { display: none; }
+.workforce-entry-chevron {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border-radius: 50%;
+  background: #2148b5;
+  color: #fff;
+  font-size: 26px;
+  line-height: 1;
+  transition: transform .15s ease;
+}
+.workforce-entry-disclosure[open] { background: #fff; }
+.workforce-entry-disclosure[open] summary { border-bottom: 1px solid #d7deea; }
+.workforce-entry-disclosure[open] .workforce-entry-chevron { transform: rotate(90deg); }
+.workforce-entry-disclosure[open] .workforce-entry-closed-copy { display: none; }
+.workforce-entry-disclosure[open] .workforce-entry-open-copy { display: block; }
+.workforce-entry-form { padding: 16px; }
+
 .job-card-loading { padding: 36px; text-align: center; color: #667085; }
 .job-card-page-heading { align-items: center; }
 .job-card-overview { display: grid; grid-template-columns: minmax(230px, 1.4fr) repeat(3, minmax(135px, .65fr)); gap: 1px; margin-bottom: 14px; overflow: hidden; border: 1px solid #d7deea; border-radius: 12px; background: #d7deea; box-shadow: 0 3px 12px rgba(23, 32, 51, .05); }
