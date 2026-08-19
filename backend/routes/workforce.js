@@ -655,7 +655,9 @@ function registerWorkforceRoutes(app, {
   router.get("/approvals", asyncRoute(async (req, res) => {
     if (![...["ADMIN","MANAGER","HR"]].includes(req.user.role)) return res.status(403).json({ error:"Access denied" })
     const values = []
-    let where = "WHERE t.status IN ('EMPLOYEE_SUBMITTED','MANAGER_APPROVED','RETURNED')"
+    let where = req.user.role === "ADMIN"
+      ? "WHERE t.status IN ('AWAITING_EMPLOYEE','EMPLOYEE_SUBMITTED','MANAGER_APPROVED','RETURNED')"
+      : "WHERE t.status IN ('EMPLOYEE_SUBMITTED','MANAGER_APPROVED','RETURNED')"
     if (req.user.role === "MANAGER") {
       values.push(req.user.user_id)
       where += ` AND u.manager_user_id=$${values.length}`
@@ -681,9 +683,11 @@ function registerWorkforceRoutes(app, {
       WHERE t.timesheetid=$1${managerScope}`, values)
     const sheet = sheetResult.rows[0]
     if (!sheet) return res.status(404).json({ error:"Timesheet not found or not assigned to you" })
-    const editableStatuses = req.user.role === "MANAGER"
-      ? ["EMPLOYEE_SUBMITTED"]
-      : ["EMPLOYEE_SUBMITTED","MANAGER_APPROVED","RETURNED"]
+    const editableStatuses = req.user.role === "ADMIN"
+      ? ["AWAITING_EMPLOYEE","EMPLOYEE_SUBMITTED","MANAGER_APPROVED","RETURNED"]
+      : req.user.role === "MANAGER"
+        ? ["EMPLOYEE_SUBMITTED"]
+        : ["EMPLOYEE_SUBMITTED","MANAGER_APPROVED","RETURNED"]
     if (!editableStatuses.includes(sheet.status)) {
       return res.status(409).json({ error:"This timesheet is not at an editable stage. HR-accepted and exported records remain locked." })
     }
@@ -731,9 +735,11 @@ function registerWorkforceRoutes(app, {
         error.statusCode = 404
         throw error
       }
-      const editableStatuses = req.user.role === "MANAGER"
-        ? ["EMPLOYEE_SUBMITTED"]
-        : ["EMPLOYEE_SUBMITTED","MANAGER_APPROVED","RETURNED"]
+      const editableStatuses = req.user.role === "ADMIN"
+        ? ["AWAITING_EMPLOYEE","EMPLOYEE_SUBMITTED","MANAGER_APPROVED","RETURNED"]
+        : req.user.role === "MANAGER"
+          ? ["EMPLOYEE_SUBMITTED"]
+          : ["EMPLOYEE_SUBMITTED","MANAGER_APPROVED","RETURNED"]
       if (!editableStatuses.includes(current.status)) {
         const error = new Error("This timesheet is not at an editable stage. HR-accepted and exported records remain locked.")
         error.statusCode = 409
@@ -789,9 +795,11 @@ function registerWorkforceRoutes(app, {
         error.statusCode = 404
         throw error
       }
-      const editableStatuses = req.user.role === "MANAGER"
-        ? ["EMPLOYEE_SUBMITTED"]
-        : ["EMPLOYEE_SUBMITTED","MANAGER_APPROVED","RETURNED"]
+      const editableStatuses = req.user.role === "ADMIN"
+        ? ["AWAITING_EMPLOYEE","EMPLOYEE_SUBMITTED","MANAGER_APPROVED","RETURNED"]
+        : req.user.role === "MANAGER"
+          ? ["EMPLOYEE_SUBMITTED"]
+          : ["EMPLOYEE_SUBMITTED","MANAGER_APPROVED","RETURNED"]
       if (!editableStatuses.includes(current.status)) {
         const error = new Error("This timesheet is not at an editable stage. HR-accepted and exported records remain locked.")
         error.statusCode = 409
@@ -937,7 +945,7 @@ function registerWorkforceRoutes(app, {
     const action = String(req.body.action || "")
     const reason = String(req.body.reason || "").trim()
     const allowed = req.user.role === "ADMIN"
-      ? new Set(["APPROVE","ACCEPT","RETURN","EXPORT"])
+      ? new Set(["SUBMIT_EMPLOYEE","APPROVE","ACCEPT","RETURN","EXPORT"])
       : req.user.role === "MANAGER"
         ? new Set(["APPROVE","RETURN"])
         : req.user.role === "HR"
@@ -945,7 +953,17 @@ function registerWorkforceRoutes(app, {
           : new Set()
     if (!allowed.has(action)) return res.status(403).json({ error:"Access denied" })
     if (action === "RETURN" && !reason) throw badRequest("Enter a reason for returning the timesheet.")
+    if (action === "SUBMIT_EMPLOYEE" && reason.length < 5) throw badRequest("Enter a clear reason for submitting on behalf of the employee.")
+    if (action === "SUBMIT_EMPLOYEE") {
+      const entryCheck = await pool.query(`SELECT EXISTS(
+        SELECT 1 FROM atec.tbldailytimesheet t
+        JOIN atec.tbltimeentry entry ON entry.user_id=t.user_id AND entry.activity_date=t.timesheet_date
+        WHERE t.timesheetid=$1 AND t.status='AWAITING_EMPLOYEE'
+      ) AS has_entries`, [req.params.id])
+      if (!entryCheck.rows[0]?.has_entries) throw badRequest("This timesheet has no time entries to submit.")
+    }
     const transitions = {
+      SUBMIT_EMPLOYEE:["EMPLOYEE_SUBMITTED","employee_submitted_at",null],
       APPROVE:["MANAGER_APPROVED","manager_approved_at","manager_user_id"],
       ACCEPT:["HR_ACCEPTED","hr_accepted_at","hr_user_id"],
       EXPORT:["EXPORTED","exported_at",null],
@@ -953,6 +971,7 @@ function registerWorkforceRoutes(app, {
     }
     const [status,dateColumn,userColumn] = transitions[action]
     const expectedStatuses = {
+      SUBMIT_EMPLOYEE: ["AWAITING_EMPLOYEE"],
       APPROVE: req.user.role === "ADMIN" ? ["EMPLOYEE_SUBMITTED","RETURNED"] : ["EMPLOYEE_SUBMITTED"],
       ACCEPT: ["MANAGER_APPROVED"],
       EXPORT: ["HR_ACCEPTED"],

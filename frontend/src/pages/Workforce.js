@@ -255,10 +255,12 @@ export async function renderTimesheetApprovals() {
   try {
     const rows = await api('/workforce/approvals')
     const role = window.currentUser?.role
-    const editableStatuses = role === 'MANAGER' ? ['EMPLOYEE_SUBMITTED'] : ['EMPLOYEE_SUBMITTED','MANAGER_APPROVED','RETURNED']
+    const editableStatuses = role === 'ADMIN'
+      ? ['AWAITING_EMPLOYEE','EMPLOYEE_SUBMITTED','MANAGER_APPROVED','RETURNED']
+      : role === 'MANAGER' ? ['EMPLOYEE_SUBMITTED'] : ['EMPLOYEE_SUBMITTED','MANAGER_APPROVED','RETURNED']
     const canEditTime = ['ADMIN','MANAGER','HR'].includes(role)
     document.querySelector('#approvalList').innerHTML = `<div class="table-scroll"><table><thead><tr><th>Date</th><th>Employee</th><th>Status</th><th>Normal</th><th>Overtime</th><th>Travel</th><th>Standby</th><th>Action</th></tr></thead><tbody>
-      ${rows.map(row => `<tr><td>${escapeHtml(String(row.timesheet_date).slice(0,10))}</td><td>${escapeHtml(row.employee_name)}</td><td>${escapeHtml(row.status.replaceAll('_',' '))}</td><td>${hours(row.final_normal_hours)}</td><td>${hours(row.final_overtime_hours)}</td><td>${hours(row.final_travel_hours)}</td><td>${hours(row.final_standby_hours)}</td><td><button onclick="window.open('${API_BASE}/workforce/timesheets/${row.timesheetid}/pdf','_blank','noopener')">PDF</button>${canEditTime && editableStatuses.includes(row.status) ? `<button onclick="editEmployeeTimes(${row.timesheetid})">Correct entries</button>` : ''}${row.status === 'EMPLOYEE_SUBMITTED' && ['ADMIN','MANAGER'].includes(role) ? `<button onclick="workforceAction(${row.timesheetid},'APPROVE')">Approve</button>` : ''}${row.status === 'RETURNED' && role === 'ADMIN' ? `<button class="load-test-btn" onclick="approveCorrectedTimesheet(${row.timesheetid})">Approve corrected timesheet</button>` : ''}${row.status === 'MANAGER_APPROVED' && ['ADMIN','HR'].includes(role) ? `<button onclick="workforceAction(${row.timesheetid},'ACCEPT')">HR accept</button>` : ''}${row.status !== 'RETURNED' ? `<button onclick="workforceAction(${row.timesheetid},'RETURN')">Return</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="8">No timesheets need attention.</td></tr>'}
+      ${rows.map(row => `<tr><td>${escapeHtml(String(row.timesheet_date).slice(0,10))}</td><td>${escapeHtml(row.employee_name)}</td><td>${escapeHtml(row.status.replaceAll('_',' '))}</td><td>${hours(row.final_normal_hours)}</td><td>${hours(row.final_overtime_hours)}</td><td>${hours(row.final_travel_hours)}</td><td>${hours(row.final_standby_hours)}</td><td><button onclick="window.open('${API_BASE}/workforce/timesheets/${row.timesheetid}/pdf','_blank','noopener')">PDF</button>${canEditTime && editableStatuses.includes(row.status) ? `<button onclick="editEmployeeTimes(${row.timesheetid})">Review / correct entries</button>` : ''}${row.status === 'AWAITING_EMPLOYEE' && role === 'ADMIN' ? `<button class="load-test-btn" onclick="workforceAction(${row.timesheetid},'SUBMIT_EMPLOYEE')">Submit for employee</button>` : ''}${row.status === 'EMPLOYEE_SUBMITTED' && ['ADMIN','MANAGER'].includes(role) ? `<button onclick="workforceAction(${row.timesheetid},'APPROVE')">Approve</button>` : ''}${row.status === 'RETURNED' && role === 'ADMIN' ? `<button class="load-test-btn" onclick="approveCorrectedTimesheet(${row.timesheetid})">Approve corrected timesheet</button>` : ''}${row.status === 'MANAGER_APPROVED' && ['ADMIN','HR'].includes(role) ? `<button onclick="workforceAction(${row.timesheetid},'ACCEPT')">HR accept</button>` : ''}${!['AWAITING_EMPLOYEE','RETURNED'].includes(row.status) ? `<button onclick="workforceAction(${row.timesheetid},'RETURN')">Return</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="8">No timesheets need attention.</td></tr>'}
     </tbody></table></div>`
   } catch (error) { document.querySelector('#approvalList').innerHTML = `<p class="login-error">${escapeHtml(error.message)}</p>` }
 }
@@ -333,8 +335,14 @@ export async function deleteEmployeeTimeEntry(timesheetId, timeentryId) {
 }
 
 export async function workforceAction(id, action) {
-  const reason = action === 'RETURN' ? window.prompt('Reason for returning this timesheet:') : ''
-  if (action === 'RETURN' && !reason) return
+  const reason = action === 'RETURN'
+    ? window.prompt('Reason for returning this timesheet:')
+    : action === 'SUBMIT_EMPLOYEE'
+      ? window.prompt('Reason for submitting this timesheet on behalf of the employee:')
+      : ''
+  if (['RETURN','SUBMIT_EMPLOYEE'].includes(action) && !reason) return
+  if (action === 'SUBMIT_EMPLOYEE' && reason.trim().length < 5) return alert('Enter a clear reason of at least 5 characters.')
+  if (action === 'SUBMIT_EMPLOYEE' && !window.confirm('Confirm that you reviewed this employee timesheet and want to submit it on their behalf?')) return
   try {
     await api(`/workforce/timesheets/${id}/action`, { method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,reason}) })
     await renderTimesheetApprovals()
