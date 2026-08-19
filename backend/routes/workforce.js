@@ -554,7 +554,7 @@ function registerWorkforceRoutes(app, {
       const entryResult = await client.query(`SELECT entry.*,sheet.timesheetid,sheet.status
         FROM atec.tbltimeentry entry LEFT JOIN atec.tbldailytimesheet sheet
           ON sheet.user_id=entry.user_id AND sheet.timesheet_date=entry.activity_date
-        WHERE entry.timeentryid=$1 AND entry.user_id=$2 FOR UPDATE`, [req.params.entryId,req.user.user_id])
+        WHERE entry.timeentryid=$1 AND entry.user_id=$2 FOR UPDATE OF entry`, [req.params.entryId,req.user.user_id])
       const entry = entryResult.rows[0]
       if (!entry) {
         const error = new Error("Time entry not found")
@@ -593,7 +593,7 @@ function registerWorkforceRoutes(app, {
       const entryResult = await client.query(`SELECT entry.*,sheet.timesheetid,sheet.status
         FROM atec.tbltimeentry entry LEFT JOIN atec.tbldailytimesheet sheet
           ON sheet.user_id=entry.user_id AND sheet.timesheet_date=entry.activity_date
-        WHERE entry.timeentryid=$1 AND entry.user_id=$2 FOR UPDATE`, [req.params.entryId,req.user.user_id])
+        WHERE entry.timeentryid=$1 AND entry.user_id=$2 FOR UPDATE OF entry`, [req.params.entryId,req.user.user_id])
       const entry = entryResult.rows[0]
       if (!entry) {
         const error = new Error("Time entry not found")
