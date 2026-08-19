@@ -2,6 +2,21 @@ const PAID_ACTIVITY_TYPES = new Set([
   "TRAVEL", "WORK", "STANDBY", "BREAK", "WORKSHOP", "TRAINING", "MEETING", "ADMIN", "WAITING", "LEAVE", "SICK_LEAVE", "OTHER"
 ])
 
+function standardFallbackSchedule() {
+  const weekdays = {}
+  for (const weekday of [1, 2, 3, 4]) {
+    weekdays[weekday] = { normal_start:"06:30",normal_end:"16:30",unpaid_break_minutes:30,is_overtime_day:false }
+  }
+  weekdays[5] = { normal_start:"06:30",normal_end:"13:30",unpaid_break_minutes:0,is_overtime_day:false }
+  return {
+    schedule_name:"Standard 06:30 schedule",
+    rounding_minutes:1,
+    travel_treatment:"SPLIT_BY_SCHEDULE",
+    days:weekdays,
+    is_fallback:true
+  }
+}
+
 function roundHours(hours, roundingMinutes = 1) {
   const increment = Math.max(1, Number(roundingMinutes) || 1) / 60
   return Math.round((hours + Number.EPSILON) / increment) * increment
@@ -143,5 +158,6 @@ module.exports = {
   calculateTimeEntries,
   localDateKey,
   roundHours,
+  standardFallbackSchedule,
   splitIntervalBySchedule
 }

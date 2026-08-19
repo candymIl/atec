@@ -1,7 +1,7 @@
 const assert = require("assert")
 const fs = require("fs")
 const path = require("path")
-const { calculateTimeEntries, splitIntervalBySchedule } = require("../../backend/services/workforceTime")
+const { calculateTimeEntries, splitIntervalBySchedule, standardFallbackSchedule } = require("../../backend/services/workforceTime")
 
 const root = path.resolve(__dirname, "..", "..")
 const read = relativePath => fs.readFileSync(path.join(root, relativePath), "utf8")
@@ -50,6 +50,13 @@ const agreedSchedule = {
     5: { normal_start:"06:30",normal_end:"13:30",unpaid_break_minutes:0,is_overtime_day:false }
   }
 }
+const fallback = standardFallbackSchedule()
+const fallbackMidday = calculateTimeEntries([
+  { timeentryid:5,activity_type:"WORK",started_at:"2026-08-18T11:45:00+02:00",ended_at:"2026-08-18T13:30:00+02:00" }
+],fallback)
+assert.strictEqual(fallbackMidday.normal_hours,1.75,"Missing employee schedules must not turn weekday daytime work into overtime")
+assert.strictEqual(fallbackMidday.overtime_hours,0)
+assert.strictEqual(fallback.is_fallback,true)
 const mondayShift = calculateTimeEntries([
   { timeentryid:3,activity_type:"WORK",started_at:"2026-07-27T06:30:00+02:00",ended_at:"2026-07-27T16:30:00+02:00" }
 ],agreedSchedule)
@@ -126,6 +133,9 @@ assert.ok(frontend.includes("updateScheduleHours()"),"Schedule totals must refre
 assert.ok(routes.includes('/job-cards/:id/accelo-readiness'))
 assert.ok(routes.includes('An Inspection Job Card must have at least one linked certificate.'),"Inspection completion packages must require a certificate")
 assert.ok(routes.includes('Missing certificates for Job Card equipment'),"Inspection readiness must reconcile selected equipment to certificates")
+assert.ok(routes.includes("'ACCELO_JOB_AND_ASSET'"),"Readiness must recover inspections saved with the same Accelo Job Number and selected asset")
+assert.ok(routes.includes("selected.jobcardid=$1 AND selected.assetid=i.assetid"),"Recovered inspection certificates must be limited to equipment selected on the Job Card")
+assert.ok(routes.includes("AND a.clientid=$3"),"Recovered inspection certificates must remain limited to the same customer")
 assert.ok(routes.includes('/job-cards/:id/accelo-send'))
 assert.ok(routes.includes("createJobCardPdfBuffer"))
 assert.ok(routes.includes("createCertificatePdfBuffer"))
@@ -149,6 +159,8 @@ assert.ok(frontend.includes("Required audit reason"),"The edit form must request
 assert.ok(frontend.includes("timeJobNumber"))
 assert.ok(read("frontend/src/main.js").includes("Accelo Completion Package"))
 assert.ok(server.includes("Accelo Job Number is required"))
+assert.ok(server.includes("standardFallbackSchedule()"),"Job Card hours must use the standard schedule when an employee schedule is missing")
+assert.ok(read("frontend/src/main.js").includes("has no assigned work schedule"),"The fallback calculation must tell Admin or HR to assign the correct schedule")
 assert.ok(manifest.migrations.includes("2026-07-30-lean-workforce-timesheets.sql"))
 assert.ok(manifest.migrations.includes("2026-07-30-inspection-snapshot-runtime-permissions.sql"))
 assert.ok(snapshotPermissions.includes("GRANT SELECT, INSERT, UPDATE, DELETE"))

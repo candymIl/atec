@@ -59,7 +59,7 @@ const {
 } = require("./middleware/security")
 const { registerMpiRoutes } = require("./routes/mpi")
 const { registerWorkforceRoutes, copyJobCardTimeline } = require("./routes/workforce")
-const { calculateTimeEntries, roundHours, splitIntervalBySchedule } = require("./services/workforceTime")
+const { calculateTimeEntries, roundHours, splitIntervalBySchedule, standardFallbackSchedule } = require("./services/workforceTime")
 
 const defaultFrontendOrigin = process.env.NODE_ENV === "production"
   ? "https://www.atecinspections.co.za"
@@ -14666,11 +14666,11 @@ async function calculateJobCardTimeSummary(client, body, fallbackUserId) {
     WHERE schedule.employee_user_id=$1 AND schedule.effective_from <= $2::date
       AND (schedule.effective_to IS NULL OR schedule.effective_to >= $2::date)
     ORDER BY schedule.effective_from DESC,schedule.scheduleid DESC LIMIT 1`, [userId, workStart || firstDate]) : { rows: [] }
-  const schedule = scheduleResult.rows[0] || { schedule_name: "No assigned schedule", rounding_minutes: 1, travel_treatment: "SPLIT_BY_SCHEDULE" }
+  const schedule = scheduleResult.rows[0] || standardFallbackSchedule()
   const dayResult = schedule.scheduleid
     ? await client.query("SELECT * FROM atec.tblworkscheduleday WHERE scheduleid=$1 ORDER BY weekday", [schedule.scheduleid])
     : { rows: [] }
-  schedule.days = Object.fromEntries(dayResult.rows.map(row => [Number(row.weekday), row]))
+  if (schedule.scheduleid) schedule.days = Object.fromEntries(dayResult.rows.map(row => [Number(row.weekday), row]))
   const holidayResult = await client.query(`SELECT holiday_date::text FROM atec.tblpublicholiday
     WHERE active=true AND holiday_date BETWEEN $1::date AND $2::date`, [firstDate, lastDate])
   const holidays = new Set(holidayResult.rows.map(row => String(row.holiday_date).slice(0, 10)))
@@ -14694,7 +14694,8 @@ async function calculateJobCardTimeSummary(client, body, fallbackUserId) {
     normal_travel_hours: roundHours(travel.normal, schedule.rounding_minutes),
     overtime_travel_hours: roundHours(travel.overtime, schedule.rounding_minutes),
     travel_hours: roundHours(travel.normal + travel.overtime, schedule.rounding_minutes),
-    schedule_name: schedule.schedule_name
+    schedule_name: schedule.schedule_name,
+    schedule_fallback: schedule.is_fallback === true
   }
   summary.total_calculated_hours = roundHours(summary.normal_hours + summary.overtime_hours + summary.double_time_hours + summary.normal_travel_hours + summary.overtime_travel_hours, schedule.rounding_minutes)
   return summary
@@ -15267,7 +15268,49 @@ function drawJobCardPdfPhotoPages(doc, card) {
   }
 }
 
-function createJobCardPdfBuffer(card) {
+async function prepareJobCardTechnicianSignature(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return null
+  try {
+    const normalizedSource = await sharp(filePath)
+      .rotate()
+      .flatten({ background: "#ffffff" })
+      .grayscale()
+      .normalize()
+      .png()
+      .toBuffer()
+    const source = sharp(normalizedSource)
+    const metadata = await source.metadata()
+    if (!metadata.width || !metadata.height) return null
+    const inkMask = await source
+      .clone()
+      .threshold(110)
+      .negate()
+      .blur(0.35)
+      .png()
+      .toBuffer()
+    return await sharp({
+      create: {
+        width: metadata.width,
+        height: metadata.height,
+        channels: 3,
+        background: { r: 17, g: 24, b: 39 }
+      }
+    })
+      .joinChannel(inkMask)
+      .trim({ background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .png()
+      .toBuffer()
+  } catch (error) {
+    logSafeError("Job-card technician signature cleanup", error)
+    return null
+  }
+}
+
+async function createJobCardPdfBuffer(card) {
+  const technicianSignatureFile = card.technician_signature_image
+    ? resolveUploadFilePath(card.technician_signature_image)
+    : null
+  const cleanedTechnicianSignature = await prepareJobCardTechnicianSignature(technicianSignatureFile)
   return runQueuedPdfJob(() => new Promise((resolve, reject) => {
   const doc = new PDFDocument({ size: "A4", margins: { top: 108, right: 42, bottom: 92, left: 42 }, bufferPages: true })
   const chunks = []
@@ -15405,7 +15448,7 @@ function createJobCardPdfBuffer(card) {
     doc.font("Helvetica").fontSize(8.5).fillColor("#111827").text(totals.map(([label, value]) => `${label}: ${value}`).join("   |   "))
   }
 
-  ensureSpace(125)
+  ensureSpace(190)
   heading("Acknowledgement")
   if (clean(card.customer_signatory_name) || clean(card.customer_signatory_designation)) {
     doc.font("Helvetica-Bold").fontSize(7).fillColor("#64748b").text("CUSTOMER REPRESENTATIVE")
@@ -15413,13 +15456,29 @@ function createJobCardPdfBuffer(card) {
   }
   if (card.customer_signed_at) detail("Signed", dateTime(card.customer_signed_at))
   if (clean(card.signature_unavailable_reason)) detail("Signature unavailable", card.signature_unavailable_reason)
-  if (card.customer_signature_path) { const signatureFile = resolveUploadFilePath(card.customer_signature_path); if (signatureFile && fs.existsSync(signatureFile)) doc.image(signatureFile, { fit: [180, 65] }) }
+  if (card.customer_signature_path) {
+    const signatureFile = resolveUploadFilePath(card.customer_signature_path)
+    if (signatureFile && fs.existsSync(signatureFile)) {
+      ensureSpace(72)
+      const customerSignatureY = doc.y
+      doc.image(signatureFile, doc.page.margins.left, customerSignatureY, { fit: [180, 60], align: "left", valign: "center" })
+      doc.y = customerSignatureY + 65
+    }
+  }
   doc.moveDown(.6)
+  ensureSpace(92)
   doc.font("Helvetica-Bold").fontSize(7).fillColor("#64748b").text("TECHNICIAN")
   doc.font("Helvetica").fontSize(9).fillColor("#111827").text(clean(card.assigned_to_name))
   if (card.technician_signature_image) {
-    const technicianSignatureFile = resolveUploadFilePath(card.technician_signature_image)
-    if (technicianSignatureFile && fs.existsSync(technicianSignatureFile)) doc.image(technicianSignatureFile, { fit: [180, 65] })
+    if (cleanedTechnicianSignature) {
+      const technicianSignatureY = doc.y + 3
+      doc.image(cleanedTechnicianSignature, doc.page.margins.left, technicianSignatureY, {
+        fit: [180, 58],
+        align: "left",
+        valign: "center"
+      })
+      doc.y = technicianSignatureY + 63
+    }
     else doc.font("Helvetica-Oblique").text("Technician signature image is unavailable")
   } else {
     doc.font("Helvetica-Oblique").text("No technician signature saved")

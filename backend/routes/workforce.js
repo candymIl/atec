@@ -348,7 +348,7 @@ async function loadTimesheetPdfData(pool, timesheetId) {
 
 async function loadAcceloReadiness(pool, jobcardid) {
   const cardResult = await pool.query(`SELECT j.jobcardid,j.jobcard_reference,j.customer_reference,j.job_type,j.status,
-    j.accelo_email_sent_at,c.clientname
+    j.clientid,j.accelo_email_sent_at,c.clientname
     FROM atec.tbljobcard j JOIN atec.tblclients c ON c.clientid=j.clientid
     WHERE j.jobcardid=$1`, [jobcardid])
   const card = cardResult.rows[0]
@@ -367,9 +367,24 @@ async function loadAcceloReadiness(pool, jobcardid) {
   const assets = await pool.query(`SELECT ja.assetid,COALESCE(NULLIF(a.assettagno,''),NULLIF(a.serialno,''),'Asset ' || ja.assetid::text) AS asset_name
     FROM atec.tbljobcardasset ja LEFT JOIN atec.tblasset a ON a.assetid=ja.assetid
     WHERE ja.jobcardid=$1 ORDER BY asset_name`, [jobcardid])
-  const certificates = await pool.query(`SELECT testid,assetid,status,inspectiontype
-    FROM atec.tblinspection WHERE jobcardid=$1 AND COALESCE(record_status,'ACTIVE')='ACTIVE'
-    ORDER BY testid`, [jobcardid])
+  const certificates = await pool.query(`SELECT DISTINCT i.testid,i.assetid,i.status,i.inspectiontype,
+      CASE WHEN i.jobcardid=$1 THEN 'DIRECT_JOB_CARD' ELSE 'ACCELO_JOB_AND_ASSET' END AS link_source
+    FROM atec.tblinspection i
+    JOIN atec.tblasset a ON a.assetid=i.assetid
+    WHERE COALESCE(i.record_status,'ACTIVE')='ACTIVE'
+      AND (
+        i.jobcardid=$1
+        OR (
+          i.jobcardid IS NULL
+          AND NULLIF(TRIM(COALESCE(i.job_number,'')),'')=$2
+          AND a.clientid=$3
+          AND EXISTS (
+            SELECT 1 FROM atec.tbljobcardasset selected
+            WHERE selected.jobcardid=$1 AND selected.assetid=i.assetid
+          )
+        )
+      )
+    ORDER BY i.testid`, [jobcardid,String(card.customer_reference || "").trim(),card.clientid])
   const approvedStatuses = new Set(["MANAGER_APPROVED","HR_ACCEPTED","EXPORTED"])
   const missingCrew = crew.rows.filter(member => !timesheets.rows.some(sheet => Number(sheet.user_id) === Number(member.user_id)))
   const unapproved = timesheets.rows.filter(sheet => !approvedStatuses.has(sheet.status))

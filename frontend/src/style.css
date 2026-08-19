@@ -933,6 +933,63 @@ td {
   padding: 8px 12px;
 }
 
+.my-profile-card + .user-signature-card {
+  align-items: stretch;
+  grid-template-columns: 1fr;
+  max-width: 980px;
+}
+
+.profile-signature-heading,
+.profile-signature-draw {
+  display: grid;
+  gap: 7px;
+}
+
+.profile-signature-draw canvas {
+  background: #ffffff;
+  border: 2px solid #475569;
+  border-radius: 10px;
+  cursor: crosshair;
+  display: block;
+  height: 280px;
+  touch-action: none;
+  width: min(100%, 900px);
+}
+
+.profile-signature-draw .form-actions {
+  justify-content: flex-start;
+}
+
+.profile-signature-upload {
+  align-items: center;
+  border-top: 1px solid #d7deea;
+  display: grid;
+  gap: 8px 12px;
+  grid-template-columns: minmax(210px, 1fr) auto;
+  padding-top: 14px;
+}
+
+.profile-signature-upload strong {
+  grid-column: 1 / -1;
+}
+
+.profile-current-signature {
+  background: #ffffff;
+  border: 1px solid #d4dfec;
+  border-radius: 8px;
+  display: grid;
+  min-height: 130px;
+  padding: 10px;
+  place-items: center;
+  width: min(100%, 520px);
+}
+
+.profile-current-signature img {
+  max-height: 180px;
+  object-fit: contain;
+  width: 100%;
+}
+
 .user-management-table-wrap {
   background: #ffffff;
   border: 1px solid #d8dee8;
@@ -6159,8 +6216,10 @@ tr:hover {
 .job-card-repeat-row { display: grid; grid-template-columns: 90px 2fr 1fr 1fr 1fr auto; gap: 8px; margin-bottom: 8px; align-items: center; }
 .job-card-deviation { border: 1px solid #d7deea; border-left: 5px solid #e2a10b; border-radius: 9px; padding: 13px; margin-bottom: 12px; }
 .signature-pad-wrap { margin-top: 12px; }
-.signature-pad-wrap canvas { width: min(100%, 700px); height: 180px; display: block; margin: 6px 0; background: #fff; border: 2px solid #475569; border-radius: 8px; touch-action: none; cursor: crosshair; }
-.job-card-signature-image { width: 220px; max-height: 90px; object-fit: contain; border: 1px solid #d7deea; }
+.signature-pad-wrap canvas { width: min(100%, 900px); height: 280px; display: block; margin: 8px 0; background: #fff; border: 2px solid #475569; border-radius: 10px; touch-action: none; cursor: crosshair; }
+.job-card-signature-preview { width: min(100%, 560px); min-height: 180px; display: grid; place-items: center; margin: 8px 0 14px; padding: 12px; border: 1px solid #cbd5e1; border-radius: 9px; background: #fff; }
+.job-card-signature-image { width: 100%; max-height: 220px; object-fit: contain; }
+.job-card-hours-warning { margin: 12px 0 0; padding: 10px 12px; border-left: 4px solid #d97706; border-radius: 6px; background: #fff8e6; color: #854d0e; font-weight: 600; }
 .job-card-photo-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; margin-bottom: 16px; }
 .job-card-photo-grid figure { margin: 0; border: 1px solid #d7deea; border-radius: 8px; overflow: hidden; background: #fff; }
 .job-card-photo-grid img { width: 100%; height: 180px; object-fit: cover; display: block; }
@@ -6200,6 +6259,11 @@ tr:hover {
 }
 
 @media (max-width: 560px) {
+  .profile-signature-draw canvas { height: 240px; }
+  .profile-signature-upload { grid-template-columns: 1fr; }
+  .profile-signature-upload strong { grid-column: auto; }
+  .signature-pad-wrap canvas { height: 240px; }
+  .job-card-signature-preview { min-height: 150px; }
   .job-card-overview { grid-template-columns: 1fr; }
   .job-card-overview-copy { grid-column: auto; }
   .job-card-toolbar { grid-template-columns: 1fr; }
