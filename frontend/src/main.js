@@ -24,6 +24,7 @@ import {
   editEmployeeTimes,
   exportTimesheetHistoryCsv,
   exportPayrollExcel,
+  filterTimesheetHistoryResults,
   loadTimesheetHistory,
   loadWorkSchedule,
   setAllPayrollEmployees,
@@ -37,6 +38,7 @@ import {
   saveWorkSchedule,
   saveEmployeeTimeEdit,
   submitMyDay,
+  viewPayrollPreview,
   workforceAction
 } from './pages/Workforce.js'
 import { getPaginationState, renderPaginationControls } from './pagination.js'
@@ -1695,6 +1697,8 @@ window.showTimesheetHistory = function () { setCurrentPage('timesheet-history');
 window.loadTimesheetHistory = loadTimesheetHistory
 window.exportTimesheetHistoryCsv = exportTimesheetHistoryCsv
 window.exportPayrollExcel = exportPayrollExcel
+window.viewPayrollPreview = viewPayrollPreview
+window.filterTimesheetHistoryResults = filterTimesheetHistoryResults
 window.setAllPayrollEmployees = setAllPayrollEmployees
 window.setPayrollPeriod = setPayrollPeriod
 window.showHrTimesheets = function () { setCurrentPage('hr-timesheets'); return renderHrTimesheets() }

@@ -5554,6 +5554,57 @@ tr:hover {
   white-space: nowrap;
 }
 
+.payroll-preview {
+  border-top: 1px solid #d7deea;
+  margin-top: 18px;
+  padding-top: 18px;
+}
+
+.timesheet-results-toolbar {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(240px, 1fr) minmax(210px, 320px);
+  margin-bottom: 16px;
+}
+
+.timesheet-results-toolbar label {
+  display: grid;
+  gap: 6px;
+}
+
+.timesheet-summary-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(5, minmax(105px, 1fr));
+  margin: 14px 0 18px;
+}
+
+.timesheet-summary-grid > div {
+  background: #f7f9fc;
+  border: 1px solid #d5deea;
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+}
+
+.timesheet-summary-grid span {
+  color: #617087;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.timesheet-summary-grid strong {
+  color: #17365f;
+  font-size: 1.1rem;
+}
+
+@media (max-width: 760px) {
+  .timesheet-results-toolbar { grid-template-columns: 1fr; }
+  .timesheet-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 .voided-certificates-table .restore-certificate-btn:hover { background: #166534; }
 
 .voided-bulk-actions {

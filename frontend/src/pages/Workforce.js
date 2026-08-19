@@ -108,6 +108,17 @@ function renderHistoryTable(rows, showEmployee = true) {
 let historyRows = []
 let payrollEmployees = []
 
+function payrollSelection() {
+  const from = document.querySelector('#payrollFrom')?.value
+  const to = document.querySelector('#payrollTo')?.value
+  const selected = [...document.querySelectorAll('.payroll-employee:checked')].map(input => input.value)
+  if (!from || !to) throw new Error('Select the payroll start and end dates.')
+  if (!selected.length) throw new Error('Select at least one employee, or use Select all.')
+  const params = new URLSearchParams({ date_from:from,date_to:to,user_ids:selected.join(',') })
+  if (document.querySelector('#payrollIncludeExported')?.checked) params.set('include_exported','true')
+  return { from, to, selected, params }
+}
+
 function localDateValue(date) {
   const offset = date.getTimezoneOffset() * 60000
   return new Date(date.getTime() - offset).toISOString().slice(0,10)
@@ -138,13 +149,9 @@ export function setAllPayrollEmployees(selected) {
 }
 
 export async function exportPayrollExcel() {
-  const from = document.querySelector('#payrollFrom')?.value
-  const to = document.querySelector('#payrollTo')?.value
-  const selected = [...document.querySelectorAll('.payroll-employee:checked')].map(input => input.value)
-  if (!from || !to) return alert('Select the payroll start and end dates.')
-  if (!selected.length) return alert('Select at least one employee, or use Select all.')
-  const params = new URLSearchParams({ date_from:from,date_to:to,user_ids:selected.join(',') })
-  if (document.querySelector('#payrollIncludeExported')?.checked) params.set('include_exported','true')
+  let selection
+  try { selection = payrollSelection() } catch (error) { return alert(error.message) }
+  const { from, to, params } = selection
   const button = document.querySelector('#payrollExportButton')
   try {
     button.disabled = true
@@ -167,6 +174,22 @@ export async function exportPayrollExcel() {
   }
 }
 
+export async function viewPayrollPreview() {
+  const box = document.querySelector('#payrollPreview')
+  let selection
+  try { selection = payrollSelection() } catch (error) { return alert(error.message) }
+  box.hidden = false
+  box.innerHTML = '<p>Loading payroll preview...</p>'
+  try {
+    const data = await api(`/workforce/payroll-preview?${selection.params}`)
+    const rows = data.rows || []
+    box.innerHTML = `<div class="section-heading"><div><h4>Payroll preview</h4><p class="muted-text">${escapeHtml(selection.from)} to ${escapeHtml(selection.to)} · ${rows.length} accepted timesheet(s)</p></div><button type="button" onclick="document.querySelector('#payrollPreview').hidden=true">Close preview</button></div>
+      <div class="timesheet-summary-grid"><div><span>Normal</span><strong>${hours(data.totals?.normal)}</strong></div><div><span>Overtime</span><strong>${hours(data.totals?.overtime)}</strong></div><div><span>Travel</span><strong>${hours(data.totals?.travel)}</strong></div><div><span>Standby</span><strong>${hours(data.totals?.standby)}</strong></div></div>
+      <div class="table-scroll"><table><thead><tr><th>Date</th><th>Employee</th><th>Employee no.</th><th>Job numbers</th><th>Status</th><th>Normal</th><th>Overtime</th><th>Travel</th><th>Standby</th><th>View</th></tr></thead><tbody>${rows.map(row => `<tr><td>${escapeHtml(row.timesheet_date)}</td><td>${escapeHtml(row.employee_name)}</td><td>${escapeHtml(row.employee_number || '-')}</td><td>${escapeHtml(row.job_numbers || '-')}</td><td>${escapeHtml(row.status.replaceAll('_',' '))}</td><td>${hours(row.normal_hours)}</td><td>${hours(row.overtime_hours)}</td><td>${hours(row.travel_hours)}</td><td>${hours(row.standby_hours)}</td><td><button onclick="window.open('${API_BASE}/workforce/timesheets/${row.timesheetid}/pdf','_blank','noopener')">View PDF</button></td></tr>`).join('') || '<tr><td colspan="10">No HR-accepted timesheets match this payroll selection.</td></tr>'}</tbody></table></div>`
+    box.scrollIntoView({ behavior:'smooth', block:'start' })
+  } catch (error) { box.innerHTML = `<p class="login-error">${escapeHtml(error.message)}</p>` }
+}
+
 export async function renderTimesheetHistory() {
   const page = document.querySelector('#page')
   const defaultFrom = new Date()
@@ -186,8 +209,9 @@ export async function renderTimesheetHistory() {
       <div class="form-actions"><button onclick="setPayrollPeriod('THIS_WEEK')">This week</button><button onclick="setPayrollPeriod('LAST_WEEK')">Last week</button><button onclick="setPayrollPeriod('THIS_MONTH')">This month</button><button onclick="setPayrollPeriod('LAST_MONTH')">Last month</button></div>
       <h4>Select employees</h4><div class="form-actions"><button onclick="setAllPayrollEmployees(true)">Select all</button><button onclick="setAllPayrollEmployees(false)">Clear all</button></div>
       <div id="payrollEmployees" class="job-card-grid"><p>Loading employees...</p></div>
-      <div class="form-actions"><button id="payrollExportButton" class="load-test-btn" onclick="exportPayrollExcel()">Export selected employees to Excel</button></div>
+      <div class="form-actions"><button type="button" onclick="viewPayrollPreview()">View payroll preview</button><button id="payrollExportButton" class="load-test-btn" onclick="exportPayrollExcel()">Export selected employees to Excel</button></div>
       <p class="muted-text">The workbook includes Payroll Summary, Daily Totals, Time Detail and Read Me sheets. Direct VIP import mapping will be finalised once HR provides the VIP import template or column specification.</p>
+      <div id="payrollPreview" class="payroll-preview" hidden></div>
     </section>
     <section id="timesheetHistoryResults" class="filter-card">Choose filters and search.</section>`
   setPayrollPeriod('THIS_MONTH')
@@ -216,14 +240,31 @@ export async function loadTimesheetHistory() {
   const box = document.querySelector('#timesheetHistoryResults')
   try {
     historyRows = await api(`/workforce/timesheets/history?${params}`)
-    const totals = historyRows.reduce((sum,row) => ({
-      normal:sum.normal + Number(row.final_normal_hours || 0),
-      overtime:sum.overtime + Number(row.final_overtime_hours || 0),
-      travel:sum.travel + Number(row.final_travel_hours || 0),
-      standby:sum.standby + Number(row.final_standby_hours || 0)
-    }), {normal:0,overtime:0,travel:0,standby:0})
-    box.innerHTML = `<p><strong>${historyRows.length}</strong> timesheet(s) · Normal ${hours(totals.normal)} · Overtime ${hours(totals.overtime)} · Travel ${hours(totals.travel)} · Standby ${hours(totals.standby)}</p>${renderHistoryTable(historyRows,true)}`
+    box.innerHTML = `<div class="section-heading"><div><h3>Timesheet results</h3><p class="muted-text">Search, sort and open individual timesheets below.</p></div></div>
+      <div class="timesheet-results-toolbar"><label>Filter results<input id="historyResultSearch" type="search" placeholder="Employee, job, manager or status" oninput="filterTimesheetHistoryResults()"></label><label>Sort results<select id="historyResultSort" onchange="filterTimesheetHistoryResults()"><option value="DATE_DESC">Newest date first</option><option value="DATE_ASC">Oldest date first</option><option value="EMPLOYEE_ASC">Employee A-Z</option><option value="NORMAL_DESC">Highest normal hours</option><option value="OVERTIME_DESC">Highest overtime</option></select></label></div>
+      <div id="timesheetHistorySummary" class="timesheet-summary-grid"></div><div id="timesheetHistoryTable"></div>`
+    filterTimesheetHistoryResults()
   } catch (error) { box.innerHTML = `<p class="login-error">${escapeHtml(error.message)}</p>` }
+}
+
+export function filterTimesheetHistoryResults() {
+  const tableBox = document.querySelector('#timesheetHistoryTable')
+  const summaryBox = document.querySelector('#timesheetHistorySummary')
+  if (!tableBox || !summaryBox) return
+  const query = document.querySelector('#historyResultSearch')?.value.trim().toLowerCase() || ''
+  const sort = document.querySelector('#historyResultSort')?.value || 'DATE_DESC'
+  const rows = historyRows.filter(row => [row.employee_name,row.employee_number,row.job_numbers,row.status,row.manager_name]
+    .some(value => String(value || '').toLowerCase().includes(query)))
+  rows.sort((a,b) => {
+    if (sort === 'DATE_ASC') return String(a.timesheet_date).localeCompare(String(b.timesheet_date))
+    if (sort === 'EMPLOYEE_ASC') return String(a.employee_name || '').localeCompare(String(b.employee_name || ''))
+    if (sort === 'NORMAL_DESC') return Number(b.final_normal_hours || 0) - Number(a.final_normal_hours || 0)
+    if (sort === 'OVERTIME_DESC') return Number(b.final_overtime_hours || 0) - Number(a.final_overtime_hours || 0)
+    return String(b.timesheet_date).localeCompare(String(a.timesheet_date))
+  })
+  const totals = rows.reduce((sum,row) => ({ normal:sum.normal+Number(row.final_normal_hours||0),overtime:sum.overtime+Number(row.final_overtime_hours||0),travel:sum.travel+Number(row.final_travel_hours||0),standby:sum.standby+Number(row.final_standby_hours||0) }), {normal:0,overtime:0,travel:0,standby:0})
+  summaryBox.innerHTML = `<div><span>Timesheets</span><strong>${rows.length}</strong></div><div><span>Normal</span><strong>${hours(totals.normal)}</strong></div><div><span>Overtime</span><strong>${hours(totals.overtime)}</strong></div><div><span>Travel</span><strong>${hours(totals.travel)}</strong></div><div><span>Standby</span><strong>${hours(totals.standby)}</strong></div>`
+  tableBox.innerHTML = renderHistoryTable(rows,true)
 }
 
 export function exportTimesheetHistoryCsv() {

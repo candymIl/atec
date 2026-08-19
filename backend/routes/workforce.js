@@ -869,6 +869,45 @@ function registerWorkforceRoutes(app, {
     res.json(result.rows)
   }))
 
+  router.get("/payroll-preview", asyncRoute(async (req, res) => {
+    if (!["ADMIN","HR","MANAGER"].includes(req.user.role)) return res.status(403).json({ error:"Access denied" })
+    const dateFrom = String(req.query.date_from || "")
+    const dateTo = String(req.query.date_to || "")
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+      throw badRequest("Select a valid payroll start and end date.")
+    }
+    const fromDate = new Date(`${dateFrom}T00:00:00Z`)
+    const toDate = new Date(`${dateTo}T00:00:00Z`)
+    const spanDays = (toDate - fromDate) / 86400000
+    if (spanDays < 0 || spanDays > 366) throw badRequest("Payroll preview period must be between 1 and 367 days.")
+    const employeeIds = String(req.query.user_ids || "").split(",").filter(Boolean).map(Number)
+    if (!employeeIds.length || employeeIds.some(value => !Number.isInteger(value) || value <= 0) || employeeIds.length > 500) {
+      throw badRequest("Select valid employees for the payroll preview.")
+    }
+    const statuses = req.query.include_exported === "true" ? ["HR_ACCEPTED","EXPORTED"] : ["HR_ACCEPTED"]
+    const values = [dateFrom,dateTo,statuses,employeeIds]
+    const where = ["t.timesheet_date BETWEEN $1::date AND $2::date","t.status=ANY($3::text[])","t.user_id=ANY($4::int[])"]
+    if (req.user.role === "MANAGER") {
+      values.push(req.user.user_id)
+      where.push(`u.manager_user_id=$${values.length}`)
+    }
+    const result = await pool.query(`SELECT t.timesheetid,t.timesheet_date::text AS timesheet_date,t.status,
+      t.final_normal_hours::float8 AS normal_hours,t.final_overtime_hours::float8 AS overtime_hours,
+      t.final_travel_hours::float8 AS travel_hours,t.final_standby_hours::float8 AS standby_hours,
+      u.userid AS user_id,u.employee_number,COALESCE(NULLIF(u.fullname,''),u.username) AS employee_name,
+      COALESCE((SELECT string_agg(DISTINCT NULLIF(line.job_number,''),', ' ORDER BY NULLIF(line.job_number,''))
+        FROM atec.tbldailytimesheetline line WHERE line.timesheetid=t.timesheetid),'') AS job_numbers
+      FROM atec.tbldailytimesheet t JOIN atec.tblusers u ON u.userid=t.user_id
+      WHERE ${where.join(" AND ")} ORDER BY t.timesheet_date DESC,employee_name`, values)
+    const totals = result.rows.reduce((sum,row) => ({
+      normal:sum.normal + Number(row.normal_hours || 0),
+      overtime:sum.overtime + Number(row.overtime_hours || 0),
+      travel:sum.travel + Number(row.travel_hours || 0),
+      standby:sum.standby + Number(row.standby_hours || 0)
+    }), {normal:0,overtime:0,travel:0,standby:0})
+    res.json({ rows:result.rows, totals, statuses })
+  }))
+
   router.get("/payroll-export.xlsx", asyncRoute(async (req, res) => {
     if (!["ADMIN","HR","MANAGER"].includes(req.user.role)) return res.status(403).json({ error:"Access denied" })
     const dateFrom = String(req.query.date_from || "")
