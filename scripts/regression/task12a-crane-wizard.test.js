@@ -32,6 +32,8 @@ assertIncludes(assetSetup, "assetSupportsCraneWizard", "Asset setup must expose 
 assertIncludes(inspections, "assetSupportsCraneWizard", "Inspection list must expose crane wizard through the registry")
 
 assertIncludes(frontendMain, "function renderCraneWizard(", "Crane wizard renderer is missing")
+assertIncludes(frontendMain, "renderInspectionSignatureReminder", "Inspection-capable users must be reminded when their profile signature is missing")
+assertIncludes(frontendMain, "Upload your profile signature before starting an inspection or load test", "Unsigned users must be stopped before starting an inspection")
 assertIncludes(craneWizardConfig, "getCriteriaSection", "Dynamic crane criteria grouping is missing")
 assertIncludes(wizardRegistry, "resolveInspectionWizard", "Wizard registry resolver is missing")
 assertIncludes(frontendMain, "startInspection(${asset.assetid}, '${inspectiontype}', '${returnPage}', 'generic')", "Generic fallback action is missing")
@@ -63,6 +65,8 @@ assert(!inspections.includes("Generic Load Test"), "Inspection page must not sho
 assertIncludes(backendServer, "function applyCriticalSafetyRule", "Backend critical safety rule is missing")
 assertIncludes(backendServer, "WHERE userid = $1", "Backend must use logged-in inspector identity")
 assertIncludes(backendServer, "inspector_signature_image", "Signature capture must remain backend-driven")
+assertIncludes(backendServer, "INSPECTOR_SIGNATURE_REQUIRED", "The backend must reject unsigned inspection saves")
+assertIncludes(backendServer, "Upload your signature under My Profile", "The unsigned save error must tell the user how to fix their profile")
 assertIncludes(backendServer, "BEGIN", "Inspection save must remain transactional")
 assertIncludes(backendServer, "COMMIT", "Inspection save must commit transactionally")
 assertIncludes(backendServer, "ROLLBACK", "Inspection save must roll back on error")

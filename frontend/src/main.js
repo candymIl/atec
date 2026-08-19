@@ -418,6 +418,14 @@ function canPerformInspections() {
   return ['ADMIN', 'MANAGER', 'INSPECTOR'].includes(currentUser?.role)
 }
 
+function renderInspectionSignatureReminder() {
+  if (!canPerformInspections() || currentUser?.signature_image) return ''
+  return `<aside id="inspectionSignatureReminder" class="inspection-signature-reminder" role="alert">
+    <div><strong>Signature required before inspections</strong><p>Your profile does not have a signature. Upload it now so inspections and certificates are never saved without your signature.</p></div>
+    <button type="button" onclick="showMyProfile()">Upload signature now</button>
+  </aside>`
+}
+
 function renderLogin(message = '') {
   window.removePageScrollControls?.()
   document.querySelector('#app').innerHTML = `
@@ -1288,6 +1296,7 @@ window.uploadMySignature = async function () {
 
   currentUser = result.user
   window.currentUser = currentUser
+  document.querySelector('#inspectionSignatureReminder')?.remove()
   alert('Signature saved successfully')
   if (hasAccess('users') && localStorage.getItem('currentPage') === 'users') {
     showUserManagement()
@@ -1545,6 +1554,7 @@ async function loadData() {
   </div>
 
   <div class="content">
+    ${renderInspectionSignatureReminder()}
     <div id="page"></div>
   </div>
 
@@ -8769,6 +8779,11 @@ function renderInspectionPhotoPreview() {
 window.startInspection = async function (assetid, inspectiontype = "VISUAL", returnPage = "quick", formMode = "auto", visitid = null, selectedFrequency = "") {
   if (!canPerformInspections()) {
     alert("You do not have permission to create inspections or load tests.")
+    return
+  }
+  if (!currentUser?.signature_image) {
+    alert("Upload your profile signature before starting an inspection or load test. It is required on the saved certificate.")
+    await showMyProfile()
     return
   }
 

@@ -6001,6 +6001,23 @@ tr:hover {
 .page-heading p,
 .section-heading p { margin: 0; }
 
+.inspection-signature-reminder {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 14px;
+  padding: 14px 16px;
+  border: 1px solid #f0b429;
+  border-left: 5px solid #d97706;
+  border-radius: 9px;
+  background: #fff8e6;
+  color: #713f12;
+}
+.inspection-signature-reminder div { display: grid; gap: 3px; }
+.inspection-signature-reminder p { margin: 0; color: #854d0e; }
+.inspection-signature-reminder button { flex: 0 0 auto; background: #b45309; }
+
 .workforce-entry-disclosure {
   margin: 12px 0;
   border: 1px solid #b9c9e5;
@@ -6156,6 +6173,8 @@ tr:hover {
 .job-card-submit .form-actions { flex-wrap: wrap; justify-content: flex-end; }
 
 @media (max-width: 850px) {
+  .inspection-signature-reminder { align-items: stretch; flex-direction: column; }
+  .inspection-signature-reminder button { width: 100%; min-height: 44px; }
   .job-card-overview { grid-template-columns: 1fr 1fr 1fr; }
   .job-card-overview-copy { grid-column: 1 / -1; }
   .job-card-toolbar { grid-template-columns: 1fr 1fr; }

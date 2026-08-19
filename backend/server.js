@@ -6967,6 +6967,15 @@ app.post("/inspections",
         return res.status(403).json({ error: "Inspector profile is not active" })
       }
 
+      if (!String(inspectorProfile.signature_image || "").trim()) {
+        await client.query("ROLLBACK")
+        removeUploadedFiles(Object.values(req.files || {}).flat())
+        return res.status(409).json({
+          code: "INSPECTOR_SIGNATURE_REQUIRED",
+          error: "Upload your signature under My Profile before saving an inspection or load test."
+        })
+      }
+
       const photo1 = req.files?.photo1
         ? `/uploads/assets/${req.files.photo1[0].filename}`
         : null
