@@ -25,6 +25,8 @@ import {
   exportTimesheetHistoryCsv,
   exportPayrollExcel,
   filterTimesheetHistoryResults,
+  filterDailySubmissionStatus,
+  loadDailySubmissionStatus,
   loadTimesheetHistory,
   loadWorkSchedule,
   setAllPayrollEmployees,
@@ -1701,6 +1703,8 @@ window.exportTimesheetHistoryCsv = exportTimesheetHistoryCsv
 window.exportPayrollExcel = exportPayrollExcel
 window.viewPayrollPreview = viewPayrollPreview
 window.filterTimesheetHistoryResults = filterTimesheetHistoryResults
+window.loadDailySubmissionStatus = loadDailySubmissionStatus
+window.filterDailySubmissionStatus = filterDailySubmissionStatus
 window.setAllPayrollEmployees = setAllPayrollEmployees
 window.setPayrollPeriod = setPayrollPeriod
 window.showHrTimesheets = function () { setCurrentPage('hr-timesheets'); return renderHrTimesheets() }

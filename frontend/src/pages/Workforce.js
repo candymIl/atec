@@ -107,6 +107,7 @@ function renderHistoryTable(rows, showEmployee = true) {
 
 let historyRows = []
 let payrollEmployees = []
+let submissionStatusRows = []
 
 function payrollSelection() {
   const from = document.querySelector('#payrollFrom')?.value
@@ -201,6 +202,11 @@ export async function renderTimesheetHistory() {
       <label>Status<select id="historyStatus"><option value="">All statuses</option>${['DRAFT','AWAITING_EMPLOYEE','EMPLOYEE_SUBMITTED','MANAGER_APPROVED','HR_ACCEPTED','EXPORTED','RETURNED'].map(value => `<option value="${value}">${value.replaceAll('_',' ')}</option>`).join('')}</select></label>
       <label>Accelo Job Number<input id="historyJobNumber" inputmode="numeric"></label>
     </div><div class="form-actions"><button class="load-test-btn" onclick="loadTimesheetHistory()">Search</button><button onclick="exportTimesheetHistoryCsv()">Export CSV</button></div></section>
+    <section class="filter-card"><div class="section-heading"><div><h3>Daily submission status</h3><p class="muted-text">Confirm who submitted, who still needs action, and who has no timesheet for a specific day.</p></div></div>
+      <div class="timesheet-results-toolbar"><label>Date<input id="submissionStatusDate" type="date" value="${today()}"></label><label>Show<select id="submissionStatusFilter" onchange="filterDailySubmissionStatus()"><option value="ALL">All active members</option><option value="SUBMITTED">Submitted</option><option value="OUTSTANDING">Needs action</option><option value="MISSING">No timesheet</option></select></label><label>Find member<input id="submissionStatusSearch" type="search" placeholder="Name, employee number or role" oninput="filterDailySubmissionStatus()"></label></div>
+      <div class="form-actions"><button type="button" class="load-test-btn" onclick="loadDailySubmissionStatus()">View daily status</button></div>
+      <div id="submissionStatusResults"><p class="muted-text">Select a date to check all active workforce members.</p></div>
+    </section>
     <section class="filter-card"><div class="section-heading"><div><h3>Payroll Excel export</h3><p class="muted-text">Export HR-accepted weekly or monthly time for selected employees. Previously exported time can be included when reproducing a report.</p></div></div>
       <div class="job-card-grid">
         <label>Date from<input id="payrollFrom" type="date"></label><label>Date to<input id="payrollTo" type="date"></label>
@@ -223,7 +229,37 @@ export async function renderTimesheetHistory() {
   } catch (error) {
     document.querySelector('#payrollEmployees').innerHTML = `<p class="login-error">${escapeHtml(error.message)}</p>`
   }
+  await loadDailySubmissionStatus()
   await loadTimesheetHistory()
+}
+
+export async function loadDailySubmissionStatus() {
+  const date = document.querySelector('#submissionStatusDate')?.value
+  const box = document.querySelector('#submissionStatusResults')
+  if (!date || !box) return
+  box.innerHTML = '<p>Checking daily submission status...</p>'
+  try {
+    const data = await api(`/workforce/timesheets/submission-status?date=${encodeURIComponent(date)}`)
+    submissionStatusRows = data.rows || []
+    filterDailySubmissionStatus()
+  } catch (error) { box.innerHTML = `<p class="login-error">${escapeHtml(error.message)}</p>` }
+}
+
+export function filterDailySubmissionStatus() {
+  const box = document.querySelector('#submissionStatusResults')
+  if (!box) return
+  const state = document.querySelector('#submissionStatusFilter')?.value || 'ALL'
+  const query = document.querySelector('#submissionStatusSearch')?.value.trim().toLowerCase() || ''
+  const rows = submissionStatusRows.filter(row => (state === 'ALL' || row.submission_state === state) &&
+    [row.employee_name,row.employee_number,row.role].some(value => String(value || '').toLowerCase().includes(query)))
+  const totals = submissionStatusRows.reduce((summary,row) => {
+    summary.total += 1
+    summary[row.submission_state.toLowerCase()] += 1
+    return summary
+  }, {total:0,submitted:0,outstanding:0,missing:0})
+  box.innerHTML = `<div class="timesheet-summary-grid submission-status-summary"><div><span>Active members</span><strong>${totals.total}</strong></div><div><span>Submitted</span><strong>${totals.submitted}</strong></div><div><span>Needs action</span><strong>${totals.outstanding}</strong></div><div><span>No timesheet</span><strong>${totals.missing}</strong></div></div>
+    <p class="submission-status-progress"><strong>${totals.submitted} of ${totals.total}</strong> active members have submitted their timesheet.</p>
+    <div class="table-scroll"><table><thead><tr><th>Employee</th><th>Role</th><th>Submission</th><th>Current stage</th><th>Normal</th><th>Overtime</th><th>Travel</th><th>Standby</th><th>Action</th></tr></thead><tbody>${rows.map(row => `<tr><td>${escapeHtml(row.employee_name)}</td><td>${escapeHtml(row.role)}</td><td><span class="submission-state submission-state-${String(row.submission_state).toLowerCase()}">${row.submission_state === 'SUBMITTED' ? 'Submitted' : row.submission_state === 'MISSING' ? 'No timesheet' : 'Needs action'}</span></td><td>${escapeHtml(row.status ? row.status.replaceAll('_',' ') : '-')}</td><td>${hours(row.final_normal_hours)}</td><td>${hours(row.final_overtime_hours)}</td><td>${hours(row.final_travel_hours)}</td><td>${hours(row.final_standby_hours)}</td><td>${row.timesheetid ? `<button onclick="window.open('${API_BASE}/workforce/timesheets/${row.timesheetid}/pdf','_blank','noopener')">View PDF</button>${row.submission_state === 'OUTSTANDING' ? '<button onclick="showTimesheetApprovals()">Open approvals</button>' : ''}` : '<span class="muted-text">Follow up with member</span>'}</td></tr>`).join('') || '<tr><td colspan="9">No members match this filter.</td></tr>'}</tbody></table></div>`
 }
 
 export async function loadTimesheetHistory() {

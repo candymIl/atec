@@ -5600,9 +5600,35 @@ tr:hover {
   font-size: 1.1rem;
 }
 
+.submission-status-summary {
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+}
+
+.submission-status-progress {
+  background: #eef5ff;
+  border-left: 4px solid #17365f;
+  color: #17365f;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+}
+
+.submission-state {
+  border-radius: 999px;
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.submission-state-submitted { background: #dcfce7; color: #166534; }
+.submission-state-outstanding { background: #fef3c7; color: #92400e; }
+.submission-state-missing { background: #fee2e2; color: #991b1b; }
+
 @media (max-width: 760px) {
   .timesheet-results-toolbar { grid-template-columns: 1fr; }
   .timesheet-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .submission-status-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 .voided-certificates-table .restore-certificate-btn:hover { background: #166534; }

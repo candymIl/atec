@@ -445,6 +445,37 @@ function registerWorkforceRoutes(app, {
     res.json(result.rows)
   }))
 
+  router.get("/timesheets/submission-status", asyncRoute(async (req, res) => {
+    if (!["ADMIN","MANAGER","HR"].includes(req.user.role)) return res.status(403).json({ error:"Access denied" })
+    const date = String(req.query.date || "")
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw badRequest("Select a valid submission-status date.")
+    const values = [date]
+    let managerScope = ""
+    if (req.user.role === "MANAGER") {
+      values.push(req.user.user_id)
+      managerScope = ` AND u.manager_user_id=$${values.length}`
+    }
+    const result = await pool.query(`SELECT u.userid AS user_id,
+      COALESCE(NULLIF(u.fullname,''),u.username) AS employee_name,u.employee_number,u.role,
+      t.timesheetid,t.status,t.final_normal_hours,t.final_overtime_hours,t.final_travel_hours,t.final_standby_hours,
+      CASE
+        WHEN t.timesheetid IS NULL THEN 'MISSING'
+        WHEN t.status IN ('EMPLOYEE_SUBMITTED','MANAGER_APPROVED','HR_ACCEPTED','EXPORTED') THEN 'SUBMITTED'
+        ELSE 'OUTSTANDING'
+      END AS submission_state
+      FROM atec.tblusers u
+      LEFT JOIN atec.tbldailytimesheet t ON t.user_id=u.userid AND t.timesheet_date=$1::date
+      WHERE COALESCE(u.is_active,true)=true
+        AND u.role IN ('ADMIN','MANAGER','INSPECTOR','ASSISTANT')${managerScope}
+      ORDER BY employee_name`, values)
+    const summary = result.rows.reduce((totals,row) => {
+      totals.total += 1
+      totals[String(row.submission_state).toLowerCase()] += 1
+      return totals
+    }, {total:0,submitted:0,outstanding:0,missing:0})
+    res.json({ date,summary,rows:result.rows })
+  }))
+
   router.get("/job-cards/:id/crew", asyncRoute(async (req, res) => {
     await assertJobCardAccess(pool, req.user, req.params.id)
     const result = await pool.query(`
