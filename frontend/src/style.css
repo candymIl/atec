@@ -1123,10 +1123,10 @@ td {
   background: #f8fafc;
 }
 
-/* Internal users have eight columns. Keep the editable fields roomy and pin
+/* Internal users have ten columns. Keep the editable fields roomy and pin
    the complete action cell instead of applying the customer-table widths. */
 .internal-users-table {
-  min-width: 1200px;
+  min-width: 1500px;
 }
 
 .internal-users-table th:nth-child(1),
@@ -1159,12 +1159,23 @@ td {
 
 .internal-users-table th:nth-child(7),
 .internal-users-table td:nth-child(7) {
-  text-align: center;
-  width: 10%;
+  width: 210px;
 }
 
 .internal-users-table th:nth-child(8),
 .internal-users-table td:nth-child(8) {
+  text-align: center;
+  width: 70px;
+}
+
+.internal-users-table th:nth-child(9),
+.internal-users-table td:nth-child(9) {
+  text-align: center;
+  width: 100px;
+}
+
+.internal-users-table th:nth-child(10),
+.internal-users-table td:nth-child(10) {
   box-shadow: -6px 0 10px rgba(15, 45, 79, 0.08);
   position: sticky;
   right: 0;
@@ -1172,17 +1183,52 @@ td {
   z-index: 2;
 }
 
-.internal-users-table th:nth-child(8) {
+.internal-users-table th:nth-child(10) {
   background: #1f3a5f;
   z-index: 3;
 }
 
-.internal-users-table td:nth-child(8) {
+.internal-users-table td:nth-child(10) {
   background: #ffffff;
 }
 
-.internal-users-table tr:nth-child(even) td:nth-child(8) {
+.internal-users-table tr:nth-child(even) td:nth-child(10) {
   background: #f8fafc;
+}
+
+.internal-users-table th:nth-child(7) small {
+  display: block;
+  font-size: 9px;
+  font-weight: 500;
+  margin-top: 2px;
+  opacity: 0.8;
+}
+
+.user-manager-cell {
+  vertical-align: middle;
+}
+
+.user-management-table .user-manager-select {
+  background: #ffffff;
+  border: 1px solid #b9c7d8;
+  border-radius: 6px;
+  height: 72px;
+  line-height: 1.35;
+  min-width: 190px;
+  padding: 3px;
+}
+
+.user-management-table .user-manager-select option {
+  border-radius: 3px;
+  padding: 3px 6px;
+}
+
+.manager-select-help {
+  color: #617187;
+  display: block;
+  font-size: 9px;
+  margin-top: 4px;
+  text-align: left;
 }
 
 .user-table-heading {

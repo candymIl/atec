@@ -994,7 +994,7 @@ window.showUserManagement = async function () {
           <th>${userSortHeader('Email', 'email')}</th>
           <th>${userSortHeader('Full Name', 'full_name')}</th>
           <th>${userSortHeader('Role', 'role')}</th>
-          ${managementMode === 'internal' ? `<th>${userSortHeader('LMI Number', 'lmi_number')}</th><th>Employee No.</th><th>Manager</th>` : ''}
+          ${managementMode === 'internal' ? `<th>${userSortHeader('LMI Number', 'lmi_number')}</th><th>Employee No.</th><th>Approving Managers <small>Up to 3</small></th>` : ''}
           ${managementMode === 'customers' ? `
             <th>${userSortHeader('Customer Name', 'clientid')}</th>
             <th>${userSortHeader('Site Name', 'siteid')}</th>
@@ -1017,7 +1017,7 @@ window.showUserManagement = async function () {
                 `).join('')}
               </select>
             </td>
-            ${managementMode === 'internal' ? `<td><input id="user-lmi-${safeAttr(user.user_id)}" value="${safeAttr(user.lmi_number || '')}"></td><td><input id="user-employee-${safeAttr(user.user_id)}" value="${safeAttr(user.employee_number || '')}"></td><td><select id="user-manager-${safeAttr(user.user_id)}" multiple size="3">${users.filter(manager => ['ADMIN','MANAGER'].includes(manager.role) && String(manager.user_id) !== String(user.user_id)).map(manager => `<option value="${safeAttr(manager.user_id)}" ${(user.manager_user_ids || [user.manager_user_id]).map(String).includes(String(manager.user_id)) ? 'selected' : ''}>${escapeHtml(manager.full_name)}</option>`).join('')}</select></td>` : ''}
+            ${managementMode === 'internal' ? `<td><input id="user-lmi-${safeAttr(user.user_id)}" value="${safeAttr(user.lmi_number || '')}"></td><td><input id="user-employee-${safeAttr(user.user_id)}" value="${safeAttr(user.employee_number || '')}"></td><td class="user-manager-cell"><select id="user-manager-${safeAttr(user.user_id)}" class="user-manager-select" multiple size="3" aria-label="Approving Managers for ${safeAttr(user.full_name)}" title="Hold Ctrl while clicking to select more than one Manager">${users.filter(manager => ['ADMIN','MANAGER'].includes(manager.role) && String(manager.user_id) !== String(user.user_id)).map(manager => `<option value="${safeAttr(manager.user_id)}" ${(user.manager_user_ids || [user.manager_user_id]).map(String).includes(String(manager.user_id)) ? 'selected' : ''}>${escapeHtml(manager.full_name)}</option>`).join('')}</select><small class="manager-select-help">Ctrl + click, or tap on mobile · max 3</small></td>` : ''}
             ${managementMode === 'customers' ? `
               <td>
                 <select id="user-client-${user.user_id}" onchange="filterCustomerUserSites(${user.user_id})">
