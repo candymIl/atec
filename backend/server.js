@@ -7247,18 +7247,27 @@ app.post("/inspections",
         ["inspector", inspectorProfile.full_name || req.user.full_name || ""]
       ]
 
-      const linkedJobCard = await client.query(`
-        SELECT jobcardid FROM atec.tbljobcard
-        WHERE clientid=$1 AND customer_reference=$2 AND status <> 'CANCELLED'
-        ORDER BY updated_at DESC,jobcardid DESC LIMIT 2`, [criteriaAvailability.clientid, acceloJobNumber])
-      if (linkedJobCard.rowCount > 1) {
-        const error = new Error("More than one active Job Card uses this Accelo Job Number for the customer. Ask the office to correct the duplicate before saving the inspection.")
-        error.statusCode = 409
-        throw error
-      }
+      const linkedJobCards = await client.query(`
+        SELECT j.jobcardid,j.updated_at,
+          EXISTS (SELECT 1 FROM atec.tbljobcardasset selected
+            WHERE selected.jobcardid=j.jobcardid AND selected.assetid=$3) AS asset_match,
+          ($4::int IS NOT NULL AND j.visitid=$4::int) AS visit_match
+        FROM atec.tbljobcard j
+        WHERE j.clientid=$1 AND j.customer_reference=$2 AND j.status <> 'CANCELLED'
+        ORDER BY visit_match DESC,asset_match DESC,j.updated_at DESC,j.jobcardid DESC`,
+      [criteriaAvailability.clientid,acceloJobNumber,assetid,blankToNull(visitid)])
+      const visitMatches = linkedJobCards.rows.filter(row => row.visit_match)
+      const assetMatches = linkedJobCards.rows.filter(row => row.asset_match)
+      const linkedJobCard = visitMatches.length === 1
+        ? visitMatches[0]
+        : assetMatches.length === 1
+          ? assetMatches[0]
+          : linkedJobCards.rows.length === 1
+            ? linkedJobCards.rows[0]
+            : null
       pushAvailableColumn(inspectionColumns, availableInspectionColumns, "tagnumber", inspectionTagNumber)
       pushAvailableColumn(inspectionColumns, availableInspectionColumns, "job_number", truncateDbText(acceloJobNumber, 200))
-      pushAvailableColumn(inspectionColumns, availableInspectionColumns, "jobcardid", linkedJobCard.rows[0]?.jobcardid || null)
+      pushAvailableColumn(inspectionColumns, availableInspectionColumns, "jobcardid", linkedJobCard?.jobcardid || null)
       pushAvailableColumn(inspectionColumns, availableInspectionColumns, "photo1", photo1)
       pushAvailableColumn(inspectionColumns, availableInspectionColumns, "photo2", photo2)
       pushAvailableColumn(inspectionColumns, availableInspectionColumns, "updateassetphotos", updatePhotos)
@@ -7559,6 +7568,9 @@ app.post("/inspections",
           error: "The inspection could not be saved because the production database is missing a required inspection update. Apply the pending database migrations, including 2026-06-23-security-access-control.sql, 2026-06-23-equipment-401-402-404-406-photos-and-critical-rule.sql, 2026-07-14-inspection-frequency.sql, and 2026-07-15-task12a-optional-inspection-tag.sql, then retry.",
           referenceId
         })
+      }
+      if (Number(err?.statusCode) >= 400 && Number(err?.statusCode) < 500) {
+        return res.status(Number(err.statusCode)).json({ error: err.message, referenceId })
       }
       res.status(500).json({
         error: "An unexpected server error occurred",
