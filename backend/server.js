@@ -4679,15 +4679,15 @@ app.post("/assets", async (req, res) => {
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
       RETURNING *`,
         [
-        serialno,
+        blankToNull(serialno),
         clientid,
         siteid,
         sectionid,
         responsibleid,
         equiptypeid,
-        manufacturer,
-        description,
-        assettagno,
+        blankToNull(manufacturer),
+        String(description || "").trim(),
+        blankToNull(assettagno),
         blankToNull(manufactdate),
         blankToNull(wll),
         blankToNull(heightoflift),
@@ -4725,6 +4725,23 @@ app.post("/assets", async (req, res) => {
   } catch (err) {
     if (isDuplicateActiveClientSerialError(err)) {
       return duplicateAssetResponse(res, "serial")
+    }
+
+    if (err?.code === "22001") {
+      return res.status(400).json({
+        error: "One of the asset text values is longer than the database currently allows. Deploy the asset text-field migration and try again.",
+        field: err.column || null
+      })
+    }
+
+    if (err?.code === "23503") {
+      return res.status(400).json({
+        error: "The selected customer, site, section, responsible person or equipment type is no longer valid. Refresh the page and select the values again."
+      })
+    }
+
+    if (err?.code === "22P02") {
+      return res.status(400).json({ error: "One of the asset values is not in the required numeric or date format." })
     }
 
     console.error(err);

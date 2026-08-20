@@ -40,6 +40,9 @@ for (const invalid of [-1, "-1", 19.9, "19.9", "not-a-number"]) {
 }
 
 assert.ok(server.includes('app.post("/assets"'), "Asset create route is missing")
+assert.ok(server.includes('err?.code === "22001"'), "Asset create must explain legacy text-length errors")
+assert.ok(server.includes('err?.code === "23503"'), "Asset create must explain invalid hierarchy selections")
+assert.ok(fs.readFileSync(path.join(root, "database", "2026-08-20-expand-asset-text-fields.sql"), "utf8").includes("ALTER COLUMN description TYPE text"), "Asset descriptions must support clear operational detail")
 assert.ok(server.includes('app.put("/assets/:id"'), "Asset update route is missing")
 assert.strictEqual(
   (server.match(/validatePermissibleDeflection\(permissibledeflection\)/g) || []).length,
