@@ -31,6 +31,8 @@ assert(publicRoute >= 0 && publicRoute < authGate, "Signed public certificate ro
 assert(protectedCertificateRoute > authGate, "Existing staff certificate route must remain authenticated")
 assert(server.includes('app.get("/public/assets/:assetid/certificates"'), "Public asset certificate selection page must exist")
 assert(server.includes("publicAssetCertificatesUrl(appUrl, asset.assetid)"), "QR must open the asset certificate selection page")
+assert.strictEqual((server.match(/const qrPayload = publicAssetCertificatesUrl\(appUrl, asset\.assetid\)/g) || []).length, 2, "Single and bulk QR labels must always open public inspection history")
+assert(!server.includes('const lookupUrl = `${appUrl}/?qr=${encodeURIComponent(asset.qrcode)}`'), "QR labels must not fall back to the signed-in asset lookup page")
 assert(frontend.includes("publicAssetCertificatesMatch[1]"), "ATEC scanner must extract the asset ID from public certificate QR URLs")
 assert(server.includes('app.get("/assets/qr-labels/bulk.pdf"'), "Bulk QR label PDF route must exist")
 assert(server.includes("Maximum 500") || server.includes("More than 500 assets match"), "Bulk QR generation must have a safe batch limit")

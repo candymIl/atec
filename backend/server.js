@@ -4057,10 +4057,7 @@ app.get("/assets/qr-labels/bulk.pdf", pdfLimiter, async (req, res) => {
       if (index > 0 && index % 8 === 0) doc.addPage({ size: "A4", margin: 0 })
       const asset = result.rows[index]
       const position = positions[index % 8]
-      const hasCertificates = asset.visual_testid || asset.load_testid
-      const qrPayload = hasCertificates
-        ? publicAssetCertificatesUrl(appUrl, asset.assetid)
-        : `${appUrl}/?qr=${encodeURIComponent(asset.qrcode)}`
+      const qrPayload = publicAssetCertificatesUrl(appUrl, asset.assetid)
       const qrDataUrl = await QRCode.toDataURL(qrPayload, { errorCorrectionLevel: "M", margin: 1, width: 300 })
       const qrBuffer = Buffer.from(qrDataUrl.split(",")[1], "base64")
       const x = position.x
@@ -4183,10 +4180,7 @@ app.get("/assets/:id/qr-label.pdf", pdfLimiter, async (req, res) => {
     const loadPdfUrl = loadTest
       ? publicCertificateUrl(appUrl, loadTest.testid)
       : ""
-    const lookupUrl = `${appUrl}/?qr=${encodeURIComponent(asset.qrcode)}`
-    const qrPayload = (visualPdfUrl || loadPdfUrl)
-      ? publicAssetCertificatesUrl(appUrl, asset.assetid)
-      : lookupUrl
+    const qrPayload = publicAssetCertificatesUrl(appUrl, asset.assetid)
 
     const qrDataUrl = await QRCode.toDataURL(qrPayload, {
       errorCorrectionLevel: "M",
