@@ -6244,6 +6244,167 @@ tr:hover {
 .workforce-entry-disclosure[open] .workforce-entry-open-copy { display: block; }
 .workforce-entry-form { padding: 16px; }
 
+.workforce-my-day,
+.workforce-my-day .filter-card,
+.workforce-my-day .table-scroll {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.workforce-my-day .table-scroll {
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+@media (max-width: 720px) {
+  .workforce-my-day .page-heading {
+    margin-bottom: 14px;
+  }
+
+  .workforce-my-day .page-heading h2 {
+    font-size: 25px;
+  }
+
+  .workforce-my-day .page-heading p {
+    font-size: 15px;
+    line-height: 1.45;
+  }
+
+  .workforce-date-card,
+  .workforce-day-card {
+    padding: 16px;
+  }
+
+  .workforce-date-card label,
+  .workforce-date-card input {
+    width: 100%;
+  }
+
+  .workforce-day-card .section-heading {
+    align-items: flex-start;
+    display: grid;
+    gap: 8px;
+  }
+
+  .workforce-day-card .section-heading > div:last-child {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+  }
+
+  .my-day-table-wrap,
+  .my-day-history-wrap {
+    overflow: visible !important;
+  }
+
+  .my-day-entry-table,
+  .my-day-history-table {
+    border: 0;
+    display: block;
+    min-width: 0 !important;
+    width: 100%;
+  }
+
+  .my-day-entry-table thead,
+  .my-day-history-table thead {
+    display: none;
+  }
+
+  .my-day-entry-table tbody,
+  .my-day-history-table tbody {
+    display: grid;
+    gap: 12px;
+  }
+
+  .my-day-entry-table tr,
+  .my-day-history-table tr {
+    background: rgba(127, 145, 170, 0.08);
+    border: 1px solid rgba(127, 145, 170, 0.42);
+    border-radius: 10px;
+    display: block;
+    overflow: hidden;
+  }
+
+  .my-day-entry-table td,
+  .my-day-history-table td {
+    align-items: center;
+    border: 0;
+    border-bottom: 1px solid rgba(127, 145, 170, 0.25);
+    display: grid;
+    font-size: 14px;
+    gap: 12px;
+    grid-template-columns: minmax(95px, 38%) minmax(0, 1fr);
+    min-height: 42px;
+    padding: 9px 12px;
+    text-align: right;
+    white-space: normal;
+  }
+
+  .my-day-entry-table td:last-child,
+  .my-day-history-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .my-day-entry-table td::before,
+  .my-day-history-table td::before {
+    color: #7183a0;
+    content: attr(data-label);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: .02em;
+    text-align: left;
+    text-transform: uppercase;
+  }
+
+  .my-day-entry-table .mobile-row-actions {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .my-day-entry-table .mobile-row-actions::before {
+    margin-right: auto;
+  }
+
+  .my-day-entry-table .mobile-empty-row,
+  .my-day-history-table .mobile-empty-row {
+    background: transparent;
+  }
+
+  .my-day-entry-table .mobile-empty-row td,
+  .my-day-history-table .mobile-empty-row td {
+    display: block;
+    text-align: center;
+  }
+
+  .my-day-entry-table .mobile-empty-row td::before,
+  .my-day-history-table .mobile-empty-row td::before {
+    content: none;
+  }
+
+  .workforce-entry-disclosure summary {
+    gap: 10px;
+    padding: 14px;
+  }
+
+  .workforce-entry-summary-copy strong {
+    font-size: 14px;
+  }
+
+  .workforce-day-card > .form-actions {
+    display: grid;
+  }
+
+  .workforce-day-card > .form-actions button {
+    width: 100%;
+  }
+
+  .workforce-day-card > h3 {
+    font-size: 21px;
+    margin-top: 24px;
+  }
+}
+
 .job-card-loading { padding: 36px; text-align: center; color: #667085; }
 .job-card-page-heading { align-items: center; }
 .job-card-overview { display: grid; grid-template-columns: minmax(230px, 1.4fr) repeat(3, minmax(135px, .65fr)); gap: 1px; margin-bottom: 14px; overflow: hidden; border: 1px solid #d7deea; border-radius: 12px; background: #d7deea; box-shadow: 0 3px 12px rgba(23, 32, 51, .05); }
