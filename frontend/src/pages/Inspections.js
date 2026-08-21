@@ -123,7 +123,7 @@ export function renderInspections(assets, pageInfo = {}) {
       onPageSize: "setInspectionRowsPerPage"
     })}
 
-    <table>
+    <table class="mobile-card-table inspection-asset-table">
       <thead>
         <tr>
           <th>${sortHeader('Asset ID', 'inspectionAssets', 'assetid', 'showInspections')}</th>
@@ -150,16 +150,16 @@ export function renderInspections(assets, pageInfo = {}) {
           const equipmentType = escapeHtml(asset.equipmenttype || '')
 
           return `
-          <tr>
-            <td>${assetId}</td>
-            <td>${assetTag}</td>
-            <td>${serialNo}</td>
-            <td>${client}</td>
-            <td>${site}</td>
-            <td>${section}</td>
-            <td>${description}</td>
-            <td>${equipmentType}</td>
-            <td>
+          <tr class="mobile-card-row">
+            <td data-label="Asset ID">${assetId}</td>
+            <td data-label="Asset Tag">${assetTag || '-'}</td>
+            <td data-label="Serial No">${serialNo || '-'}</td>
+            <td data-label="Client">${client || '-'}</td>
+            <td data-label="Site">${site || '-'}</td>
+            <td data-label="Section">${section || '-'}</td>
+            <td data-label="Description">${description || '-'}</td>
+            <td data-label="Equipment Type">${equipmentType || '-'}</td>
+            <td data-label="Actions" class="mobile-card-actions">
   <div class="action-buttons">
 
     ${assetSupportsInspectionWizard(asset, window.atecCriteria || [], 'VISUAL') ? `

@@ -38,22 +38,22 @@ export function renderAssetRow(asset) {
   const isArchived = asset.archived === true || asset.archived === 'true'
 
   return `
-    <tr>
-      <td>${assetid}</td>
-      <td>${assetTag}</td>
-      <td>
-        ${serial}
+    <tr class="asset-result-card">
+      <td data-label="Asset ID">${assetid}</td>
+      <td data-label="Asset Tag">${assetTag || '-'}</td>
+      <td data-label="Serial No">
+        ${serial || '-'}
         ${asset.serialno && asset.hoistserialno && asset.serialno !== asset.hoistserialno ? `
           <br><small>Hoist: ${hoistSerial}</small>
         ` : ''}
       </td>
-      <td>${client}</td>
-      <td>${site}</td>
-      <td>${section}</td>
-      <td>${responsiblePerson}</td>
-      <td>${equipmentType}</td>
-      <td>${description}</td>
-      <td>
+      <td data-label="Client">${client || '-'}</td>
+      <td data-label="Site">${site || '-'}</td>
+      <td data-label="Section">${section || '-'}</td>
+      <td data-label="Responsible">${responsiblePerson || '-'}</td>
+      <td data-label="Equipment Type">${equipmentType || '-'}</td>
+      <td data-label="Description">${description || '-'}</td>
+      <td data-label="Actions" class="asset-result-actions">
         <div class="action-buttons">
           ${canManageAssets ? `
             <button onclick="editAsset(${asset.assetid})">Edit</button>
@@ -145,6 +145,7 @@ export function renderAssetSetup(assets, pageInfo = {}) {
   )
 
   document.querySelector('#page').innerHTML = `
+    <div class="asset-setup-page">
     <h1>Asset Setup</h1>
 
     ${['ADMIN', 'MANAGER', 'INSPECTOR'].includes(window.currentUser?.role) ? `
@@ -158,7 +159,7 @@ export function renderAssetSetup(assets, pageInfo = {}) {
       </div>
     ` : ''}
 
-    <div class="filter-card">
+    <div class="filter-card asset-search-card">
       <p>
         Total Assets:
         <strong id="assetTotalCount">${totalRows}</strong>
@@ -235,7 +236,7 @@ export function renderAssetSetup(assets, pageInfo = {}) {
 
     ${paginationBar}
 
-    <table>
+    <table class="asset-table">
       <thead>
         <tr>
           <th>${sortHeader('Asset ID', 'assets', 'assetid', 'showAssetSetup')}</th>
@@ -257,6 +258,7 @@ export function renderAssetSetup(assets, pageInfo = {}) {
     </table>
 
     ${bottomPaginationBar}
+    </div>
   `
 }
 

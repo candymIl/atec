@@ -68,7 +68,7 @@ export function renderSites(sites, siteArchiveMode = 'active') {
       onPageSize: "setSiteRowsPerPage"
     })}
 
-    <table>
+    <table class="mobile-card-table setup-record-table">
     <thead>
       <tr>
         <th>${sortHeader('Site ID', 'sites', 'siteid', 'showSites')}</th>
@@ -81,12 +81,12 @@ export function renderSites(sites, siteArchiveMode = 'active') {
 
       <tbody id="siteTableBody">
         ${pagination.rows.map(site => `
-         <tr>
-          <td>${escapeHtml(site.siteid)}</td>
-          <td>${escapeHtml(site.clientname || '')}</td>
-          <td>${escapeHtml(site.sitename || '')}</td>
-          <td>${site.archived ? 'Archived' : 'Active'}</td>
-          <td>
+         <tr class="mobile-card-row">
+          <td data-label="Site ID">${escapeHtml(site.siteid)}</td>
+          <td data-label="Client">${escapeHtml(site.clientname || '-')}</td>
+          <td data-label="Site Name">${escapeHtml(site.sitename || '-')}</td>
+          <td data-label="Status">${site.archived ? 'Archived' : 'Active'}</td>
+          <td data-label="Actions" class="mobile-card-actions">
             <button onclick="editSite(${site.siteid})">
               Edit
             </button>

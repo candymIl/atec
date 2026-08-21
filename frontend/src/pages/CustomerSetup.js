@@ -76,8 +76,6 @@ export function renderCustomerSetup(customers, customerArchiveMode = "active") {
         </label>
       </div>
     </div>
-</div>
-
       <br>
 
       <input
@@ -96,7 +94,7 @@ export function renderCustomerSetup(customers, customerArchiveMode = "active") {
         onPageSize: "setCustomerRowsPerPage"
       })}
 
-      <table>
+      <table class="mobile-card-table setup-record-table">
       <thead>
         <tr>
           <th>${sortHeader('Client ID', 'customers', 'clientid', 'showCustomerSetup')}</th>
@@ -110,13 +108,13 @@ export function renderCustomerSetup(customers, customerArchiveMode = "active") {
 
       <tbody id="customerTableBody">
         ${pagination.rows.map(customer => `
-          <tr>
-            <td>${escapeHtml(customer.clientid)}</td>
-            <td>${escapeHtml(customer.clientname || "")}</td>
-            <td>${escapeHtml(customer.clientaddr || "")}</td>
-            <td>${renderCustomerNotificationStatus(customer)}</td>
-            <td>${customer.archived ? "Archived" : "Active"}</td>
-            <td>
+          <tr class="mobile-card-row">
+            <td data-label="Client ID">${escapeHtml(customer.clientid)}</td>
+            <td data-label="Client Name">${escapeHtml(customer.clientname || "-")}</td>
+            <td data-label="Address">${escapeHtml(customer.clientaddr || "Not recorded")}</td>
+            <td data-label="Notifications">${renderCustomerNotificationStatus(customer)}</td>
+            <td data-label="Status">${customer.archived ? "Archived" : "Active"}</td>
+            <td data-label="Actions" class="mobile-card-actions">
               <button onclick="editClient(${customer.clientid})">Edit</button>
 
               ${canArchiveCustomers ? `

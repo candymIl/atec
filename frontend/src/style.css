@@ -5770,10 +5770,13 @@ tr:hover {
   }
 
   .sidebar {
+    align-items: center;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     width: 100%;
     min-width: 0;
-    padding: 12px;
-    display: block;
+    padding: 8px 10px;
     position: sticky;
     top: 0;
     z-index: 50;
@@ -5782,8 +5785,9 @@ tr:hover {
 
   .mobile-menu-toggle {
     display: flex;
-    width: 100%;
-    margin: 8px 0 0;
+    margin: 0;
+    min-width: 64px;
+    width: auto;
     background: #2563eb;
     border-color: #2563eb;
     text-align: center;
@@ -5796,39 +5800,42 @@ tr:hover {
 
   .mobile-menu-actions {
     display: none;
+    grid-column: 1 / -1;
     margin-top: 8px;
+    width: 100%;
   }
 
   .sidebar.mobile-menu-open .mobile-menu-actions {
     display: block;
   }
 
-  .logo-container,
-  .system-title,
-  .user-panel {
-    width: 80%;
-  }
-
   .logo-container {
-    margin-bottom: 4px;
+    margin: 0;
   }
 
   .logo {
-    width: 145px;
+    border-radius: 5px;
+    display: block;
+    width: 66px;
   }
 
   .system-title {
-    font-size: 13px;
-    margin-bottom: 4px;
+    display: none;
   }
 
   .user-panel {
-    margin-bottom: 2px;
-    padding: 9px;
+    margin: 0;
+    min-width: 0;
+    padding: 7px 9px;
+    text-align: left;
+    width: 100%;
   }
 
   .user-panel strong {
-    font-size: 15px;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .user-panel span {
@@ -5847,7 +5854,7 @@ tr:hover {
   .content {
     width: 100%;
     padding: 14px 10px 24px;
-    overflow-x: auto;
+    overflow-x: hidden;
   }
 
   #page {
@@ -5985,6 +5992,48 @@ tr:hover {
     flex: 1 1 140px;
   }
 
+  .filter-card {
+    margin: 12px 0 16px;
+    min-width: 0;
+    padding: 14px;
+  }
+
+  .form-row,
+  .form-group,
+  .form-group-wide {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .archive-filter-row {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+  }
+
+  .archive-filter-row > label:first-child {
+    flex-basis: 100%;
+  }
+
+  .archive-filter-row label {
+    align-items: center;
+    display: flex;
+    gap: 6px;
+  }
+
+  .filter-key-row {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .filter-key-btn {
+    min-width: 0;
+    white-space: normal;
+    width: 100%;
+  }
+
   .crane-wizard-progress {
     top: 0;
   }
@@ -6051,9 +6100,237 @@ tr:hover {
 
   table,
   .dashboard-table,
-  .asset-table,
   #certificateResults {
-    min-width: 720px;
+    display: block;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+  }
+
+  .report-pagination-bar,
+  .asset-pagination-bar,
+  .report-page-controls {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .report-pagination-bar {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 12px;
+  }
+
+  .report-pagination-bar .report-page-size,
+  .report-pagination-bar .report-page-controls {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .report-pagination-bar .report-page-size select {
+    margin: 0;
+    min-width: 90px;
+    width: auto;
+  }
+
+  .report-pagination-bar .report-page-controls > span:last-child {
+    flex-basis: 100%;
+    line-height: 1.4;
+  }
+
+  .table-scroll,
+  .certificate-table-scroll-region,
+  .report-table-wrap {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    width: 100%;
+  }
+
+  .radio-row {
+    flex-wrap: wrap;
+    gap: 10px 18px;
+  }
+
+  .page-actions {
+    align-items: stretch;
+  }
+
+  .asset-pagination-bar {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 12px;
+  }
+
+  .asset-pagination-bar .report-page-size,
+  .asset-pagination-bar .report-page-controls {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .asset-pagination-bar .report-page-size select {
+    margin: 0;
+    min-width: 90px;
+    width: auto;
+  }
+
+  .asset-pagination-bar .report-page-controls span {
+    flex-basis: 100%;
+    line-height: 1.4;
+  }
+
+  .asset-table {
+    background: transparent;
+    border: 0;
+    display: block;
+    margin-top: 12px;
+    min-width: 0;
+    overflow: visible;
+    width: 100%;
+  }
+
+  .asset-table thead {
+    display: none;
+  }
+
+  .asset-table tbody {
+    display: grid;
+    gap: 12px;
+  }
+
+  .asset-table .asset-result-card {
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(15, 45, 79, 0.07);
+    display: block;
+    overflow: hidden;
+  }
+
+  .asset-table .asset-result-card td {
+    align-items: start;
+    border: 0;
+    border-bottom: 1px solid #e7ecf2;
+    display: grid;
+    gap: 10px;
+    grid-template-columns: minmax(96px, 34%) minmax(0, 1fr);
+    min-height: 42px;
+    overflow-wrap: anywhere;
+    padding: 10px 12px;
+  }
+
+  .asset-table .asset-result-card td::before {
+    color: #64748b;
+    content: attr(data-label);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+  }
+
+  .asset-table .asset-result-card td:last-child {
+    border-bottom: 0;
+  }
+
+  .asset-table .asset-result-card .asset-result-actions {
+    display: block;
+  }
+
+  .asset-table .asset-result-actions::before {
+    display: block;
+    margin-bottom: 9px;
+  }
+
+  .asset-table .action-buttons {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .asset-table .action-buttons button {
+    min-width: 0;
+    white-space: normal;
+    width: 100%;
+  }
+
+  .mobile-card-table {
+    background: transparent;
+    border: 0;
+    display: block;
+    margin-top: 12px;
+    min-width: 0;
+    overflow: visible;
+    width: 100%;
+  }
+
+  .mobile-card-table thead {
+    display: none;
+  }
+
+  .mobile-card-table tbody {
+    display: grid;
+    gap: 12px;
+  }
+
+  .mobile-card-table .mobile-card-row {
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(15, 45, 79, .07);
+    display: block;
+    overflow: hidden;
+  }
+
+  .mobile-card-table .mobile-card-row td {
+    align-items: start;
+    border: 0;
+    border-bottom: 1px solid #e7ecf2;
+    display: grid;
+    gap: 10px;
+    grid-template-columns: minmax(96px, 34%) minmax(0, 1fr);
+    min-height: 42px;
+    overflow-wrap: anywhere;
+    padding: 10px 12px;
+  }
+
+  .mobile-card-table .mobile-card-row td::before {
+    color: #64748b;
+    content: attr(data-label);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+  }
+
+  .mobile-card-table .mobile-card-row td:last-child {
+    border-bottom: 0;
+  }
+
+  .mobile-card-table .mobile-card-row .mobile-card-actions {
+    display: block;
+  }
+
+  .mobile-card-table .mobile-card-actions::before {
+    display: block;
+    margin-bottom: 9px;
+  }
+
+  .mobile-card-table .mobile-card-actions > button,
+  .mobile-card-table .mobile-card-actions .action-buttons button {
+    margin: 3px 0;
+    min-width: 0;
+    white-space: normal;
+    width: 100%;
+  }
+
+  .mobile-card-table .mobile-card-actions .action-buttons {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .certificate-modal {
@@ -6072,7 +6349,7 @@ tr:hover {
   }
 
   .logo {
-    width: 130px;
+    width: 56px;
   }
 
   .content {
@@ -6103,6 +6380,29 @@ tr:hover {
 
   .quick-photo-card img {
     height: 130px;
+  }
+
+  .asset-search-card h2 {
+    font-size: 20px;
+  }
+
+  .asset-table .action-buttons {
+    grid-template-columns: 1fr;
+  }
+
+  .mobile-card-table .mobile-card-actions .action-buttons {
+    grid-template-columns: 1fr;
+  }
+
+  .page-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .page-actions button,
+  .report-pagination-bar .report-page-controls button {
+    min-width: 0;
+    white-space: normal;
   }
 }
 

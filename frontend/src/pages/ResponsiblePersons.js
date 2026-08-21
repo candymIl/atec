@@ -70,7 +70,7 @@ export function renderResponsiblePersons(responsiblePersons, responsibleArchiveM
       onPageSize: "setResponsibleRowsPerPage"
     })}
 
-    <table>
+    <table class="mobile-card-table setup-record-table">
       <thead>
         <tr>
           <th>${sortHeader('Person ID', 'responsible', 'personid', 'showResponsiblePersons')}</th>
@@ -85,14 +85,14 @@ export function renderResponsiblePersons(responsiblePersons, responsibleArchiveM
 
       <tbody id="responsibleTableBody">
         ${pagination.rows.map(person => `
-          <tr>
-            <td>${escapeHtml(person.personid)}</td>
-            <td>${escapeHtml(person.clientname || '')}</td>
-            <td>${escapeHtml(person.sitename || 'Not assigned')}</td>
-            <td>${escapeHtml(person.sectionname || 'Not assigned')}</td>
-            <td>${escapeHtml(person.name || '')}</td>
-            <td>${person.archived ? 'Archived' : 'Active'}</td>
-            <td>
+          <tr class="mobile-card-row">
+            <td data-label="Person ID">${escapeHtml(person.personid)}</td>
+            <td data-label="Customer">${escapeHtml(person.clientname || '-')}</td>
+            <td data-label="Linked Sites">${escapeHtml(person.sitename || 'Not assigned')}</td>
+            <td data-label="Linked Sections">${escapeHtml(person.sectionname || 'Not assigned')}</td>
+            <td data-label="Responsible Person">${escapeHtml(person.name || '-')}</td>
+            <td data-label="Status">${person.archived ? 'Archived' : 'Active'}</td>
+            <td data-label="Actions" class="mobile-card-actions">
               <button onclick="editResponsiblePerson(${person.personid})">
                 Edit
               </button>

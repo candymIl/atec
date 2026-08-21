@@ -92,7 +92,7 @@ export function renderSections(sections, sectionArchiveMode = 'active') {
       onPageSize: "setSectionRowsPerPage"
     })}
 
-    <table>
+    <table class="mobile-card-table setup-record-table">
       <thead>
         <tr>
           <th>${sortHeader('ID', 'sections', 'sectionid', 'showSections')}</th>
@@ -107,14 +107,14 @@ export function renderSections(sections, sectionArchiveMode = 'active') {
 
       <tbody id="sectionTableBody">
         ${pagination.rows.map(section => `
-          <tr>
-            <td>${escapeHtml(section.sectionid)}</td>
-            <td>${escapeHtml(section.clientname || '')}</td>
-            <td>${escapeHtml(section.sitename || '')}</td>
-            <td>${escapeHtml(sectionResponsibleLabel(section))}</td>
-            <td>${escapeHtml(section.sectionname || '')}</td>
-            <td>${section.archived ? 'Archived' : 'Active'}</td>
-            <td>
+          <tr class="mobile-card-row">
+            <td data-label="ID">${escapeHtml(section.sectionid)}</td>
+            <td data-label="Client">${escapeHtml(section.clientname || '-')}</td>
+            <td data-label="Site">${escapeHtml(section.sitename || '-')}</td>
+            <td data-label="Responsible">${escapeHtml(sectionResponsibleLabel(section))}</td>
+            <td data-label="Section Name">${escapeHtml(section.sectionname || '-')}</td>
+            <td data-label="Status">${section.archived ? 'Archived' : 'Active'}</td>
+            <td data-label="Actions" class="mobile-card-actions">
               <button onclick="editSection(${section.sectionid})">
                 Edit
               </button>
