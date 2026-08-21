@@ -7623,6 +7623,15 @@ function isCrawlBeamHoistSerialLoadTestCriteria(asset, row, inspectiontype) {
   )
 }
 
+function isTrestleLoadTestMeasurementCriteria(asset, row, inspectiontype) {
+  if (inspectiontype !== "LOADTEST") return false
+
+  const equipmentType = normalizeCriteriaName(asset?.equipmenttype || "")
+  const fieldType = String(row?.fieldtype || "").toUpperCase()
+
+  return ["trestle", "trestles"].includes(equipmentType) && fieldType === "NUMBER"
+}
+
 function isTextCriteria(row) {
   const name = (row.criterianame || "").toLowerCase()
 
@@ -8901,6 +8910,10 @@ assetCriteria = assetCriteria.filter(row =>
 
 assetCriteria = assetCriteria.filter(row =>
   !isCrawlBeamHoistSerialLoadTestCriteria(asset, row, inspectiontype)
+)
+
+assetCriteria = assetCriteria.filter(row =>
+  !isTrestleLoadTestMeasurementCriteria(asset, row, inspectiontype)
 )
 
 const measurementCriteria = assetCriteria.filter(row => row.fieldtype === "NUMBER")
@@ -10929,6 +10942,10 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
 
   assetCriteria = assetCriteria.filter(row =>
     !isCrawlBeamHoistSerialLoadTestCriteria(asset, row, inspectiontype)
+  )
+
+  assetCriteria = assetCriteria.filter(row =>
+    !isTrestleLoadTestMeasurementCriteria(asset, row, inspectiontype)
   )
 
   let results = []
