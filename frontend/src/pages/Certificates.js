@@ -63,6 +63,7 @@ function certificateHtmlUrl(testid) {
 }
 
 export function renderCertificateSearch(customers = [], sites = [], sections = []) {
+  const isCustomerUser = window.currentUser?.role === "CUSTOMER"
   customers = customers.filter(item => item.archived !== true && item.archived !== 'true')
   sites = sites.filter(item => item.archived !== true && item.archived !== 'true')
   sections = sections.filter(item => item.archived !== true && item.archived !== 'true')
@@ -79,7 +80,7 @@ export function renderCertificateSearch(customers = [], sites = [], sections = [
           <input
             id="certSearch"
             type="text"
-            placeholder="Test ID, job number, tag, serial, client, site, asset description..."
+            placeholder="${isCustomerUser ? "Test ID, job number, tag, serial, site, asset description..." : "Test ID, job number, tag, serial, client, site, asset description..."}"
           >
         </div>
 
@@ -101,15 +102,17 @@ export function renderCertificateSearch(customers = [], sites = [], sections = [
           </select>
         </div>
 
-        <div class="form-group">
-          <label>Client</label>
-          <select id="certClient">
-            <option value="">All Clients</option>
-            ${customers.map(c => `
-              <option value="${safeAttr(c.clientid)}">${escapeHtml(c.clientname)}</option>
-            `).join("")}
-          </select>
-        </div>
+        ${isCustomerUser ? `<input id="certClient" type="hidden" value="">` : `
+          <div class="form-group">
+            <label>Client</label>
+            <select id="certClient">
+              <option value="">All Clients</option>
+              ${customers.map(c => `
+                <option value="${safeAttr(c.clientid)}">${escapeHtml(c.clientname)}</option>
+              `).join("")}
+            </select>
+          </div>
+        `}
 
         <div class="form-group">
           <label>Site</label>
@@ -144,18 +147,20 @@ export function renderCertificateSearch(customers = [], sites = [], sections = [
 
     <div class="filter-card bulk-certificate-card">
       <h2>Bulk Print Certificates</h2>
-      <p>Select a date range, then choose the certificates to print together. Customer is optional.</p>
+      <p>${isCustomerUser ? "Select a date range, then choose the certificates to print together." : "Select a date range, then choose the certificates to print together. Customer is optional."}</p>
 
       <div class="asset-form-grid">
-        <div class="form-group">
-          <label>Customer</label>
-          <select id="bulkCertClient">
-            <option value="">All Customers</option>
-            ${customers.map(c => `
-              <option value="${safeAttr(c.clientid)}">${escapeHtml(c.clientname)}</option>
-            `).join("")}
-          </select>
-        </div>
+        ${isCustomerUser ? `<input id="bulkCertClient" type="hidden" value="">` : `
+          <div class="form-group">
+            <label>Customer</label>
+            <select id="bulkCertClient">
+              <option value="">All Customers</option>
+              ${customers.map(c => `
+                <option value="${safeAttr(c.clientid)}">${escapeHtml(c.clientname)}</option>
+              `).join("")}
+            </select>
+          </div>
+        `}
 
         <div class="form-group">
           <label>Date From</label>
@@ -595,6 +600,7 @@ function renderCertificateResults(certificates) {
   }
 
   const showVoidCertificateAction = canVoidCertificates()
+  const isCustomerUser = window.currentUser?.role === "CUSTOMER"
 
   const sortedCertificates = window.currentCertificatePageInfo ? certificates : sortTableRows(certificates, 'certificates', {
     testid: cert => cert.testid,
@@ -624,16 +630,16 @@ function renderCertificateResults(certificates) {
       onPageSize: "setCertificateRowsPerPage"
     })}
 
-    <div class="certificate-table-scrollbar-top" aria-label="Scroll certificate table left and right" tabindex="0">
+    <div class="certificate-table-scrollbar-top ${isCustomerUser ? "customer-scoped" : ""}" aria-label="Scroll certificate table left and right" tabindex="0">
       <div class="certificate-table-scrollbar-spacer"></div>
     </div>
-    <div class="certificate-table-scroll-region">
-    <table class="certificate-search-table">
+    <div class="certificate-table-scroll-region ${isCustomerUser ? "customer-scoped" : ""}">
+    <table class="certificate-search-table ${isCustomerUser ? "customer-scoped" : ""}">
       <colgroup>
         <col class="certificate-col-test-id">
         <col class="certificate-col-job-number">
-        <col class="certificate-col-tag-number">
-        <col class="certificate-col-client">
+        ${isCustomerUser ? "" : `<col class="certificate-col-tag-number">`}
+        ${isCustomerUser ? "" : `<col class="certificate-col-client">`}
         <col class="certificate-col-site">
         <col class="certificate-col-asset">
         <col class="certificate-col-serial">
@@ -647,8 +653,8 @@ function renderCertificateResults(certificates) {
         <tr>
           <th>${certificateSortHeader('Test ID', 'testid')}</th>
           <th>${certificateSortHeader('Job Number', 'job_number')}</th>
-          <th>${certificateSortHeader('Tag No', 'tagnumber')}</th>
-          <th>${certificateSortHeader('Client', 'clientname')}</th>
+          ${isCustomerUser ? "" : `<th>${certificateSortHeader('Tag No', 'tagnumber')}</th>`}
+          ${isCustomerUser ? "" : `<th>${certificateSortHeader('Client', 'clientname')}</th>`}
           <th>${certificateSortHeader('Site', 'sitename')}</th>
           <th>${certificateSortHeader('Asset', 'description')}</th>
           <th>${certificateSortHeader('Serial No', 'serialno')}</th>
@@ -669,8 +675,8 @@ function renderCertificateResults(certificates) {
           <tr data-testid="${testid}">
             <td>${escapeHtml(cert.testid)}</td>
             <td>${escapeHtml(cert.job_number || "-")}</td>
-            <td>${escapeHtml(cert.tagnumber || "-")}</td>
-            <td>${escapeHtml(cert.clientname || "")}</td>
+            ${isCustomerUser ? "" : `<td>${escapeHtml(cert.tagnumber || "-")}</td>`}
+            ${isCustomerUser ? "" : `<td>${escapeHtml(cert.clientname || "")}</td>`}
             <td>${escapeHtml(cert.sitename || "")}</td>
             <td class="certificate-asset-cell">${escapeHtml(cert.description || "")}</td>
             <td class="certificate-serial-cell">${escapeHtml(cert.serialno || "")}</td>
@@ -807,6 +813,7 @@ window.searchBulkCertificates = async function () {
 
 function renderBlockedCertificateDetails(blockedCertificates = []) {
   if (!blockedCertificates.length) return ""
+  const isCustomerUser = window.currentUser?.role === "CUSTOMER"
 
   return `
     <details class="bulk-certificate-skipped">
@@ -820,7 +827,7 @@ function renderBlockedCertificateDetails(blockedCertificates = []) {
               <th>Equipment Type</th>
               <th>Inspection Type</th>
               <th>Asset</th>
-              <th>Asset Tag</th>
+              ${isCustomerUser ? "" : `<th>Asset Tag</th>`}
               <th>Serial No</th>
               <th>Site</th>
               <th>Reason</th>
@@ -834,7 +841,7 @@ function renderBlockedCertificateDetails(blockedCertificates = []) {
                 <td><strong>${escapeHtml(inspection.equipmenttype || "Unknown")}</strong></td>
                 <td>${escapeHtml(inspection.inspectiontype || "-")}</td>
                 <td>${escapeHtml(inspection.description || "-")}</td>
-                <td>${escapeHtml(inspection.assettagno || "-")}</td>
+                ${isCustomerUser ? "" : `<td>${escapeHtml(inspection.assettagno || "-")}</td>`}
                 <td>${escapeHtml(inspection.serialno || "-")}</td>
                 <td>${escapeHtml(inspection.sitename || "-")}</td>
                 <td class="bulk-certificate-skip-reason">${escapeHtml((inspection.reasons || []).join(" ") || "Certificate requirements are incomplete.")}</td>
@@ -848,6 +855,7 @@ function renderBlockedCertificateDetails(blockedCertificates = []) {
 }
 
 function renderBulkCertificateResults(certificates, summary = {}) {
+  const isCustomerUser = window.currentUser?.role === "CUSTOMER"
   const resultsContainer = document.querySelector('#bulkCertificateResults')
   const printButton = document.querySelector('#bulkCertPrintBtn')
   const downloadSelectedButton = document.querySelector('#bulkCertDownloadSelectedBtn')
@@ -922,7 +930,7 @@ function renderBulkCertificateResults(certificates, summary = {}) {
             <th>Type</th>
             <th>Status</th>
             <th>Asset</th>
-            <th>Asset Tag</th>
+            ${isCustomerUser ? "" : `<th>Asset Tag</th>`}
             <th>Serial No</th>
             <th>Site</th>
             <th>Inspector</th>
@@ -955,7 +963,7 @@ function renderBulkCertificateResults(certificates, summary = {}) {
                   </strong>
                 </td>
                 <td>${escapeHtml(inspection.description || "")}</td>
-                <td>${escapeHtml(inspection.assettagno || inspection.tagnumber || "-")}</td>
+                ${isCustomerUser ? "" : `<td>${escapeHtml(inspection.assettagno || inspection.tagnumber || "-")}</td>`}
                 <td>${escapeHtml(inspection.serialno || "")}</td>
                 <td>${escapeHtml(inspection.sitename || "")}</td>
                 <td>${escapeHtml(inspection.inspector || "-")}</td>

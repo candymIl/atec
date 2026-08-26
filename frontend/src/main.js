@@ -1594,7 +1594,9 @@ async function loadData() {
   <div class="sidebar">
 
           <div class="logo-container">
-            <img src="${assetUrl('logo.jpg')}" alt="ATEC Logo" class="logo">
+            <button type="button" class="sidebar-home-link" onclick="showRoleHome()" aria-label="Return to home" title="Return to home">
+              <img src="${assetUrl('logo.jpg')}" alt="ATEC Logo" class="logo">
+            </button>
           </div>
 
           <div class="system-title">
@@ -1659,6 +1661,15 @@ window.showDashboard = function () {
   )
 
   loadDashboardSummary()
+}
+
+window.showRoleHome = function () {
+  window.closeMobileMenu()
+
+  if (currentUser?.role === "CUSTOMER") return window.showCustomerPortal()
+  if (currentUser?.role === "ASSISTANT") return window.showMyDay()
+  if (currentUser?.role === "HR") return window.showHrTimesheets()
+  return window.showDashboard()
 }
 
 window.rememberSidebarGroup = function (details) {

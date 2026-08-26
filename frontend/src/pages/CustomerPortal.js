@@ -196,7 +196,9 @@ function renderPortalAssetsTable(rows = []) {
         ${rows.map(row => `
           <tr>
             <td>
-              <strong>${escapeHtml(row.assettagno || row.assetid || "-")}</strong>
+              <button type="button" class="customer-asset-history-link" onclick="openCustomerAssetHistory('${escapeHtml(row.assetid)}')">
+                Asset ${escapeHtml(row.assetid || "-")}
+              </button>
               <span>${escapeHtml(row.description || "")}</span>
               <span>${escapeHtml(row.serialno || "")}</span>
             </td>
@@ -271,6 +273,152 @@ async function loadPortalAssets() {
   } catch (err) {
     panel.innerHTML = `<p class="login-error">Could not connect to the asset list.</p>`
   }
+}
+
+function historyMetric(label, value, tone = "") {
+  return `
+    <div class="customer-history-metric ${tone}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value ?? 0)}</strong>
+    </div>
+  `
+}
+
+function historyInspectionType(value) {
+  return String(value || "").toUpperCase() === "LOADTEST" ? "Load Test" : "Visual Inspection"
+}
+
+function renderCustomerAssetHistory(history) {
+  const asset = history.asset || {}
+  const summary = history.summary || {}
+  const events = history.events || []
+
+  return `
+    <div class="customer-history-heading">
+      <div>
+        <p class="customer-history-eyebrow">Asset History Review</p>
+        <h2>Asset ${escapeHtml(asset.assetid || "-")}</h2>
+        <p>${escapeHtml(asset.description || asset.equipmenttype || "Asset inspection history")}</p>
+      </div>
+      <div class="form-actions customer-history-actions">
+        <a class="cert-action-link" href="${API_BASE}/customer-portal/assets/${encodeURIComponent(asset.assetid)}/history.pdf" download>
+          Download History PDF
+        </a>
+        <button type="button" class="secondary-btn" onclick="closeCustomerAssetHistory()">Close</button>
+      </div>
+    </div>
+
+    <div class="customer-history-asset-grid">
+      <p><span>Serial Number</span><strong>${escapeHtml(asset.serialno || "-")}</strong></p>
+      <p><span>Equipment Type</span><strong>${escapeHtml(asset.equipmenttype || "-")}</strong></p>
+      <p><span>Site</span><strong>${escapeHtml(asset.sitename || "-")}</strong></p>
+      <p><span>Section</span><strong>${escapeHtml(asset.sectionname || "-")}</strong></p>
+      <p><span>Responsible Person</span><strong>${escapeHtml(asset.responsiblename || "-")}</strong></p>
+      <p><span>History Period</span><strong>${escapeHtml(formatDate(summary.firstInspectionDate))} to ${escapeHtml(formatDate(summary.latestInspectionDate))}</strong></p>
+    </div>
+
+    <div class="customer-history-metrics">
+      ${historyMetric("Total Inspections", summary.totalInspections)}
+      ${historyMetric("Visual Inspections", summary.visualInspections)}
+      ${historyMetric("Load Tests", summary.loadTests)}
+      ${historyMetric("Not Safe Outcomes", summary.notSafeOutcomes, summary.notSafeOutcomes ? "danger" : "")}
+      ${historyMetric("Resolved Failures", summary.resolvedFailures, summary.resolvedFailures ? "success" : "")}
+      ${historyMetric("Unresolved Failures", summary.unresolvedFailures, summary.unresolvedFailures ? "danger" : "")}
+    </div>
+
+    <div class="customer-history-current-status">
+      <div><span>Current Visual Status</span><strong class="${statusClass(summary.currentVisualStatus)}">${escapeHtml(summary.currentVisualStatus || "NO VISUAL")}</strong></div>
+      <div><span>Current Load Test Status</span><strong class="${statusClass(summary.currentLoadStatus)}">${escapeHtml(summary.currentLoadStatus || "NO LOAD TEST")}</strong></div>
+    </div>
+
+    <section class="customer-history-timeline-section">
+      <h3>Inspection Timeline</h3>
+      <p>Newest event first. A failure is cleared only by a later safe inspection of the same type.</p>
+      <div class="customer-history-timeline">
+        ${events.map(event => `
+          <article class="customer-history-event ${event.status === "NOT SAFE" ? "is-danger" : "is-safe"}">
+            <div class="customer-history-event-marker" aria-hidden="true"></div>
+            <div class="customer-history-event-card">
+              <div class="customer-history-event-heading">
+                <div>
+                  <span>${escapeHtml(formatDate(event.testdate))}</span>
+                  <h4>${escapeHtml(historyInspectionType(event.inspectiontype))}</h4>
+                </div>
+                <strong class="${statusClass(event.status)}">${escapeHtml(event.status || "-")}</strong>
+              </div>
+              <div class="customer-history-event-meta">
+                <span>Certificate ${escapeHtml(event.testid || "-")}</span>
+                <span>Inspector: ${escapeHtml(event.inspector || "-")}</span>
+                ${event.job_number ? `<span>Job: ${escapeHtml(event.job_number)}</span>` : ""}
+              </div>
+
+              ${event.status === "NOT SAFE" ? `
+                <div class="customer-history-failures">
+                  <h5>Recorded failure reason${event.failures?.length === 1 ? "" : "s"}</h5>
+                  ${(event.failures?.length ? event.failures : [{ criteria: "Failure reason", result: "Not Safe", remarks: "Reason not recorded" }]).map(failure => `
+                    <div>
+                      <strong>${escapeHtml(failure.criteria || "Inspection criterion")}: ${escapeHtml(failure.result || "Failed")}</strong>
+                      <p>${escapeHtml(failure.remarks || "Reason not recorded")}</p>
+                    </div>
+                  `).join("")}
+                </div>
+              ` : ""}
+
+              ${event.resolvedBy ? `
+                <p class="customer-history-recovery is-resolved">
+                  Returned to safe by ${escapeHtml(historyInspectionType(event.inspectiontype))} certificate ${escapeHtml(event.resolvedBy.testid)} on ${escapeHtml(formatDate(event.resolvedBy.testdate))}${event.resolvedBy.daysToSafe === null ? "" : ` after ${escapeHtml(event.resolvedBy.daysToSafe)} day(s)`}.
+                </p>
+              ` : event.unresolved ? `
+                <p class="customer-history-recovery is-unresolved">Unresolved Not Safe Event - no later safe inspection of the same type is recorded.</p>
+              ` : event.resolvesTestIds?.length ? `
+                <p class="customer-history-recovery is-resolved">This inspection returned ${escapeHtml(event.resolvesTestIds.length)} earlier ${escapeHtml(historyInspectionType(event.inspectiontype))} failure(s) to safe.</p>
+              ` : ""}
+
+              <a class="customer-history-certificate-link" href="${API_BASE}/inspections/${encodeURIComponent(event.testid)}/certificate.pdf" download>
+                Download Certificate
+              </a>
+            </div>
+          </article>
+        `).join("") || `<p class="customer-history-empty">No inspection or load-test history is available for this asset.</p>`}
+      </div>
+    </section>
+  `
+}
+
+async function openCustomerAssetHistory(assetid) {
+  if (!assetid) return
+  closeCustomerAssetHistory()
+  const modal = document.createElement("div")
+  modal.id = "customerAssetHistoryModal"
+  modal.className = "customer-history-modal"
+  modal.innerHTML = `
+    <div class="customer-history-backdrop" onclick="closeCustomerAssetHistory()"></div>
+    <div class="customer-history-dialog" role="dialog" aria-modal="true" aria-label="Asset history review">
+      <div class="customer-history-loading">Loading asset history...</div>
+    </div>
+  `
+  document.body.appendChild(modal)
+  document.body.classList.add("modal-open")
+
+  try {
+    const response = await fetch(`${API_BASE}/customer-portal/assets/${encodeURIComponent(assetid)}/history`)
+    const history = await response.json()
+    if (!response.ok) throw new Error(history.error || "Unable to load asset history.")
+    modal.querySelector(".customer-history-dialog").innerHTML = renderCustomerAssetHistory(history)
+  } catch (error) {
+    modal.querySelector(".customer-history-dialog").innerHTML = `
+      <div class="customer-history-error">
+        <h2>Unable to load asset history</h2>
+        <p>${escapeHtml(error.message)}</p>
+        <button type="button" onclick="closeCustomerAssetHistory()">Close</button>
+      </div>
+    `
+  }
+}
+
+function closeCustomerAssetHistory() {
+  document.querySelector("#customerAssetHistoryModal")?.remove()
+  document.body.classList.remove("modal-open")
 }
 
 export async function renderCustomerPortal(currentUser = null) {
@@ -412,6 +560,8 @@ window.loadPortalAssets = loadPortalAssets
 window.customerPortalDownloadCertificate = downloadPortalCertificate
 window.openPortalAssets = openPortalAssets
 window.openPortalCertificates = openPortalCertificates
+window.openCustomerAssetHistory = openCustomerAssetHistory
+window.closeCustomerAssetHistory = closeCustomerAssetHistory
 
 window.searchPortalAssets = function () {
   portalAssetPage = 1

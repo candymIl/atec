@@ -11,6 +11,7 @@ let reportResponsiblePersons = []
 let reportEquipmentTypes = []
 
 export function renderCustomerDetailedReport(customers = [], equipmentTypes = [], sites = [], sections = [], responsiblePersons = [], options = {}) {
+  const isCustomerUser = window.currentUser?.role === "CUSTOMER"
   const isActive = item => item.archived !== true && item.archived !== 'true'
   customers = customers.filter(isActive)
   sites = sites.filter(isActive)
@@ -64,7 +65,7 @@ export function renderCustomerDetailedReport(customers = [], equipmentTypes = []
       </div>
 
       <div class="report-toolbar">
-        <div class="report-filter-control">
+        ${isCustomerUser ? "" : `<div class="report-filter-control">
           <label for="customerReportClient">Customer</label>
           <select id="customerReportClient">
               <option value="">All Customers</option>
@@ -74,7 +75,7 @@ export function renderCustomerDetailedReport(customers = [], equipmentTypes = []
                 </option>
               `).join("")}
             </select>
-          </div>
+          </div>`}
 
         <div class="report-filter-control">
           <label for="customerReportSite">Site</label>
@@ -444,6 +445,7 @@ function getCustomerReportQuery(options = {}) {
 }
 
 function renderCustomerReportPreview(report) {
+  const isCustomerUser = window.currentUser?.role === "CUSTOMER"
   const title =
     report.customers.length === 1
       ? escapeHtml(report.customers[0].clientname)
@@ -536,12 +538,12 @@ function renderCustomerReportPreview(report) {
       </div>
 
       <div class="report-table-wrap">
-        <table class="report-table">
+        <table class="report-table ${isCustomerUser ? "customer-scoped" : ""}">
           <thead>
             <tr>
-              <th>${sortHeader('Customer', 'customerReport', 'clientname', 'rerenderCustomerReport')}</th>
+              ${isCustomerUser ? "" : `<th>${sortHeader('Customer', 'customerReport', 'clientname', 'rerenderCustomerReport')}</th>`}
               <th>${sortHeader('Asset ID', 'customerReport', 'assetid', 'rerenderCustomerReport')}</th>
-              <th>${sortHeader('Asset Tag', 'customerReport', 'assettagno', 'rerenderCustomerReport')}</th>
+              ${isCustomerUser ? "" : `<th>${sortHeader('Asset Tag', 'customerReport', 'assettagno', 'rerenderCustomerReport')}</th>`}
               <th>${sortHeader('Serial No', 'customerReport', 'serialno', 'rerenderCustomerReport')}</th>
               <th>${sortHeader('Site', 'customerReport', 'sitename', 'rerenderCustomerReport')}</th>
               <th>${sortHeader('Section', 'customerReport', 'sectionname', 'rerenderCustomerReport')}</th>
@@ -559,9 +561,13 @@ function renderCustomerReportPreview(report) {
           <tbody>
             ${rows.map(row => `
               <tr>
-                <td>${escapeHtml(row.clientname || "-")}</td>
-                <td>${escapeHtml(row.assetid || "-")}</td>
-                <td>${escapeHtml(row.assettagno || "-")}</td>
+                ${isCustomerUser ? "" : `<td>${escapeHtml(row.clientname || "-")}</td>`}
+                <td>
+                  ${isCustomerUser
+                    ? `<button type="button" class="customer-asset-history-link" onclick="openCustomerAssetHistory('${escapeHtml(row.assetid)}')">${escapeHtml(row.assetid || "-")}</button>`
+                    : escapeHtml(row.assetid || "-")}
+                </td>
+                ${isCustomerUser ? "" : `<td>${escapeHtml(row.assettagno || "-")}</td>`}
                 <td>${escapeHtml(row.serialno || "-")}</td>
                 <td>${escapeHtml(row.sitename || "-")}</td>
                 <td>${escapeHtml(row.sectionname || "-")}</td>
@@ -581,7 +587,7 @@ function renderCustomerReportPreview(report) {
               </tr>
             `).join("") || `
               <tr>
-                <td colspan="15">No assets found for this report.</td>
+                <td colspan="${isCustomerUser ? 13 : 15}">No assets found for this report.</td>
               </tr>
             `}
           </tbody>

@@ -15,6 +15,10 @@ const multer = require("multer");
 const path = require("path");
 const { pathToFileURL } = require("url");
 const PDFDocument = require("pdfkit");
+const {
+  buildCustomerAssetHistory,
+  drawCustomerAssetHistoryPdf
+} = require("./services/customerAssetHistory")
 const ExcelJS = require("exceljs");
 const QRCode = require("qrcode");
 const nodemailer = require("nodemailer");
@@ -1663,9 +1667,9 @@ app.get("/customer-portal/assets", requireAuth, trackActiveUser, asyncRoute(asyn
       OR COALESCE(a.assettagno, '') ILIKE $${values.length}
       OR COALESCE(a.serialno, '') ILIKE $${values.length}
       OR COALESCE(a.description, '') ILIKE $${values.length}
-      OR COALESCE(et.description, '') ILIKE $${values.length}
-      OR COALESCE(s.sitename, '') ILIKE $${values.length}
-      OR COALESCE(sec.sectionname, '') ILIKE $${values.length}
+      OR COALESCE(a.equipmenttype, '') ILIKE $${values.length}
+      OR COALESCE(a.sitename, '') ILIKE $${values.length}
+      OR COALESCE(a.sectionname, '') ILIKE $${values.length}
     )`)
   }
 
@@ -8174,6 +8178,122 @@ const effectiveInspectionStatusSql = `
   END
 `
 
+async function getScopedCustomerAssetHistory(user, assetid) {
+  const portalScope = await resolveCustomerPortalScope(user)
+  const assetResult = await pool.query(
+    `
+    SELECT
+      a.assetid,
+      a.assettagno,
+      a.serialno,
+      a.description,
+      a.manufacturer,
+      a.wll,
+      c.clientname,
+      s.sitename,
+      sec.sectionname,
+      person.name AS responsiblename,
+      et.description AS equipmenttype
+    FROM atec.tblasset a
+    JOIN atec.tblclients c ON c.clientid = a.clientid
+    LEFT JOIN atec.tblsites s ON s.siteid = a.siteid
+    LEFT JOIN atec.tblsection sec ON sec.sectionid = a.sectionid
+    LEFT JOIN atec.tblpeople person ON person.personid = sec.responsibleid
+    LEFT JOIN atec.tblequiptype et ON et.equiptypeid = a.equiptypeid
+    WHERE a.assetid = $1
+      AND a.clientid = $2
+      AND COALESCE(a.archived, false) = false
+      AND ($3::int IS NULL OR a.siteid = $3)
+      AND ($4::int IS NULL OR a.sectionid = $4)
+      AND ($5::int IS NULL OR sec.responsibleid = $5)
+    LIMIT 1
+    `,
+    [assetid, user.clientid, portalScope.siteid, portalScope.sectionid, portalScope.responsibleid]
+  )
+
+  if (!assetResult.rows.length) return null
+
+  const inspectionResult = await pool.query(
+    `
+    SELECT
+      i.testid,
+      i.testdate,
+      i.validdate,
+      i.inspectiontype,
+      ${effectiveInspectionStatusSql} AS status,
+      COALESCE(i.inspector_name, i.inspector) AS inspector,
+      i.job_number,
+      r.resultid,
+      r.criteriaid,
+      COALESCE(c.criteriadescription, c.criterianame, 'Inspection criterion') AS criterianame,
+      r.result,
+      r.measuredvalue,
+      r.remarks
+    FROM atec.tblinspection i
+    LEFT JOIN atec.tblinspectionresult r ON r.testid = i.testid
+    LEFT JOIN atec.tblequiptypecriteria c ON c.criteriaid = r.criteriaid
+    WHERE i.assetid = $1
+      AND COALESCE(i.record_status, 'ACTIVE') = 'ACTIVE'
+    ORDER BY i.testdate, i.testid, c.sortorder NULLS LAST, r.resultid
+    `,
+    [assetid]
+  )
+
+  const inspectionMap = new Map()
+  inspectionResult.rows.forEach(row => {
+    const key = String(row.testid)
+    if (!inspectionMap.has(key)) {
+      inspectionMap.set(key, {
+        testid: row.testid,
+        testdate: row.testdate,
+        validdate: row.validdate,
+        inspectiontype: row.inspectiontype,
+        status: row.status,
+        inspector: row.inspector,
+        job_number: row.job_number,
+        results: []
+      })
+    }
+    if (row.resultid) {
+      inspectionMap.get(key).results.push({
+        resultid: row.resultid,
+        criteriaid: row.criteriaid,
+        criterianame: row.criterianame,
+        result: row.result,
+        measuredvalue: row.measuredvalue,
+        remarks: row.remarks
+      })
+    }
+  })
+
+  return buildCustomerAssetHistory(assetResult.rows[0], [...inspectionMap.values()])
+}
+
+app.get("/customer-portal/assets/:id/history", requireAuth, trackActiveUser, asyncRoute(async (req, res) => {
+  if (req.user.role !== "CUSTOMER") return res.status(403).json({ error: "Access denied" })
+  if (!req.user.clientid) return res.status(400).json({ error: "No customer is linked to this user." })
+
+  const history = await getScopedCustomerAssetHistory(req.user, req.params.id)
+  if (!history) return res.status(404).json({ error: "Asset not found in your customer scope." })
+  res.json(history)
+}))
+
+app.get("/customer-portal/assets/:id/history.pdf", requireAuth, trackActiveUser, pdfLimiter, asyncRoute(async (req, res) => {
+  if (req.user.role !== "CUSTOMER") return res.status(403).json({ error: "Access denied" })
+  if (!req.user.clientid) return res.status(400).json({ error: "No customer is linked to this user." })
+
+  const history = await getScopedCustomerAssetHistory(req.user, req.params.id)
+  if (!history) return res.status(404).json({ error: "Asset not found in your customer scope." })
+
+  const filename = `asset-history-${String(history.asset.assetid).replace(/[^a-zA-Z0-9_-]/g, "-")}.pdf`
+  res.setHeader("Content-Type", "application/pdf")
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`)
+  const doc = new PDFDocument({ size: "A4", margins: { top: 34, right: 38, bottom: 46, left: 38 }, bufferPages: true })
+  doc.pipe(res)
+  drawCustomerAssetHistoryPdf(doc, history)
+  doc.end()
+}))
+
 const certificateSearchSortColumns = {
   testid: "i.testid",
   job_number: "i.job_number",
@@ -12321,7 +12441,8 @@ function drawCustomerReportPdf(doc, report) {
   })
 }
 
-async function buildCustomerReportWorkbook(report) {
+async function buildCustomerReportWorkbook(report, options = {}) {
+  const includeCustomerColumns = options.includeCustomerColumns !== false
   const workbook = new ExcelJS.Workbook()
   workbook.creator = "ATEC"
   workbook.created = new Date()
@@ -12355,8 +12476,10 @@ async function buildCustomerReportWorkbook(report) {
 
   const assetSheet = workbook.addWorksheet("Assets")
   assetSheet.columns = [
-    { header: "Customer", key: "clientname", width: 28 },
-    { header: "Address", key: "clientaddr", width: 32 },
+    ...(includeCustomerColumns ? [
+      { header: "Customer", key: "clientname", width: 28 },
+      { header: "Address", key: "clientaddr", width: 32 }
+    ] : []),
     { header: "Site", key: "sitename", width: 22 },
     { header: "Section", key: "sectionname", width: 22 },
     { header: "Responsible Person", key: "responsiblename", width: 24 },
@@ -12427,7 +12550,7 @@ async function buildCustomerReportWorkbook(report) {
 
   assetSheet.autoFilter = {
     from: "A1",
-    to: "AE1"
+    to: `${assetSheet.getColumn(assetSheet.columnCount).letter}1`
   }
 
   return workbook
@@ -12490,7 +12613,9 @@ app.get("/reports/customer-detailed.xlsx", exportLimiter, async (req, res) => {
       })
     }
 
-    const workbook = await buildCustomerReportWorkbook(report)
+    const workbook = await buildCustomerReportWorkbook(report, {
+      includeCustomerColumns: req.user.role !== "CUSTOMER"
+    })
     const filename = reportFileName(report, "xlsx")
 
     res.setHeader(

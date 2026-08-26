@@ -75,6 +75,26 @@ assertIncludes(
   "refreshCustomerReportEquipmentTypes",
   "Equipment Type choices must narrow to the selected equipment group"
 )
+assertIncludes(
+  customerReportPage,
+  'window.currentUser?.role === "CUSTOMER"',
+  "Customer Detailed Report must detect customer logins for redundant-column removal"
+)
+assertIncludes(
+  customerReportPage,
+  'report-table ${isCustomerUser ? "customer-scoped" : ""}',
+  "Customer Detailed Report must use the compact customer table layout"
+)
+assertIncludes(
+  customerReportPage,
+  'isCustomerUser ? "" : `<th>${sortHeader(\'Asset Tag\'',
+  "Customer Detailed Report must omit Asset Tag from the on-screen customer table"
+)
+assertIncludes(
+  server,
+  'includeCustomerColumns: req.user.role !== "CUSTOMER"',
+  "Customer Excel exports must omit redundant customer columns"
+)
 
 const reportBody = sourceBetween(
   server,
