@@ -133,6 +133,25 @@ assertIncludes(
   "section_person.name AS responsiblename",
   "Responsible-person report output must expose section-derived names to JSON, PDF and XLSX"
 )
+assertIncludes(
+  reportBody,
+  "activeAssetsInScope",
+  "Customer Detailed Report must expose the active asset population independently of date and status filters"
+)
+assert(
+  reportBody.indexOf("const scopeAssetWhere = assetWhere") < reportBody.indexOf("if (responsibleid)"),
+  "The active asset population must be captured before responsible-person and equipment report filters"
+)
+assertIncludes(
+  customerReportPage,
+  "Total Active Assets in Scope",
+  "Customer Detailed Report must clearly distinguish the selected scope total from filtered report matches"
+)
+assertIncludes(
+  customerReportPage,
+  "Assets Matching Filters",
+  "Customer Detailed Report must label the date/status-filtered asset count clearly"
+)
 
 assert(
   !reportBody.includes("a.responsibleid"),

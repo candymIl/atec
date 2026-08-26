@@ -475,14 +475,14 @@ function renderCustomerReportPreview(report) {
         </div>
 
         <div class="report-count-note">
-          ${totalRows} assets in report
+          ${totalRows} assets match report filters
         </div>
       </div>
 
       <div class="report-summary-grid">
         ${summaryTile("Customers", report.summary.customers)}
-        ${summaryTile("Assets", report.summary.assets)}
-        ${summaryTile("Active Assets", report.summary.activeAssets)}
+        ${summaryTile("Total Active Assets in Scope", report.summary.activeAssetsInScope)}
+        ${summaryTile("Assets Matching Filters", report.summary.assets)}
         ${summaryTile("OK", report.summary.safeAssets, "OK")}
         ${summaryTile("Not Safe", report.summary.notSafeAssets, "NOT SAFE")}
         ${summaryTile("Incomplete", report.summary.incompleteInspectionAssets, "INCOMPLETE INSPECTION")}

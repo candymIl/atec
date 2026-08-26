@@ -31,7 +31,7 @@ assertIncludes(server, "latest_load", "Latest load-test due source must be queri
 assertIncludes(server, "validdate", "Due-date logic must use existing validdate")
 assertIncludes(server, "COALESCE(a.archived, false) = false", "Snapshot must exclude archived assets")
 assertIncludes(server, "a.clientid = $1", "Snapshot must be customer scoped")
-assertIncludes(server, "a.siteid = $2", "Snapshot must be site scoped")
+assertIncludes(server, "($2::int IS NULL OR a.siteid = $2::int)", "Snapshot must support an optional all-sites report scope")
 assertIncludes(server, "($3::int IS NULL OR a.sectionid = $3::int)", "Snapshot must support optional section filtering")
 assertIncludes(server, "ON CONFLICT (visitid, assetid, required_inspection_scope) DO NOTHING", "Duplicate worklist prevention is missing")
 
@@ -70,6 +70,9 @@ assertIncludes(frontend, "visits: ['ADMIN', 'MANAGER', 'INSPECTOR']", "Visit pag
 assertIncludes(frontend, "On-Site Visits", "Visit navigation is missing")
 assertIncludes(frontend, "showInspectionVisits", "Visit page function is missing")
 assertIncludes(frontend, "previewInspectionVisit", "Visit preview UI is missing")
+assertIncludes(frontend, ">All sites</option>", "Visit preview must offer an all-sites customer report")
+assertIncludes(frontend, "Detailed Due-Asset List", "Visit preview must show the full due-asset detail list")
+assertIncludes(frontend, "Choose one specific site before creating a visit", "Visit creation must still require one specific site")
 assertIncludes(frontend, "createInspectionVisit", "Visit creation UI is missing")
 assertIncludes(frontend, "openInspectionVisit", "Visit worklist UI is missing")
 assertIncludes(frontend, "renderVisitAssetCard", "Mobile worklist card renderer is missing")

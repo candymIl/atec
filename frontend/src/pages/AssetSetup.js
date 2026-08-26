@@ -106,6 +106,17 @@ export function renderAssetRow(asset) {
 }
 
 export function renderAssetSetup(assets, pageInfo = {}) {
+  const equipmentTypes = window.atecEquipmentTypes || []
+  const equipmentGroups = [...new Map(equipmentTypes
+    .filter(type => type.equipgroupid)
+    .map(type => [String(type.equipgroupid), type.equipmentgroup || `Group ${type.equipgroupid}`])).entries()]
+    .map(([id, name]) => ({ id, name }))
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)))
+  const selectedEquipmentGroup = String(window.assetListState?.equipgroupid || '')
+  const selectedEquipmentType = String(window.assetListState?.equiptypeid || '')
+  const filteredEquipmentTypes = equipmentTypes
+    .filter(type => !selectedEquipmentGroup || String(type.equipgroupid) === selectedEquipmentGroup)
+    .sort((a, b) => String(a.description || '').localeCompare(String(b.description || '')))
   const serverPaged = pageInfo.serverPaged === true
   const sortedAssets = serverPaged ? assets : sortTableRows(assets, 'assets', {
     assetid: asset => asset.assetid,
@@ -194,6 +205,7 @@ export function renderAssetSetup(assets, pageInfo = {}) {
             <option value="clientname">Client</option>
             <option value="sitename">Site</option>
             <option value="sectionname">Section</option>
+            <option value="equipmentgroup">Equipment Group</option>
             <option value="equipmenttype">Equipment Type</option>
             <option value="description">Description</option>
             <option value="qrcode">QR Code</option>
@@ -211,6 +223,22 @@ export function renderAssetSetup(assets, pageInfo = {}) {
             oninput="filterAssetsDebounced(true)"
           />
         </div>
+
+        <div class="form-group">
+          <label>Equipment Group</label>
+          <select id="assetEquipmentGroupFilter" onchange="filterAssetEquipmentGroup(this.value)">
+            <option value="">All equipment groups</option>
+            ${equipmentGroups.map(group => `<option value="${escapeHtml(group.id)}" ${group.id === selectedEquipmentGroup ? 'selected' : ''}>${escapeHtml(group.name)}</option>`).join('')}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Equipment List</label>
+          <select id="assetEquipmentTypeFilter" onchange="filterAssetEquipmentType(this.value)">
+            <option value="">All equipment types</option>
+            ${filteredEquipmentTypes.map(type => `<option value="${escapeHtml(type.equiptypeid)}" ${String(type.equiptypeid) === selectedEquipmentType ? 'selected' : ''}>${escapeHtml(type.description || '')}</option>`).join('')}
+          </select>
+        </div>
       </div>
 
       <div class="filter-key-row">
@@ -223,6 +251,7 @@ export function renderAssetSetup(assets, pageInfo = {}) {
           ["clientname", "Client"],
           ["sitename", "Site"],
           ["sectionname", "Section"],
+          ["equipmentgroup", "Equipment Group"],
           ["equipmenttype", "Equipment Type"],
           ["description", "Description"],
           ["qrcode", "QR Code"]

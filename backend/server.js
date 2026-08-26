@@ -1002,6 +1002,34 @@ async function getActiveVisitLocation(client, { clientid, siteid, sectionid = nu
   return result.rows[0] || null
 }
 
+async function getActiveVisitPreviewScope(client, { clientid, siteid = null, sectionid = null }) {
+  if (!clientid) return null
+
+  const result = await client.query(
+    `
+    SELECT c.clientid
+    FROM atec.tblclients c
+    LEFT JOIN atec.tblsites s
+      ON s.siteid = $2::int
+     AND s.clientid = c.clientid
+     AND COALESCE(s.archived, false) = false
+    LEFT JOIN atec.tblsection sec
+      ON sec.sectionid = $3::int
+     AND sec.clientid = c.clientid
+     AND ($2::int IS NULL OR sec.siteid = $2::int)
+     AND COALESCE(sec.archived, false) = false
+    WHERE c.clientid = $1
+      AND COALESCE(c.archived, false) = false
+      AND ($2::int IS NULL OR s.siteid IS NOT NULL)
+      AND ($3::int IS NULL OR sec.sectionid IS NOT NULL)
+    LIMIT 1
+    `,
+    [clientid, siteid || null, sectionid || null]
+  )
+
+  return result.rows[0] || null
+}
+
 function isDuplicateActiveClientSerialError(err) {
   return err?.code === "23505" &&
     (
@@ -3557,6 +3585,7 @@ const assetSearchColumns = {
   sitename: "s.sitename",
   sectionname: "sec.sectionname",
   responsiblename: "p.name",
+  equipmentgroup: "eg.groupname",
   equipmenttype: "et.description",
   description: "a.description",
   qrcode: "a.qrcode"
@@ -3569,6 +3598,8 @@ async function getPagedAssets(req, defaultSortKey = "assetid", defaultSortDirect
   const search = String(req.query.search || "").trim()
   const searchBy = String(req.query.searchBy || "all")
   const archiveMode = String(req.query.archiveMode || "active").toLowerCase()
+  const equipgroupid = String(req.query.equipgroupid || "").trim()
+  const equiptypeid = String(req.query.equiptypeid || "").trim()
   const sortKey = assetSortColumns[req.query.sortKey] ? req.query.sortKey : defaultSortKey
   const sortDirection = String(req.query.sortDir || defaultSortDirection).toLowerCase() === "asc" ? "ASC" : "DESC"
   const values = []
@@ -3587,6 +3618,16 @@ async function getPagedAssets(req, defaultSortKey = "assetid", defaultSortDirect
 
     values.push(req.user.clientid)
     where.push(`a.clientid = $${values.length}`)
+  }
+
+  if (equipgroupid) {
+    values.push(equipgroupid)
+    where.push(`et.equipgroupid = $${values.length}`)
+  }
+
+  if (equiptypeid) {
+    values.push(equiptypeid)
+    where.push(`a.equiptypeid = $${values.length}`)
   }
 
   if (search) {
@@ -3608,6 +3649,7 @@ async function getPagedAssets(req, defaultSortKey = "assetid", defaultSortDirect
         OR LOWER(COALESCE(sec.sectionname, '')) LIKE ${searchParam}
         OR LOWER(COALESCE(p.name, '')) LIKE ${searchParam}
         OR LOWER(COALESCE(et.description, '')) LIKE ${searchParam}
+        OR LOWER(COALESCE(eg.groupname, '')) LIKE ${searchParam}
       )`)
     }
   }
@@ -5759,7 +5801,7 @@ async function buildVisitWorklistRows(client, {
       LIMIT 1
     ) latest_load ON true
     WHERE a.clientid = $1
-      AND a.siteid = $2
+      AND ($2::int IS NULL OR a.siteid = $2::int)
       AND ($3::int IS NULL OR a.sectionid = $3::int)
       AND COALESCE(a.archived, false) = false
       AND COALESCE(c.archived, false) = false
@@ -5860,14 +5902,14 @@ app.post("/inspection-visits/preview", asyncRoute(async (req, res) => {
     return res.status(403).json({ error: "Access denied" })
   }
 
-  const location = await getActiveVisitLocation(pool, {
+  const location = await getActiveVisitPreviewScope(pool, {
     clientid: req.body.clientid,
     siteid: req.body.siteid,
     sectionid: req.body.sectionid
   })
 
   if (!location) {
-    return res.status(400).json({ error: "Select an active customer and site for this visit." })
+    return res.status(400).json({ error: "Select an active customer. Site and section may remain on All for the report." })
   }
 
   const rows = await buildVisitWorklistRows(pool, {
@@ -5898,7 +5940,7 @@ app.post("/inspection-visits/preview", asyncRoute(async (req, res) => {
     equipment_type_summary: summarizeVisitWorklistByEquipmentType(rows),
     coverage_summary: coverageSummary,
     coverage_by_equipment_type: coverageByEquipmentType,
-    assets: rows.slice(0, 100)
+    assets: rows
   })
 }))
 
@@ -11944,6 +11986,12 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
     assetWhere += ` AND a.sectionid = $${values.length}`
   }
 
+  // The population total represents only the selected customer/location scope.
+  // Report-specific responsible person, equipment, date and status filters must
+  // not change the registered active-asset population displayed to the user.
+  const scopeValues = [...values]
+  const scopeAssetWhere = assetWhere
+
   if (responsibleid) {
     customerValues.push(responsibleid)
     customerWhere += ` AND EXISTS (
@@ -12035,6 +12083,20 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
     `,
     customerValues
   )
+
+  const scopeAssetCountResult = await pool.query(
+    `
+    SELECT COUNT(DISTINCT a.assetid)::int AS active_assets_in_scope
+    FROM atec.tblasset a
+    LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
+    LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
+    LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
+    LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
+    ${scopeAssetWhere}
+    `,
+    scopeValues
+  )
+  const activeAssetsInScope = Number(scopeAssetCountResult.rows[0]?.active_assets_in_scope || 0)
 
   const unfilteredAssetBaseSql = `
     WITH latest_visual AS (
@@ -12269,6 +12331,7 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
     assets,
     summary: {
       customers: customerResult.rows.length,
+      activeAssetsInScope,
       assets: paged ? totalAssets : assets.length,
       activeAssets: paged ? summary.active_assets || 0 : activeAssets.length,
       archivedAssets: paged ? summary.archived_assets || 0 : assets.length - activeAssets.length,
@@ -12329,8 +12392,8 @@ function drawCustomerReportPdf(doc, report) {
 
   const summaryItems = [
     ["Customers", report.summary.customers],
-    ["Assets", report.summary.assets],
-    ["Active", report.summary.activeAssets],
+    ["Active Assets in Scope", report.summary.activeAssetsInScope],
+    ["Matching Filters", report.summary.assets],
     ["OK", report.summary.safeAssets],
     ["Not Safe", report.summary.notSafeAssets],
     ["Incomplete", report.summary.incompleteInspectionAssets],
@@ -12455,8 +12518,8 @@ async function buildCustomerReportWorkbook(report, options = {}) {
 
   summarySheet.addRow(["Generated", reportDate(report.generatedAt)])
   summarySheet.addRow(["Customers", report.summary.customers])
-  summarySheet.addRow(["Assets", report.summary.assets])
-  summarySheet.addRow(["Active Assets", report.summary.activeAssets])
+  summarySheet.addRow(["Total Active Assets in Scope", report.summary.activeAssetsInScope])
+  summarySheet.addRow(["Assets Matching Report Filters", report.summary.assets])
   summarySheet.addRow(["Archived Assets", report.summary.archivedAssets])
   summarySheet.addRow(["OK Assets", report.summary.safeAssets])
   summarySheet.addRow(["Not Safe Assets", report.summary.notSafeAssets])

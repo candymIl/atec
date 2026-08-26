@@ -1545,6 +1545,7 @@ async function loadData() {
     responsiblePersons = reportOptions.responsiblePersons || []
     sections = reportOptions.sections || []
     equipmentTypes = reportOptions.equipmentTypes || []
+    window.atecEquipmentTypes = equipmentTypes
     dashboardStats = {}
     criteria = []
     window.atecCriteria = []
@@ -1574,6 +1575,7 @@ async function loadData() {
     responsiblePersons = responsiblePersonsData
     sections = sectionsData
     equipmentTypes = equipmentTypesData
+    window.atecEquipmentTypes = equipmentTypes
     dashboardStats = dashboardStatsData
     criteria = criteriaData
     window.atecCriteria = criteria
@@ -3892,7 +3894,7 @@ window.showInspectionVisits = async function () {
           <div class="form-group">
             <label>Site</label>
             <select id="visitSiteId" onchange="renderVisitSectionOptions()">
-              <option value="">Select site</option>
+              <option value="">All sites</option>
             </select>
           </div>
           <div class="form-group">
@@ -3944,7 +3946,7 @@ window.renderVisitSiteOptions = function () {
       isActiveRecord(site)
     )
     .sort((a, b) => (a.sitename || '').localeCompare(b.sitename || ''))
-  siteSelect.innerHTML = `<option value="">Select site</option>` + matchingSites
+  siteSelect.innerHTML = `<option value="">All sites</option>` + matchingSites
     .map(site => `<option value="${safeAttr(site.siteid)}">${escapeHtml(site.sitename || '')}</option>`)
     .join('')
   renderVisitSectionOptions()
@@ -3958,7 +3960,7 @@ window.renderVisitSectionOptions = function () {
 
   const matchingSections = sections.filter(section =>
     String(section.clientid) === String(clientid) &&
-    String(section.siteid) === String(siteid) &&
+    (!siteid || String(section.siteid) === String(siteid)) &&
     isActiveRecord(section)
   )
     .sort((a, b) => (a.sectionname || '').localeCompare(b.sectionname || ''))
@@ -4061,6 +4063,16 @@ window.previewInspectionVisit = async function () {
         </tbody>
       </table>
     </div>
+    <h4>${isSurvey ? 'Asset List' : 'Detailed Due-Asset List'}</h4>
+    <p>${escapeHtml((result.assets || []).length)} asset(s) shown across the selected customer, sites and sections.</p>
+    <div class="visit-progress-table-wrap">
+      <table class="visit-progress-table visit-preview-table visit-due-asset-table">
+        <thead><tr><th>Asset ID</th><th>Serial No</th><th>Site</th><th>Section</th><th>Equipment Type</th><th>Visual Due</th><th>Load Test Due</th><th>Required Work</th><th>Reason</th></tr></thead>
+        <tbody>
+          ${(result.assets || []).map(row => `<tr><td>${escapeHtml(row.assetid)}</td><td>${escapeHtml(row.serialno || '-')}</td><td>${escapeHtml(row.sitename || '-')}</td><td>${escapeHtml(row.sectionname || '-')}</td><td>${escapeHtml(row.equipmenttype || '-')}</td><td>${escapeHtml(row.visual_due_date || 'Never inspected')}</td><td>${escapeHtml(row.load_due_date || (row.supports_load_test ? 'Never load tested' : 'Not required'))}</td><td>${escapeHtml(row.required_inspection_scope || '-')}</td><td>${escapeHtml(row.due_reason || '-')}</td></tr>`).join('') || '<tr><td colspan="9">No assets match this selection and cutoff date.</td></tr>'}
+        </tbody>
+      </table>
+    </div>
   `
 }
 
@@ -4107,7 +4119,11 @@ window.exportVisitPreviewTables = function () {
       row.loadtest_due,
       row.both_due,
       row.overdue
-    ])
+    ]),
+    [],
+    ['Detailed Due-Asset List'],
+    ['Asset ID', 'Serial No', 'Site', 'Section', 'Equipment Type', 'Visual Due', 'Load Test Due', 'Required Work', 'Reason'],
+    ...(result.assets || []).map(row => [row.assetid, row.serialno, row.sitename, row.sectionname, row.equipmenttype, row.visual_due_date || 'Never inspected', row.load_due_date || (row.supports_load_test ? 'Never load tested' : 'Not required'), row.required_inspection_scope, row.due_reason])
   )
 
   const csv = '\uFEFF' + lines.map(row => row.map(csvCell).join(',')).join('\r\n')
@@ -4133,6 +4149,7 @@ window.printVisitPreviewTables = function () {
   const dueRows = (result.equipment_type_summary || []).map(row => `
     <tr><th>${escapeHtml(row.equipment_type)}</th><td>${escapeHtml(row.total)}</td><td>${escapeHtml(row.visual_due)}</td><td>${escapeHtml(row.loadtest_due)}</td><td>${escapeHtml(row.both_due)}</td><td>${escapeHtml(row.overdue)}</td></tr>
   `).join('')
+  const assetRows = (result.assets || []).map(row => `<tr><td>${escapeHtml(row.assetid)}</td><td>${escapeHtml(row.serialno || '-')}</td><td>${escapeHtml(row.sitename || '-')}</td><td>${escapeHtml(row.sectionname || '-')}</td><td>${escapeHtml(row.equipmenttype || '-')}</td><td>${escapeHtml(row.required_inspection_scope || '-')}</td><td>${escapeHtml(row.due_reason || '-')}</td></tr>`).join('')
   const win = window.open('', '_blank')
   win.document.write(`
     <style>
@@ -4155,6 +4172,8 @@ window.printVisitPreviewTables = function () {
     `}
     <h2>${isSurvey ? 'Assets Included in Survey' : 'Work Due for This Visit'}</h2>
     <table><thead><tr><th>Equipment Type</th><th>Assets Included</th><th>Visual Due</th><th>Load Tests Due</th><th>Both Due</th><th>Overdue</th></tr></thead><tbody>${dueRows || '<tr><td colspan="6">No assets match this selection.</td></tr>'}</tbody></table>
+    <h2>Detailed Due-Asset List</h2>
+    <table><thead><tr><th>Asset ID</th><th>Serial No</th><th>Site</th><th>Section</th><th>Equipment Type</th><th>Required Work</th><th>Reason</th></tr></thead><tbody>${assetRows || '<tr><td colspan="7">No assets match this selection.</td></tr>'}</tbody></table>
   `)
   win.document.close()
   win.focus()
@@ -4162,6 +4181,10 @@ window.printVisitPreviewTables = function () {
 }
 
 window.createInspectionVisit = async function () {
+  if (!document.querySelector('#visitSiteId')?.value) {
+    alert('Choose one specific site before creating a visit. Use All sites for previewing, printing or exporting the customer-wide due report.')
+    return
+  }
   const response = await fetch(`${API_BASE}/inspection-visits`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -5060,6 +5083,9 @@ async function loadAssetSetupPage() {
     archiveMode: state.archiveMode || "active"
   })
 
+  params.set("equipgroupid", state.equipgroupid || "")
+  params.set("equiptypeid", state.equiptypeid || "")
+
   const data = await fetchJsonOrDefault(`${API_BASE}/assets?${params.toString()}`, {
     rows: [],
     total: 0,
@@ -5111,13 +5137,17 @@ function rememberAssetListState() {
   const searchTypeInput = document.querySelector('#assetSearchType')
   const searchInput = document.querySelector('#assetSearch')
   const rowsInput = document.querySelector('#assetRowsPerPage')
+  const equipmentGroupInput = document.querySelector('#assetEquipmentGroupFilter')
+  const equipmentTypeInput = document.querySelector('#assetEquipmentTypeFilter')
 
   window.assetListState = {
     searchType: searchTypeInput ? searchTypeInput.value : window.assetListState?.searchType || "all",
     search: searchInput ? searchInput.value : window.assetListState?.search || "",
     currentPage: window.assetCurrentPage || window.assetListState?.currentPage || 1,
     rowsPerPage: Number(rowsInput?.value || window.assetRowsPerPage || window.assetListState?.rowsPerPage || 25),
-    archiveMode: window.assetListState?.archiveMode || "active"
+    archiveMode: window.assetListState?.archiveMode || "active",
+    equipgroupid: equipmentGroupInput ? equipmentGroupInput.value : window.assetListState?.equipgroupid || "",
+    equiptypeid: equipmentTypeInput ? equipmentTypeInput.value : window.assetListState?.equiptypeid || ""
   }
 }
 
@@ -5126,6 +5156,8 @@ function restoreAssetListState() {
   const searchTypeInput = document.querySelector('#assetSearchType')
   const searchInput = document.querySelector('#assetSearch')
   const rowsInput = document.querySelector('#assetRowsPerPage')
+  const equipmentGroupInput = document.querySelector('#assetEquipmentGroupFilter')
+  const equipmentTypeInput = document.querySelector('#assetEquipmentTypeFilter')
 
   window.assetRowsPerPage = Number(state.rowsPerPage || window.assetRowsPerPage || 25)
   window.assetCurrentPage = Number(state.currentPage || window.assetCurrentPage || 1)
@@ -5133,6 +5165,38 @@ function restoreAssetListState() {
   if (searchTypeInput) searchTypeInput.value = state.searchType || "all"
   if (searchInput) searchInput.value = state.search || ""
   if (rowsInput) rowsInput.value = String(window.assetRowsPerPage)
+  if (equipmentGroupInput) equipmentGroupInput.value = state.equipgroupid || ""
+  if (equipmentTypeInput) equipmentTypeInput.value = state.equiptypeid || ""
+}
+
+window.filterAssetEquipmentGroup = function (groupid) {
+  const equipmentTypeInput = document.querySelector('#assetEquipmentTypeFilter')
+  const availableTypes = (equipmentTypes || [])
+    .filter(type => !groupid || String(type.equipgroupid) === String(groupid))
+    .sort((a, b) => String(a.description || '').localeCompare(String(b.description || '')))
+
+  if (equipmentTypeInput) {
+    equipmentTypeInput.innerHTML = `<option value="">All equipment types</option>` + availableTypes
+      .map(type => `<option value="${safeAttr(type.equiptypeid)}">${escapeHtml(type.description || '')}</option>`)
+      .join('')
+  }
+
+  window.assetListState = {
+    ...(window.assetListState || {}),
+    equipgroupid: groupid || '',
+    equiptypeid: ''
+  }
+  window.assetCurrentPage = 1
+  filterAssets()
+}
+
+window.filterAssetEquipmentType = function (equiptypeid) {
+  window.assetListState = {
+    ...(window.assetListState || {}),
+    equiptypeid: equiptypeid || ''
+  }
+  window.assetCurrentPage = 1
+  filterAssets()
 }
 
 function renderAssetPaginationControls(totalRows, startIndex, endIndex, currentPage, totalPages, pageSize) {
