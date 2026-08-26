@@ -1539,11 +1539,12 @@ async function loadData() {
   assets = []
 
   if (currentUser.role === 'CUSTOMER') {
-    customers = []
-    sites = []
-    responsiblePersons = []
-    sections = []
-    equipmentTypes = []
+    const reportOptions = await fetchJsonOrDefault(`${API_BASE}/customer-portal/report-options`, {})
+    customers = reportOptions.customers || []
+    sites = reportOptions.sites || []
+    responsiblePersons = reportOptions.responsiblePersons || []
+    sections = reportOptions.sections || []
+    equipmentTypes = reportOptions.equipmentTypes || []
     dashboardStats = {}
     criteria = []
     window.atecCriteria = []

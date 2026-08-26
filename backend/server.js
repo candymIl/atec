@@ -1503,6 +1503,111 @@ app.get("/customer-portal/summary", requireAuth, trackActiveUser, asyncRoute(asy
   })
 }))
 
+app.get("/customer-portal/report-options", requireAuth, trackActiveUser, asyncRoute(async (req, res) => {
+  if (req.user.role !== "CUSTOMER") {
+    return res.status(403).json({ error: "Access denied" })
+  }
+
+  const effectiveClientId = req.user.clientid
+  if (!effectiveClientId) {
+    return res.status(400).json({ error: "No customer is linked to this user." })
+  }
+
+  const portalScope = await resolveCustomerPortalScope(req.user)
+  const values = [effectiveClientId]
+  const filters = ["a.clientid = $1", "COALESCE(a.archived, false) = false"]
+
+  if (portalScope.responsibleid) {
+    values.push(portalScope.responsibleid)
+    filters.push(`sec.responsibleid = $${values.length}`)
+  }
+
+  if (portalScope.siteid) {
+    values.push(portalScope.siteid)
+    filters.push(`a.siteid = $${values.length}`)
+  }
+
+  if (portalScope.sectionid) {
+    values.push(portalScope.sectionid)
+    filters.push(`a.sectionid = $${values.length}`)
+  }
+
+  const [customerResult, optionResult] = await Promise.all([
+    pool.query(
+      `
+      SELECT clientid, clientname, clientaddr, archived
+      FROM atec.tblclients
+      WHERE clientid = $1
+        AND COALESCE(archived, false) = false
+      LIMIT 1
+      `,
+      [effectiveClientId]
+    ),
+    pool.query(
+      `
+      SELECT DISTINCT
+        s.siteid,
+        s.sitename,
+        s.clientid AS siteclientid,
+        sec.sectionid,
+        sec.sectionname,
+        sec.siteid AS sectionsiteid,
+        sec.clientid AS sectionclientid,
+        sec.responsibleid,
+        person.name AS responsiblename,
+        person.clientid AS responsibleclientid,
+        et.equiptypeid,
+        et.description AS equipmenttype,
+        et.equipgroupid,
+        eg.groupname AS equipmentgroup
+      FROM atec.tblasset a
+      LEFT JOIN atec.tblsites s ON s.siteid = a.siteid
+      LEFT JOIN atec.tblsection sec ON sec.sectionid = a.sectionid
+      LEFT JOIN atec.tblpeople person ON person.personid = sec.responsibleid
+      LEFT JOIN atec.tblequiptype et ON et.equiptypeid = a.equiptypeid
+      LEFT JOIN atec.tblequipgroup eg ON eg.equipgroupid = et.equipgroupid
+      WHERE ${filters.join(" AND ")}
+        AND COALESCE(s.archived, false) = false
+        AND COALESCE(sec.archived, false) = false
+      `,
+      values
+    )
+  ])
+
+  const uniqueRows = (rows, idKey) => [...new Map(
+    rows.filter(row => row[idKey] !== null && row[idKey] !== undefined)
+      .map(row => [String(row[idKey]), row])
+  ).values()]
+  const rows = optionResult.rows
+
+  res.json({
+    customers: customerResult.rows,
+    sites: uniqueRows(rows.map(row => ({
+      siteid: row.siteid,
+      sitename: row.sitename,
+      clientid: row.siteclientid
+    })), "siteid"),
+    sections: uniqueRows(rows.map(row => ({
+      sectionid: row.sectionid,
+      sectionname: row.sectionname,
+      siteid: row.sectionsiteid,
+      clientid: row.sectionclientid,
+      responsibleid: row.responsibleid
+    })), "sectionid"),
+    responsiblePersons: uniqueRows(rows.map(row => ({
+      personid: row.responsibleid,
+      name: row.responsiblename,
+      clientid: row.responsibleclientid
+    })), "personid"),
+    equipmentTypes: uniqueRows(rows.map(row => ({
+      equiptypeid: row.equiptypeid,
+      description: row.equipmenttype,
+      equipgroupid: row.equipgroupid,
+      equipmentgroup: row.equipmentgroup
+    })), "equiptypeid")
+  })
+}))
+
 app.get("/customer-portal/assets", requireAuth, trackActiveUser, asyncRoute(async (req, res) => {
   if (req.user.role !== "CUSTOMER") {
     return res.status(403).json({ error: "Access denied" })
