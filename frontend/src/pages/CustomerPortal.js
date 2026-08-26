@@ -322,7 +322,7 @@ export async function renderCustomerPortal(currentUser = null) {
         ${portalMetric("Active Assets", assets.active_assets, "", "openPortalAssets()")}
         ${portalMetric("Sites", assets.active_sites, "", "openPortalAssets()")}
         ${portalMetric("Certificates", certificates.total_certificates, "", "openPortalCertificates()")}
-        ${portalMetric("Not Safe Assets", assets.not_safe_assets, numberValue(assets.not_safe_assets) ? "danger" : "", "openPortalAssets('NOT SAFE')")}
+        ${portalMetric("Current Not Safe Assets", assets.not_safe_assets, numberValue(assets.not_safe_assets) ? "danger" : "", "openPortalAssets('NOT SAFE')")}
         ${portalMetric("Visual Overdue", assets.visual_overdue_assets, numberValue(assets.visual_overdue_assets) ? "warning" : "", "openPortalAssets('VISUAL OVERDUE')")}
         ${portalMetric("Load Test Overdue", assets.loadtest_overdue_assets, numberValue(assets.loadtest_overdue_assets) ? "warning" : "", "openPortalAssets('LOAD TEST OVERDUE')")}
         ${portalMetric("Expiring Soon", certificates.expiring_soon_certificates, numberValue(certificates.expiring_soon_certificates) ? "warning" : "", "openPortalCertificates()")}
@@ -331,11 +331,12 @@ export async function renderCustomerPortal(currentUser = null) {
 
       <div class="customer-portal-panels">
         <section class="filter-card">
-          <h3>Certificate Status</h3>
+          <h3>Certificate Records (Inspection History)</h3>
+          <p class="portal-section-note">Each inspection certificate is counted. One asset can have multiple certificate records.</p>
           <div class="portal-mini-grid">
-            ${portalMetric("Safe", certificates.safe_certificates, "", "openPortalCertificates('SAFE')")}
-            ${portalMetric("Not Safe", certificates.not_safe_certificates, numberValue(certificates.not_safe_certificates) ? "danger" : "", "openPortalCertificates('NOT SAFE')")}
-            ${portalMetric("Expired", certificates.expired_certificates, numberValue(certificates.expired_certificates) ? "warning" : "", "openPortalCertificates()")}
+            ${portalMetric("Safe Certificates", certificates.safe_certificates, "", "openPortalCertificates('SAFE')")}
+            ${portalMetric("Not Safe Certificates", certificates.not_safe_certificates, numberValue(certificates.not_safe_certificates) ? "danger" : "", "openPortalCertificates('NOT SAFE')")}
+            ${portalMetric("Expired Certificates", certificates.expired_certificates, numberValue(certificates.expired_certificates) ? "warning" : "", "openPortalCertificates()")}
           </div>
         </section>
 

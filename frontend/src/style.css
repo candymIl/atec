@@ -2009,6 +2009,13 @@ tr:hover {
   margin-bottom: 10px;
 }
 
+.portal-section-note {
+  color: #52606d;
+  font-size: 12px;
+  line-height: 1.4;
+  margin: -4px 0 12px;
+}
+
 .portal-asset-table td span {
   color: #52606d;
   display: block;
