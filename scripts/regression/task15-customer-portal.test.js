@@ -28,6 +28,8 @@ assertIncludes(server, "WHERE a.clientid = $1", "Certificate summary must be sco
 assertIncludes(server, "WHERE v.clientid = $1", "Visit summary must be scoped by customer visit ownership")
 assertIncludes(server, "COALESCE(a.archived, false) = false", "Customer portal assets must exclude archived assets")
 assertIncludes(server, "asset_status = $", "Customer portal assets must support status filtering")
+assertIncludes(server, "portalAssetSortColumns", "Customer portal assets must use an allowlisted server-side sort")
+assertIncludes(server, "ORDER BY ${sortColumn} ${sortDirection} NULLS LAST", "Customer portal asset sorting must be applied before pagination")
 assertIncludes(server, "recentCertificates", "Portal summary must expose recent certificates")
 assertIncludes(server, 'const effectiveUsername = role === "CUSTOMER" ? trimmedEmail : trimmedUsername', "Customer portal usernames must be derived from email on create")
 assertIncludes(server, "username = CASE WHEN $4 = 'CUSTOMER' THEN $1 ELSE username END", "Customer portal usernames must follow email on save")
@@ -68,6 +70,9 @@ assertIncludes(portal, "Recent Certificates", "Portal must show recent certifica
 assertIncludes(portal, "Visit Outstanding", "Portal must show visit context")
 assertIncludes(portal, "portalAssetSearch", "Portal asset search control is missing")
 assertIncludes(portal, "portalAssetStatus", "Portal asset status filter is missing")
+assertIncludes(portal, "portalAssetSortHeader", "Portal asset table headings must expose sorting controls")
+assertIncludes(portal, "sortPortalAssets", "Portal asset heading sorting action is missing")
+assertIncludes(portal, 'params.set("sortBy", portalAssetSortBy)', "Portal asset sorting must be sent to the server")
 assertIncludes(portal, "visual_testid", "Portal assets must link visual certificates")
 assertIncludes(portal, "loadtest_testid", "Portal assets must link load-test certificates")
 

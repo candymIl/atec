@@ -3,6 +3,8 @@ import { escapeHtml } from '../utils/security.js'
 
 let portalAssetPage = 1
 let portalAssetPageSize = 25
+let portalAssetSortBy = "asset"
+let portalAssetSortDirection = "asc"
 
 function numberValue(value) {
   return Number(value || 0)
@@ -111,6 +113,24 @@ function certificateLink(testid, label = "PDF") {
   `
 }
 
+function portalAssetSortHeader(label, key) {
+  const isActive = portalAssetSortBy === key
+  const directionClass = isActive ? portalAssetSortDirection : ""
+
+  return `
+    <span class="user-table-heading">
+      <span>${escapeHtml(label)}</span>
+      <button
+        type="button"
+        class="user-sort-btn ${isActive ? `active ${directionClass}` : ""}"
+        onclick="sortPortalAssets('${key}')"
+        aria-label="Sort ${escapeHtml(label)} ${isActive && portalAssetSortDirection === "asc" ? "descending" : "ascending"}"
+        title="Sort ${escapeHtml(label)}"
+      ></button>
+    </span>
+  `
+}
+
 async function downloadPortalCertificate(button, testid) {
   if (!testid || button?.disabled) return
 
@@ -163,13 +183,13 @@ function renderPortalAssetsTable(rows = []) {
     <table class="portal-asset-table">
       <thead>
         <tr>
-          <th>Asset</th>
-          <th>Site</th>
-          <th>Section</th>
-          <th>Equipment</th>
-          <th>Last Visual</th>
-          <th>Last Load Test</th>
-          <th>Status</th>
+          <th>${portalAssetSortHeader("Asset", "asset")}</th>
+          <th>${portalAssetSortHeader("Site", "site")}</th>
+          <th>${portalAssetSortHeader("Section", "section")}</th>
+          <th>${portalAssetSortHeader("Equipment", "equipment")}</th>
+          <th>${portalAssetSortHeader("Last Visual", "last_visual")}</th>
+          <th>${portalAssetSortHeader("Last Load Test", "last_load_test")}</th>
+          <th>${portalAssetSortHeader("Status", "status")}</th>
         </tr>
       </thead>
       <tbody>
@@ -214,6 +234,8 @@ function assetQuery() {
   if (status) params.set("status", status)
   params.set("page", String(portalAssetPage))
   params.set("limit", String(portalAssetPageSize))
+  params.set("sortBy", portalAssetSortBy)
+  params.set("sortDirection", portalAssetSortDirection)
 
   return params.toString()
 }
@@ -402,5 +424,15 @@ window.portalAssetPreviousPage = function () {
 
 window.portalAssetNextPage = function () {
   portalAssetPage += 1
+  loadPortalAssets()
+}
+
+window.sortPortalAssets = function (key) {
+  const validKeys = ["asset", "site", "section", "equipment", "last_visual", "last_load_test", "status"]
+  if (!validKeys.includes(key)) return
+
+  portalAssetSortDirection = portalAssetSortBy === key && portalAssetSortDirection === "asc" ? "desc" : "asc"
+  portalAssetSortBy = key
+  portalAssetPage = 1
   loadPortalAssets()
 }

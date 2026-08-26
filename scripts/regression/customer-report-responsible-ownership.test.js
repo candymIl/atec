@@ -50,6 +50,32 @@ const ownershipRepairRollback = read(
 )
 const packageJson = JSON.parse(read("package.json"))
 
+assertIncludes(
+  server,
+  "equipgroupid: query.equipgroupid",
+  "Customer Detailed Report filters must accept an equipment group"
+)
+assertIncludes(
+  server,
+  "assetWhere += ` AND et.equipgroupid = $${values.length}`",
+  "Customer Detailed Report must apply equipment-group filtering in the shared report query"
+)
+assertIncludes(
+  customerReportPage,
+  'id="customerReportEquipmentGroup"',
+  "Customer Detailed Report must expose an equipment-group selection"
+)
+assertIncludes(
+  customerReportPage,
+  'params.append("equipgroupid", equipgroupid)',
+  "Customer Detailed Report preview and exports must include the equipment-group filter"
+)
+assertIncludes(
+  customerReportPage,
+  "refreshCustomerReportEquipmentTypes",
+  "Equipment Type choices must narrow to the selected equipment group"
+)
+
 const reportBody = sourceBetween(
   server,
   "async function getCustomerDetailedReport",

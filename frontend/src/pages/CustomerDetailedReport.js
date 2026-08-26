@@ -8,6 +8,7 @@ let currentReportPageSize = 25
 let reportSites = []
 let reportSections = []
 let reportResponsiblePersons = []
+let reportEquipmentTypes = []
 
 export function renderCustomerDetailedReport(customers = [], equipmentTypes = [], sites = [], sections = [], responsiblePersons = [], options = {}) {
   const isActive = item => item.archived !== true && item.archived !== 'true'
@@ -18,6 +19,7 @@ export function renderCustomerDetailedReport(customers = [], equipmentTypes = []
   reportSites = sites
   reportSections = sections
   reportResponsiblePersons = responsiblePersons
+  reportEquipmentTypes = equipmentTypes
   const sortedCustomers = [...customers].sort((a, b) =>
     (a.clientname || "").localeCompare(b.clientname || "")
   )
@@ -43,6 +45,14 @@ export function renderCustomerDetailedReport(customers = [], equipmentTypes = []
   const sortedEquipmentTypes = [...equipmentTypes].sort((a, b) =>
     (a.description || "").localeCompare(b.description || "")
   )
+  const equipmentGroups = [...new Map(
+    sortedEquipmentTypes
+      .filter(type => type.equipgroupid !== null && type.equipgroupid !== undefined && type.equipgroupid !== "")
+      .map(type => [String(type.equipgroupid), {
+        equipgroupid: type.equipgroupid,
+        groupname: type.equipmentgroup || `Group ${type.equipgroupid}`
+      }])
+  ).values()].sort((a, b) => String(a.groupname).localeCompare(String(b.groupname)))
 
   document.querySelector("#page").innerHTML = `
     <div class="report-page">
@@ -97,6 +107,18 @@ export function renderCustomerDetailedReport(customers = [], equipmentTypes = []
             ${sortedResponsiblePersons.map(person => `
               <option value="${safeAttr(person.personid)}">
                 ${escapeHtml(person.name || `Person ${person.personid}`)}
+              </option>
+            `).join("")}
+          </select>
+        </div>
+
+        <div class="report-filter-control">
+          <label for="customerReportEquipmentGroup">Equipment Group</label>
+          <select id="customerReportEquipmentGroup">
+            <option value="">All Equipment Groups</option>
+            ${equipmentGroups.map(group => `
+              <option value="${safeAttr(group.equipgroupid)}">
+                ${escapeHtml(group.groupname)}
               </option>
             `).join("")}
           </select>
@@ -206,6 +228,11 @@ function bindCustomerReportEvents() {
     customerReportFilterChanged()
   })
 
+  document.querySelector("#customerReportEquipmentGroup")?.addEventListener("change", () => {
+    refreshCustomerReportEquipmentTypes({ resetEquipment: true })
+    customerReportFilterChanged()
+  })
+
   document
     .querySelectorAll("#customerReportResponsible, #customerReportEquipment, #customerReportDateFrom, #customerReportDateTo, #customerReportStatus")
     .forEach(input => {
@@ -235,6 +262,7 @@ function applyCustomerReportOptions(options = {}) {
 
   const optionValues = {
     customerReportResponsible: options.responsibleid,
+    customerReportEquipmentGroup: options.equipgroupid,
     customerReportEquipment: options.equiptypeid,
     customerReportDateFrom: options.datefrom,
     customerReportDateTo: options.dateto,
@@ -246,6 +274,8 @@ function applyCustomerReportOptions(options = {}) {
     const input = document.querySelector(`#${id}`)
     if (input) input.value = String(value)
   })
+
+  refreshCustomerReportEquipmentTypes()
 }
 
 function customerReportFilterChanged() {
@@ -317,6 +347,23 @@ function reportFilterOptions(rows, valueKey, labelKey, allLabel) {
   `
 }
 
+function refreshCustomerReportEquipmentTypes(options = {}) {
+  const groupSelect = document.querySelector("#customerReportEquipmentGroup")
+  const equipmentSelect = document.querySelector("#customerReportEquipment")
+  if (!groupSelect || !equipmentSelect) return
+
+  const equipgroupid = groupSelect.value
+  const previousEquipment = options.resetEquipment ? "" : equipmentSelect.value
+  const filteredTypes = equipgroupid
+    ? reportEquipmentTypes.filter(type => String(type.equipgroupid) === String(equipgroupid))
+    : reportEquipmentTypes
+
+  equipmentSelect.innerHTML = reportFilterOptions(filteredTypes, "equiptypeid", "description", "All Equipment Types")
+  if (filteredTypes.some(type => String(type.equiptypeid) === String(previousEquipment))) {
+    equipmentSelect.value = previousEquipment
+  }
+}
+
 function updateCustomerReportLinks() {
   const query = getCustomerReportQuery()
 
@@ -368,6 +415,7 @@ function getCustomerReportQuery(options = {}) {
   const siteid = document.querySelector("#customerReportSite")?.value || ""
   const sectionid = document.querySelector("#customerReportSection")?.value || ""
   const responsibleid = document.querySelector("#customerReportResponsible")?.value || ""
+  const equipgroupid = document.querySelector("#customerReportEquipmentGroup")?.value || ""
   const equiptypeid = document.querySelector("#customerReportEquipment")?.value || ""
   const datefrom = document.querySelector("#customerReportDateFrom")?.value || ""
   const dateto = document.querySelector("#customerReportDateTo")?.value || ""
@@ -377,6 +425,7 @@ function getCustomerReportQuery(options = {}) {
   if (siteid) params.append("siteid", siteid)
   if (sectionid) params.append("sectionid", sectionid)
   if (responsibleid) params.append("responsibleid", responsibleid)
+  if (equipgroupid) params.append("equipgroupid", equipgroupid)
   if (equiptypeid) params.append("equiptypeid", equiptypeid)
   if (datefrom) params.append("datefrom", datefrom)
   if (dateto) params.append("dateto", dateto)

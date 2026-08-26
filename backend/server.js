@@ -1520,6 +1520,18 @@ app.get("/customer-portal/assets", requireAuth, trackActiveUser, asyncRoute(asyn
   const siteid = String(req.query.siteid || "").trim()
   const sectionid = String(req.query.sectionid || "").trim()
   const status = String(req.query.status || "").trim().toUpperCase()
+  const requestedSortBy = String(req.query.sortBy || "asset").trim().toLowerCase()
+  const sortDirection = String(req.query.sortDirection || "asc").trim().toLowerCase() === "desc" ? "DESC" : "ASC"
+  const portalAssetSortColumns = {
+    asset: "assettagno",
+    site: "sitename",
+    section: "sectionname",
+    equipment: "equipmenttype",
+    last_visual: "visual_testdate",
+    last_load_test: "loadtest_testdate",
+    status: "asset_status"
+  }
+  const sortColumn = portalAssetSortColumns[requestedSortBy] || portalAssetSortColumns.asset
   const values = [effectiveClientId]
   const filters = ["a.clientid = $1", "COALESCE(a.archived, false) = false"]
   const portalScope = await resolveCustomerPortalScope(req.user)
@@ -1650,7 +1662,7 @@ app.get("/customer-portal/assets", requireAuth, trackActiveUser, asyncRoute(asyn
   const result = await pool.query(
     `
     ${assetRowsSql}
-    ORDER BY sitename NULLS LAST, sectionname NULLS LAST, assettagno NULLS LAST, assetid
+    ORDER BY ${sortColumn} ${sortDirection} NULLS LAST, assetid ${sortDirection}
     LIMIT ${limitParam} OFFSET ${offsetParam}
     `,
     pagedValues
@@ -5229,11 +5241,13 @@ app.get("/equipment-types", async (req, res) => {
   try {
     const result = await pool.query(`
      SELECT
-      equiptypeid,
-      description,
-      equipgroupid
-      FROM atec.tblequiptype
-      ORDER BY description
+      et.equiptypeid,
+      et.description,
+      et.equipgroupid,
+      eg.groupname AS equipmentgroup
+      FROM atec.tblequiptype et
+      LEFT JOIN atec.tblequipgroup eg ON eg.equipgroupid = et.equipgroupid
+      ORDER BY et.description
     `)
 
     res.json(result.rows)
@@ -11600,6 +11614,7 @@ function customerReportFilters(query = {}) {
     siteid: query.siteid || "",
     sectionid: query.sectionid || "",
     responsibleid: query.responsibleid || "",
+    equipgroupid: query.equipgroupid || "",
     equiptypeid: query.equiptypeid || "",
     datefrom: query.datefrom || "",
     dateto: query.dateto || "",
@@ -11645,6 +11660,7 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
     siteid = "",
     sectionid = "",
     responsibleid = "",
+    equipgroupid = "",
     equiptypeid = "",
     datefrom = "",
     dateto = "",
@@ -11723,6 +11739,11 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
   if (equiptypeid) {
     values.push(equiptypeid)
     assetWhere += ` AND a.equiptypeid = $${values.length}`
+  }
+
+  if (equipgroupid) {
+    values.push(equipgroupid)
+    assetWhere += ` AND et.equipgroupid = $${values.length}`
   }
 
   if (datefrom) {
@@ -11845,6 +11866,8 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
       s.sitename,
       sec.sectionname,
       section_person.name AS responsiblename,
+      et.equipgroupid,
+      eg.groupname AS equipmentgroup,
       et.description AS equipmenttype,
       lv.testid AS visualtestid,
       lv.testdate AS visualtestdate,
@@ -11922,6 +11945,8 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
       ON sec.responsibleid = section_person.personid
     LEFT JOIN atec.tblequiptype et
       ON a.equiptypeid = et.equiptypeid
+    LEFT JOIN atec.tblequipgroup eg
+      ON et.equipgroupid = eg.equipgroupid
     LEFT JOIN latest_visual lv
       ON a.assetid = lv.assetid
     LEFT JOIN latest_load ll
@@ -12010,6 +12035,7 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
       siteid: siteid || "",
       sectionid: sectionid || "",
       responsibleid: responsibleid || "",
+      equipgroupid: equipgroupid || "",
       equiptypeid: equiptypeid || "",
       datefrom: datefrom || "",
       dateto: dateto || ""
