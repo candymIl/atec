@@ -687,6 +687,7 @@ window.rerenderAssetAccuracyReport = function () {
 
 function renderAssetAccuracyMatchReview(result) {
   const canManageAssets = window.currentUser?.role !== "CUSTOMER"
+  const canQuickArchive = window.currentUser?.role === "ADMIN"
   return `
     <div class="asset-match-modal" role="dialog" aria-modal="true" aria-labelledby="assetMatchTitle">
       <button type="button" class="asset-match-backdrop" onclick="closeAssetAccuracyMatches()" aria-label="Close comparison"></button>
@@ -696,7 +697,9 @@ function renderAssetAccuracyMatchReview(result) {
           <button type="button" class="secondary-btn" onclick="closeAssetAccuracyMatches()">Close</button>
         </div>
         <div class="asset-match-list">
-          ${(result.matches || []).map(row => `
+          ${(result.matches || []).map(row => {
+            const fallbackAssetId = (result.matches || []).find(match => String(match.assetid) !== String(row.assetid))?.assetid || ""
+            return `
             <article class="asset-match-card ${row.is_selected ? "selected" : ""} ${row.archived ? "archived" : ""}">
               <div class="asset-match-card-heading">
                 <div><h3>Asset ${escapeHtml(row.assetid)} ${row.is_selected ? '<span class="asset-match-selected">Selected</span>' : ''}</h3><p>${escapeHtml(row.display_serial || "No serial")} · ${escapeHtml(row.equipmenttype || "Equipment not recorded")}</p></div>
@@ -712,9 +715,11 @@ function renderAssetAccuracyMatchReview(result) {
               <div class="form-actions">
                 <button type="button" onclick="openAccuracyAssetHistory('${safeAttr(row.assetid)}')">View Certification History</button>
                 ${canManageAssets ? `<button type="button" class="load-test-btn" onclick="openAssetSetupFromAccuracy('${safeAttr(row.assetid)}')">Open Asset Setup — Edit / Archive</button>` : ""}
+                ${canQuickArchive && !row.archived ? `<button type="button" class="asset-match-archive-btn" onclick="quickArchiveAccuracyAsset('${safeAttr(row.assetid)}', '${safeAttr(result.selectedAssetId)}', ${Number(row.total_history || 0)})">Quick Archive Duplicate</button>` : ""}
+                ${canQuickArchive && row.archived && Number(row.total_history || 0) === 0 ? `<button type="button" class="asset-match-delete-btn" onclick="permanentlyDeleteEmptyAccuracyAsset('${safeAttr(row.assetid)}', '${safeAttr(fallbackAssetId)}')">Permanently Delete Empty Asset</button>` : ""}
               </div>
             </article>
-          `).join("") || '<p>No matching records were found.</p>'}
+          `}).join("") || '<p>No matching records were found.</p>'}
         </div>
       </div>
     </div>
@@ -751,6 +756,102 @@ window.openAssetSetupFromAccuracy = function (assetid) {
   window.assetListState = { searchType: "assetid", search: String(assetid), currentPage: 1, rowsPerPage: 25, archiveMode: "all" }
   window.assetCurrentPage = 1
   window.showAssetSetup?.()
+}
+
+window.quickArchiveAccuracyAsset = async function (assetid, comparisonAssetId, historyCount) {
+  if (window.currentUser?.role !== "ADMIN") {
+    alert("Only administrators may use Quick Archive Duplicate.")
+    return
+  }
+
+  const historyWarning = Number(historyCount) > 0
+    ? `\n\nWARNING: This record has ${historyCount} certification-history record(s). The history will be retained and the asset can be restored later.`
+    : "\n\nThis record has no certification history."
+  const confirmed = confirm(`Archive Asset ${assetid} as a duplicate?${historyWarning}\n\nThis does not permanently delete the asset.`)
+  if (!confirmed) return
+
+  const reasonInput = prompt("Enter the verification reason for archiving this duplicate.\n\nExample: Confirmed duplicate of Asset 123 after physical register review.")
+  if (reasonInput === null) return
+  const reason = reasonInput.trim()
+  if (!reason) {
+    alert("An archive reason is required.")
+    return
+  }
+  if (reason.length > 1000) {
+    alert("The archive reason must be 1000 characters or fewer.")
+    return
+  }
+
+  const response = await fetch(`${API_BASE}/assets/${encodeURIComponent(assetid)}/archive`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason: `Duplicate register cleanup: ${reason}` })
+  })
+  const result = await response.json()
+  if (!response.ok) {
+    alert(result.error || "The duplicate asset could not be archived.")
+    return
+  }
+
+  await loadAssetRegisterAccuracyReport()
+  await openAssetAccuracyMatches(comparisonAssetId)
+}
+
+window.permanentlyDeleteEmptyAccuracyAsset = async function (assetid, fallbackAssetId) {
+  if (window.currentUser?.role !== "ADMIN") {
+    alert("Only administrators may permanently delete assets.")
+    return
+  }
+
+  const eligibilityResponse = await fetch(`${API_BASE}/assets/${encodeURIComponent(assetid)}/permanent-delete-eligibility`)
+  const eligibility = await eligibilityResponse.json()
+  if (!eligibilityResponse.ok) {
+    alert(eligibility.error || "Unable to verify whether this asset can be permanently deleted.")
+    return
+  }
+  if (!eligibility.eligible) {
+    const blockers = (eligibility.blockingDependencies || [])
+      .map(item => `${item.label}: ${item.count}`)
+      .join("\n")
+    alert(`${eligibility.reason}${blockers ? `\n\nLinked records:\n${blockers}` : ""}`)
+    return
+  }
+
+  const typedId = prompt(`PERMANENT DELETE cannot be undone.\n\nType Asset ID ${assetid} exactly to continue.`)
+  if (typedId === null) return
+  if (typedId.trim() !== String(assetid)) {
+    alert("The Asset ID did not match. Nothing was deleted.")
+    return
+  }
+
+  const reasonInput = prompt("Enter the verified reason for permanently deleting this empty archived asset.")
+  if (reasonInput === null) return
+  const reason = reasonInput.trim()
+  if (!reason) {
+    alert("A permanent-delete reason is required.")
+    return
+  }
+  if (reason.length > 1000) {
+    alert("The permanent-delete reason must be 1000 characters or fewer.")
+    return
+  }
+  if (!confirm(`Final confirmation: permanently delete archived Asset ${assetid}?\n\nThis cannot be undone. An audit record will remain.`)) return
+
+  const response = await fetch(`${API_BASE}/assets/${encodeURIComponent(assetid)}/permanent`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirmation: typedId.trim(), reason })
+  })
+  const result = await response.json()
+  if (!response.ok) {
+    const blockers = (result.dependencies || []).map(item => `${item.label}: ${item.count}`).join("\n")
+    alert(`${result.error || "The asset could not be permanently deleted."}${blockers ? `\n\nLinked records:\n${blockers}` : ""}`)
+    return
+  }
+
+  closeAssetAccuracyMatches()
+  await loadAssetRegisterAccuracyReport()
+  if (fallbackAssetId) await openAssetAccuracyMatches(fallbackAssetId)
 }
 
 async function loadAssetRegisterAccuracyReport() {

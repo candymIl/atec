@@ -7776,6 +7776,25 @@ tr:hover {
   color: #64748b;
 }
 
+.asset-match-archive-btn {
+  background: #b91c1c !important;
+  color: #fff !important;
+}
+
+.asset-match-archive-btn:hover {
+  background: #991b1b !important;
+}
+
+.asset-match-delete-btn {
+  background: #7f1d1d !important;
+  color: #fff !important;
+  border: 2px solid #450a0a !important;
+}
+
+.asset-match-delete-btn:hover {
+  background: #450a0a !important;
+}
+
 @media (max-width: 800px) {
   .asset-match-modal { padding: 8px; }
   .asset-match-dialog { padding: 14px; }

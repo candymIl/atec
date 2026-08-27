@@ -9324,15 +9324,11 @@ window.showAssetHistoryFromSetup = async function (assetid) {
   ])
 
   const history = await response.json()
-  const archiveHistory = await archiveResponse.json()
+  const archiveHistoryResult = await archiveResponse.json()
+  const archiveHistory = archiveResponse.ok && Array.isArray(archiveHistoryResult) ? archiveHistoryResult : []
 
   if (!response.ok) {
     alert("Error loading inspection history: " + history.error)
-    return
-  }
-
-  if (!archiveResponse.ok) {
-    alert("Error loading archive history: " + archiveHistory.error)
     return
   }
 
@@ -9381,6 +9377,7 @@ window.showAssetHistoryFromSetup = async function (assetid) {
 
     <div class="filter-card">
       <h3>Archive History</h3>
+      ${archiveResponse.ok ? '' : `<p class="login-error">Archive activity could not be loaded. Certification history is still available above.</p>`}
       <table>
         <thead>
           <tr>

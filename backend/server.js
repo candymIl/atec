@@ -5223,6 +5223,149 @@ app.put("/assets/:id/archive", async (req, res) => {
   }
 });
 
+const ASSET_PURGE_DEPENDENCIES = Object.freeze([
+  { table: "tblinspection", column: "assetid", label: "inspection and certificate records" },
+  { table: "tblinspectionphoto", column: "assetid", label: "inspection photos" },
+  { table: "tblinspectionvisitasset", column: "assetid", label: "inspection visit worklists" },
+  { table: "tblinspectionvisitdiscovery", column: "linked_assetid", label: "inspection visit discoveries" },
+  { table: "tbljobcardasset", column: "assetid", label: "job card asset links" },
+  { table: "tbljobcarddeviation", column: "assetid", label: "job card deviations" },
+  { table: "tblndtreport", column: "assetid", label: "MPI / NDT reports" },
+  { table: "tblriskassessment", column: "assetid", label: "risk assessments" }
+])
+
+async function getAssetPurgeDependencies(queryable, assetid) {
+  const dependencies = []
+  for (const dependency of ASSET_PURGE_DEPENDENCIES) {
+    const result = await queryable.query(
+      `SELECT COUNT(*)::int AS count FROM atec.${dependency.table} WHERE ${dependency.column} = $1`,
+      [assetid]
+    )
+    dependencies.push({ ...dependency, count: Number(result.rows[0]?.count || 0) })
+  }
+  return dependencies
+}
+
+app.get("/assets/:id/permanent-delete-eligibility", async (req, res) => {
+  try {
+    if (req.user?.role !== "ADMIN") {
+      return res.status(403).json({ error: "Only administrators may check permanent-delete eligibility." })
+    }
+
+    const { id } = req.params
+    const assetResult = await pool.query(
+      `SELECT assetid, archived FROM atec.tblasset WHERE assetid = $1`,
+      [id]
+    )
+    if (assetResult.rows.length === 0) return res.status(404).json({ error: "Asset not found" })
+
+    const asset = assetResult.rows[0]
+    const dependencies = await getAssetPurgeDependencies(pool, id)
+    const blockingDependencies = dependencies.filter(item => item.count > 0)
+    const eligible = asset.archived === true && blockingDependencies.length === 0
+
+    res.json({
+      assetid: asset.assetid,
+      archived: asset.archived === true,
+      eligible,
+      dependencies,
+      blockingDependencies,
+      reason: eligible
+        ? "This archived asset has no operational history or linked records and may be permanently deleted."
+        : !asset.archived
+          ? "The asset must be archived before it can be permanently deleted."
+          : "The asset still has linked operational records and cannot be permanently deleted."
+    })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  }
+})
+
+app.delete("/assets/:id/permanent", async (req, res) => {
+  let client
+  let deletedAsset
+  try {
+    if (req.user?.role !== "ADMIN") {
+      return res.status(403).json({ error: "Only administrators may permanently delete assets." })
+    }
+
+    const { id } = req.params
+    const confirmation = String(req.body?.confirmation || "").trim()
+    const reason = String(req.body?.reason || "").trim()
+    if (confirmation !== String(id)) {
+      return res.status(400).json({ error: `Type Asset ID ${id} exactly to confirm permanent deletion.` })
+    }
+    if (!reason) return res.status(400).json({ error: "A permanent-delete reason is required." })
+    if (reason.length > 1000) {
+      return res.status(400).json({ error: "The permanent-delete reason must be 1000 characters or fewer." })
+    }
+
+    client = await pool.connect()
+    await client.query("BEGIN")
+    const assetResult = await client.query(
+      `SELECT * FROM atec.tblasset WHERE assetid = $1 FOR UPDATE`,
+      [id]
+    )
+    if (assetResult.rows.length === 0) {
+      await client.query("ROLLBACK")
+      return res.status(404).json({ error: "Asset not found" })
+    }
+
+    deletedAsset = assetResult.rows[0]
+    if (deletedAsset.archived !== true) {
+      await client.query("ROLLBACK")
+      return res.status(409).json({ error: "The asset must be archived before it can be permanently deleted." })
+    }
+
+    const dependencies = await getAssetPurgeDependencies(client, id)
+    const blockingDependencies = dependencies.filter(item => item.count > 0)
+    if (blockingDependencies.length > 0) {
+      await client.query("ROLLBACK")
+      return res.status(409).json({
+        error: "This asset still has linked operational records and cannot be permanently deleted.",
+        dependencies: blockingDependencies
+      })
+    }
+
+    await client.query(`DELETE FROM atec.tblasset WHERE assetid = $1`, [id])
+    const auditSnapshot = {
+      assetid: deletedAsset.assetid,
+      clientid: deletedAsset.clientid,
+      siteid: deletedAsset.siteid,
+      sectionid: deletedAsset.sectionid,
+      equiptypeid: deletedAsset.equiptypeid,
+      assettagno: deletedAsset.assettagno,
+      serialno: deletedAsset.serialno,
+      hoistserialno: deletedAsset.hoistserialno,
+      description: deletedAsset.description,
+      archived: deletedAsset.archived
+    }
+    await client.query(
+      `INSERT INTO atec.audit_log
+         (user_id, action, module, record_id, ip_address, details)
+       VALUES ($1, 'PURGE', 'assets', $2, NULLIF($3, '')::inet, $4)`,
+      [req.user?.user_id || null, String(id), req.ip || null, JSON.stringify({ reason, asset: auditSnapshot })]
+    )
+    await client.query("COMMIT")
+
+    await Promise.all([
+      deleteUploadFileIfUnreferenced(deletedAsset.media1),
+      deleteUploadFileIfUnreferenced(deletedAsset.media2)
+    ]).catch(err => console.error("Deleted asset photo cleanup failed", err))
+    res.json({ success: true, assetid: deletedAsset.assetid, auditRetained: true })
+  } catch (err) {
+    if (client) await client.query("ROLLBACK").catch(() => {})
+    console.error(err)
+    if (err?.code === "23503") {
+      return res.status(409).json({ error: "A linked record was added while deleting. The asset was not deleted." })
+    }
+    res.status(500).json({ error: "An unexpected server error occurred" })
+  } finally {
+    client?.release()
+  }
+})
+
 app.put("/assets/:id/unarchive", async (req, res) => {
   try {
     if (!["ADMIN", "MANAGER"].includes(req.user?.role)) {
@@ -5374,9 +5517,9 @@ app.get("/assets/:id/archive-history", async (req, res) => {
          audit.action,
          audit.details ->> 'reason' AS reason,
          audit.created_at,
-         COALESCE(NULLIF(TRIM(users.full_name), ''), users.username, 'System') AS performed_by
+         COALESCE(NULLIF(TRIM(users.fullname), ''), users.username, 'System') AS performed_by
        FROM atec.audit_log audit
-       LEFT JOIN atec.tblusers users ON users.user_id = audit.user_id
+       LEFT JOIN atec.tblusers users ON users.userid = audit.user_id
        WHERE audit.module = 'assets'
          AND audit.record_id = $1
          AND audit.action IN ('ARCHIVE', 'RESTORE')
