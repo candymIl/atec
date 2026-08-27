@@ -7623,7 +7623,44 @@ tr:hover {
 }
 
 .asset-accuracy-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin: 16px 0;
+}
+
+.asset-accuracy-summary .report-summary-tile-button {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 78px;
+  min-width: 0;
+  padding: 12px 14px;
+}
+
+.asset-accuracy-summary .report-summary-tile span {
+  line-height: 1.25;
+  margin: 0 0 6px;
+  overflow-wrap: anywhere;
+  width: 100%;
+}
+
+.asset-accuracy-summary .report-summary-tile strong {
+  display: block;
+  font-size: clamp(20px, 1.7vw, 26px);
+  line-height: 1;
+  max-width: 100%;
+}
+
+@media (max-width: 1050px) {
+  .asset-accuracy-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .asset-accuracy-summary {
+    grid-template-columns: 1fr;
+  }
 }
 
 .report-guidance-note {
