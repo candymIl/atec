@@ -9,6 +9,14 @@ let reportSites = []
 let reportSections = []
 let reportResponsiblePersons = []
 let reportEquipmentTypes = []
+let accuracyReportPage = 1
+let accuracyReportPageSize = 25
+
+function defaultAccuracyCutoff() {
+  const date = new Date()
+  date.setFullYear(date.getFullYear() - 1)
+  return date.toISOString().slice(0, 10)
+}
 
 export function renderCustomerDetailedReport(customers = [], equipmentTypes = [], sites = [], sections = [], responsiblePersons = [], options = {}) {
   const isCustomerUser = window.currentUser?.role === "CUSTOMER"
@@ -187,6 +195,88 @@ export function renderCustomerDetailedReport(customers = [], equipmentTypes = []
           </div>
         </div>
 
+      <div class="report-detail-card asset-accuracy-controls">
+        <div class="report-detail-heading">
+          <div>
+            <h2>Asset Register Accuracy Report</h2>
+            <p>Find units that may not be presented for certification, have missing or suspicious serial numbers, or may be duplicated.</p>
+          </div>
+        </div>
+        <div class="report-toolbar">
+          ${isCustomerUser ? "" : `<div class="report-filter-control">
+            <label for="assetAccuracyClient">Client</label>
+            <select id="assetAccuracyClient">
+              <option value="">All Clients</option>
+              ${sortedCustomers.map(customer => `<option value="${safeAttr(customer.clientid)}">${escapeHtml(customer.clientname || `Client ${customer.clientid}`)}</option>`).join("")}
+            </select>
+          </div>`}
+          <div class="report-filter-control">
+            <label for="assetAccuracySite">Site</label>
+            <select id="assetAccuracySite">
+              <option value="">All Sites</option>
+              ${sortedSites.map(site => `<option value="${safeAttr(site.siteid)}">${escapeHtml(site.sitename || `Site ${site.siteid}`)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="report-filter-control">
+            <label for="assetAccuracySection">Section</label>
+            <select id="assetAccuracySection">
+              <option value="">All Sections</option>
+              ${sortedSections.map(section => `<option value="${safeAttr(section.sectionid)}">${escapeHtml(section.sectionname || `Section ${section.sectionid}`)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="report-filter-control">
+            <label for="assetAccuracyResponsible">Responsible Person</label>
+            <select id="assetAccuracyResponsible">
+              <option value="">All Responsible Persons</option>
+              ${sortedResponsiblePersons.map(person => `<option value="${safeAttr(person.personid)}">${escapeHtml(person.name || `Person ${person.personid}`)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="report-filter-control">
+            <label for="assetAccuracyEquipmentGroup">Equipment Group</label>
+            <select id="assetAccuracyEquipmentGroup">
+              <option value="">All Equipment Groups</option>
+              ${equipmentGroups.map(group => `<option value="${safeAttr(group.equipgroupid)}">${escapeHtml(group.groupname)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="report-filter-control">
+            <label for="assetAccuracyEquipment">Equipment Type</label>
+            <select id="assetAccuracyEquipment">
+              <option value="">All Equipment Types</option>
+              ${sortedEquipmentTypes.map(type => `<option value="${safeAttr(type.equiptypeid)}">${escapeHtml(type.description || `Equipment ${type.equiptypeid}`)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="report-filter-control">
+            <label for="assetAccuracyCutoff">Not Presented Since</label>
+            <input id="assetAccuracyCutoff" type="date" value="${defaultAccuracyCutoff()}">
+          </div>
+          <div class="report-filter-control">
+            <label for="assetAccuracyIssue">Register Issue</label>
+            <select id="assetAccuracyIssue">
+              <option value="">All Assets and Issues</option>
+              <option value="NEEDS_ACTION">All Assets Needing Action</option>
+              <option value="NEVER_CERTIFIED">Never Certified</option>
+              <option value="NO_VISUAL">No Visual Inspection</option>
+              <option value="NO_LOAD_TEST">No Load Test</option>
+              <option value="NOT_PRESENTED">Not Presented Since Cutoff</option>
+              <option value="VISUAL_OVERDUE">Visual Overdue</option>
+              <option value="LOAD_TEST_OVERDUE">Load Test Overdue</option>
+              <option value="POTENTIAL_DUPLICATE">Potential Duplicate Serial</option>
+              <option value="MISSING_SERIAL">Missing Serial Number</option>
+              <option value="SUSPICIOUS_SERIAL">Suspicious Serial Number</option>
+              <option value="CURRENT_VERIFIED">Current / No Issue Detected</option>
+            </select>
+          </div>
+          <div class="report-toolbar-actions">
+            <button id="assetAccuracyPreviewBtn" type="button">Run Accuracy Report</button>
+            <a id="assetAccuracyExcelLink" class="cert-action-link" href="${API_BASE}/reports/asset-register-accuracy.xlsx" download>Export Action List</a>
+          </div>
+        </div>
+        <div id="assetAccuracyPreview" class="report-preview-empty">
+          <h3>No accuracy report loaded yet</h3>
+          <p>Select the customer and location above, then run the report.</p>
+        </div>
+      </div>
+
       <div id="customerReportPreview" class="report-preview-empty">
         <h2>No report preview yet</h2>
         <p>Select a customer or leave it on All Customers, then preview the report.</p>
@@ -201,9 +291,12 @@ export function renderCustomerDetailedReport(customers = [], equipmentTypes = []
     if (customerSelect) {
       customerSelect.value = String(options.clientid)
     }
+    const accuracyClientSelect = document.querySelector("#assetAccuracyClient")
+    if (accuracyClientSelect) accuracyClientSelect.value = String(options.clientid)
   }
 
   refreshCustomerReportHierarchy()
+  refreshAssetAccuracyHierarchy()
   applyCustomerReportOptions(options)
 
   updateCustomerReportLinks()
@@ -246,6 +339,32 @@ function bindCustomerReportEvents() {
       currentReportPage = 1
       loadCustomerDetailedReport()
     })
+
+  document.querySelector("#assetAccuracyPreviewBtn")?.addEventListener("click", () => {
+    accuracyReportPage = 1
+    loadAssetRegisterAccuracyReport()
+  })
+  document.querySelector("#assetAccuracyClient")?.addEventListener("change", () => {
+    refreshAssetAccuracyHierarchy({ resetSite: true, resetSection: true })
+    assetAccuracyFilterChanged()
+  })
+  document.querySelector("#assetAccuracySite")?.addEventListener("change", () => {
+    refreshAssetAccuracyHierarchy({ resetSection: true })
+    assetAccuracyFilterChanged()
+  })
+  document.querySelector("#assetAccuracySection")?.addEventListener("change", assetAccuracyFilterChanged)
+  document.querySelector("#assetAccuracyResponsible")?.addEventListener("change", assetAccuracyFilterChanged)
+  document.querySelector("#assetAccuracyEquipmentGroup")?.addEventListener("change", () => {
+    refreshAssetAccuracyEquipmentTypes({ resetEquipment: true })
+    assetAccuracyFilterChanged()
+  })
+  document.querySelector("#assetAccuracyEquipment")?.addEventListener("change", assetAccuracyFilterChanged)
+  document.querySelector("#assetAccuracyIssue")?.addEventListener("change", () => {
+    assetAccuracyFilterChanged()
+  })
+  document.querySelector("#assetAccuracyCutoff")?.addEventListener("change", () => {
+    assetAccuracyFilterChanged()
+  })
 }
 
 function applyCustomerReportOptions(options = {}) {
@@ -282,6 +401,66 @@ function applyCustomerReportOptions(options = {}) {
 function customerReportFilterChanged() {
   currentReportPage = 1
   updateCustomerReportLinks()
+  updateAssetAccuracyExcelLink()
+  updateAssetAccuracyExcelLink()
+}
+
+function assetAccuracyFilterChanged() {
+  accuracyReportPage = 1
+  updateAssetAccuracyExcelLink()
+}
+
+function refreshAssetAccuracyHierarchy(options = {}) {
+  const clientSelect = document.querySelector("#assetAccuracyClient")
+  const siteSelect = document.querySelector("#assetAccuracySite")
+  const sectionSelect = document.querySelector("#assetAccuracySection")
+  const responsibleSelect = document.querySelector("#assetAccuracyResponsible")
+  if (!siteSelect || !sectionSelect || !responsibleSelect) return
+
+  const clientid = clientSelect?.value || ""
+  const previousSite = options.resetSite ? "" : siteSelect.value
+  const filteredSites = clientid
+    ? reportSites.filter(site => String(site.clientid) === String(clientid))
+    : reportSites
+  siteSelect.innerHTML = reportFilterOptions(filteredSites, "siteid", "sitename", "All Sites")
+  if (filteredSites.some(site => String(site.siteid) === String(previousSite))) siteSelect.value = previousSite
+
+  const siteid = siteSelect.value
+  const previousSection = options.resetSection ? "" : sectionSelect.value
+  const filteredSections = reportSections.filter(section => {
+    if (siteid) return String(section.siteid) === String(siteid)
+    if (clientid) return String(section.clientid) === String(clientid)
+    return true
+  })
+  sectionSelect.innerHTML = reportFilterOptions(filteredSections, "sectionid", "sectionname", "All Sections")
+  if (filteredSections.some(section => String(section.sectionid) === String(previousSection))) sectionSelect.value = previousSection
+
+  const sectionid = sectionSelect.value
+  const allowedResponsibleIds = new Set(filteredSections
+    .filter(section => !sectionid || String(section.sectionid) === String(sectionid))
+    .map(section => String(section.responsibleid || ""))
+    .filter(Boolean))
+  const previousResponsible = options.resetSection ? "" : responsibleSelect.value
+  const filteredResponsible = reportResponsiblePersons.filter(person => {
+    if (clientid && String(person.clientid) !== String(clientid)) return false
+    if ((siteid || sectionid) && !allowedResponsibleIds.has(String(person.personid))) return false
+    return true
+  })
+  responsibleSelect.innerHTML = reportFilterOptions(filteredResponsible, "personid", "name", "All Responsible Persons")
+  if (filteredResponsible.some(person => String(person.personid) === String(previousResponsible))) responsibleSelect.value = previousResponsible
+}
+
+function refreshAssetAccuracyEquipmentTypes(options = {}) {
+  const groupSelect = document.querySelector("#assetAccuracyEquipmentGroup")
+  const equipmentSelect = document.querySelector("#assetAccuracyEquipment")
+  if (!groupSelect || !equipmentSelect) return
+  const groupid = groupSelect.value
+  const previous = options.resetEquipment ? "" : equipmentSelect.value
+  const filtered = groupid
+    ? reportEquipmentTypes.filter(type => String(type.equipgroupid) === String(groupid))
+    : reportEquipmentTypes
+  equipmentSelect.innerHTML = reportFilterOptions(filtered, "equiptypeid", "description", "All Equipment Types")
+  if (filtered.some(type => String(type.equiptypeid) === String(previous))) equipmentSelect.value = previous
 }
 
 function refreshCustomerReportHierarchy(options = {}) {
@@ -405,6 +584,199 @@ async function loadCustomerDetailedReport() {
   preview.className = "report-preview-loaded"
   currentReport = report
   renderCustomerReportPage()
+}
+
+function getAssetAccuracyQuery(options = {}) {
+  const params = new URLSearchParams()
+  const mappings = [
+    ["clientid", "#assetAccuracyClient"],
+    ["siteid", "#assetAccuracySite"],
+    ["sectionid", "#assetAccuracySection"],
+    ["responsibleid", "#assetAccuracyResponsible"],
+    ["equipgroupid", "#assetAccuracyEquipmentGroup"],
+    ["equiptypeid", "#assetAccuracyEquipment"],
+    ["cutoff", "#assetAccuracyCutoff"],
+    ["issue", "#assetAccuracyIssue"]
+  ]
+  mappings.forEach(([key, selector]) => {
+    const value = document.querySelector(selector)?.value || ""
+    if (value) params.append(key, value)
+  })
+  if (options.paginated) {
+    params.append("page", String(accuracyReportPage))
+    params.append("limit", String(accuracyReportPageSize))
+  }
+  const sort = getTableSortState("assetAccuracy", "assetid", "asc")
+  params.append("sortKey", sort.key || "assetid")
+  params.append("sortDir", sort.direction || "asc")
+  const query = params.toString()
+  return query ? `?${query}` : ""
+}
+
+function updateAssetAccuracyExcelLink() {
+  const link = document.querySelector("#assetAccuracyExcelLink")
+  if (link) link.href = `${API_BASE}/reports/asset-register-accuracy.xlsx${getAssetAccuracyQuery()}`
+}
+
+function accuracyIssueLabel(issue) {
+  const labels = {
+    NEVER_CERTIFIED: "Never Certified",
+    NO_VISUAL: "No Visual",
+    NO_LOAD_TEST: "No Load Test",
+    NOT_PRESENTED: "Not Presented",
+    VISUAL_OVERDUE: "Visual Overdue",
+    LOAD_TEST_OVERDUE: "Load Test Overdue",
+    POTENTIAL_DUPLICATE: "Potential Duplicate",
+    MISSING_SERIAL: "Missing Serial",
+    SUSPICIOUS_SERIAL: "Suspicious Serial",
+    CURRENT_VERIFIED: "Current / No Issue"
+  }
+  return labels[issue] || issue
+}
+
+function renderAssetAccuracyReport(report) {
+  const box = document.querySelector("#assetAccuracyPreview")
+  if (!box) return
+  const pagination = report.pagination || { page: 1, totalPages: 1, total: report.rows.length }
+  const counts = report.summary.issueCounts || {}
+  const summaryIssues = ["NEVER_CERTIFIED", "NOT_PRESENTED", "POTENTIAL_DUPLICATE", "MISSING_SERIAL", "SUSPICIOUS_SERIAL"]
+  const isCustomerUser = window.currentUser?.role === "CUSTOMER"
+  box.className = "report-preview-loaded"
+  box.innerHTML = `
+    <div class="report-summary-grid asset-accuracy-summary">
+      ${accuracySummaryTile("Assets Reviewed", report.summary.assetsReviewed, "")}
+      ${accuracySummaryTile("Assets Needing Action", report.summary.assetsNeedingAction, "NEEDS_ACTION")}
+      ${accuracySummaryTile("Current / No Issue", report.summary.currentVerified, "CURRENT_VERIFIED")}
+      ${summaryIssues.map(issue => accuracySummaryTile(accuracyIssueLabel(issue), counts[issue] || 0, issue)).join("")}
+    </div>
+    <p class="report-guidance-note">Potential duplicates and suspicious serials are indicators for physical verification; they are not automatically confirmed as incorrect records.</p>
+    <div class="report-pagination-bar">
+      <div class="report-page-size"><label>Rows per page</label><select onchange="setAssetAccuracyPageSize(this.value)">${[25, 50, 100, 250].map(size => `<option value="${size}" ${size === accuracyReportPageSize ? "selected" : ""}>${size}</option>`).join("")}</select></div>
+      <div class="report-page-controls">
+        <button onclick="changeAssetAccuracyPage(-1)" ${pagination.page <= 1 ? "disabled" : ""}>Previous</button>
+        <span>Page ${escapeHtml(pagination.page)} of ${escapeHtml(pagination.totalPages)} · ${escapeHtml(pagination.total)} result(s)</span>
+        <button onclick="changeAssetAccuracyPage(1)" ${pagination.page >= pagination.totalPages ? "disabled" : ""}>Next</button>
+      </div>
+    </div>
+    <div class="customer-report-table-region asset-accuracy-table-region">
+      <table class="customer-report-table">
+        <thead><tr>${isCustomerUser ? "" : `<th>${sortHeader("Client", "assetAccuracy", "clientname", "rerenderAssetAccuracyReport")}</th>`}<th>${sortHeader("Asset ID", "assetAccuracy", "assetid", "rerenderAssetAccuracyReport")}</th><th>${sortHeader("Serial No", "assetAccuracy", "display_serial", "rerenderAssetAccuracyReport")}</th><th>${sortHeader("Site", "assetAccuracy", "sitename", "rerenderAssetAccuracyReport")}</th><th>${sortHeader("Section", "assetAccuracy", "sectionname", "rerenderAssetAccuracyReport")}</th><th>${sortHeader("Equipment", "assetAccuracy", "equipmenttype", "rerenderAssetAccuracyReport")}</th><th>${sortHeader("Last Visual", "assetAccuracy", "visual_date", "rerenderAssetAccuracyReport")}</th><th>${sortHeader("Last Load Test", "assetAccuracy", "load_date", "rerenderAssetAccuracyReport")}</th><th>${sortHeader("Register Issues", "assetAccuracy", "issue_labels", "rerenderAssetAccuracyReport")}</th><th>${sortHeader("Recommended Action", "assetAccuracy", "recommended_action", "rerenderAssetAccuracyReport")}</th></tr></thead>
+        <tbody>${(report.rows || []).map(row => `<tr>${isCustomerUser ? "" : `<td>${escapeHtml(row.clientname || "-")}</td>`}<td><button type="button" class="asset-accuracy-asset-link" onclick="openAssetAccuracyMatches('${safeAttr(row.assetid)}')">${escapeHtml(row.assetid)}</button></td><td>${escapeHtml(row.display_serial || "-")}${Number(row.duplicate_count) > 1 ? `<br><small>${escapeHtml(row.duplicate_count)} matching records</small>` : ""}</td><td>${escapeHtml(row.sitename || "-")}</td><td>${escapeHtml(row.sectionname || "-")}</td><td>${escapeHtml(row.equipmenttype || "-")}</td><td>${escapeHtml(formatReportDate(row.visual_date))}</td><td>${escapeHtml(formatReportDate(row.load_date))}</td><td><div class="asset-accuracy-issues">${(row.issues || []).map(issue => `<span class="${issue === "CURRENT_VERIFIED" ? "verified" : ""}">${escapeHtml(accuracyIssueLabel(issue))}</span>`).join("")}</div></td><td>${escapeHtml(row.recommended_action || "-")}</td></tr>`).join("") || `<tr><td colspan="${isCustomerUser ? 9 : 10}">No assets match this issue filter.</td></tr>`}</tbody>
+      </table>
+    </div>
+  `
+}
+
+function accuracySummaryTile(label, value, issue) {
+  return `<button type="button" class="report-summary-tile report-summary-tile-button" onclick="filterAssetAccuracyIssue('${safeAttr(issue)}')"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value ?? 0)}</strong></button>`
+}
+
+window.filterAssetAccuracyIssue = function (issue) {
+  const select = document.querySelector("#assetAccuracyIssue")
+  if (!select) return
+  select.value = issue || ""
+  accuracyReportPage = 1
+  updateAssetAccuracyExcelLink()
+  loadAssetRegisterAccuracyReport()
+}
+
+window.rerenderAssetAccuracyReport = function () {
+  accuracyReportPage = 1
+  loadAssetRegisterAccuracyReport()
+}
+
+function renderAssetAccuracyMatchReview(result) {
+  const canManageAssets = window.currentUser?.role !== "CUSTOMER"
+  return `
+    <div class="asset-match-modal" role="dialog" aria-modal="true" aria-labelledby="assetMatchTitle">
+      <button type="button" class="asset-match-backdrop" onclick="closeAssetAccuracyMatches()" aria-label="Close comparison"></button>
+      <div class="asset-match-dialog">
+        <div class="asset-match-heading">
+          <div><p class="customer-history-eyebrow">Potential Match Review</p><h2 id="assetMatchTitle">Serial ${escapeHtml(result.serial || "Not recorded")}</h2><p>${escapeHtml(result.matchCount)} matching asset record(s). Compare certification history before editing or archiving anything.</p></div>
+          <button type="button" class="secondary-btn" onclick="closeAssetAccuracyMatches()">Close</button>
+        </div>
+        <div class="asset-match-list">
+          ${(result.matches || []).map(row => `
+            <article class="asset-match-card ${row.is_selected ? "selected" : ""} ${row.archived ? "archived" : ""}">
+              <div class="asset-match-card-heading">
+                <div><h3>Asset ${escapeHtml(row.assetid)} ${row.is_selected ? '<span class="asset-match-selected">Selected</span>' : ''}</h3><p>${escapeHtml(row.display_serial || "No serial")} · ${escapeHtml(row.equipmenttype || "Equipment not recorded")}</p></div>
+                <span class="asset-match-record-status">${row.archived ? "Archived" : "Active"}</span>
+              </div>
+              <div class="asset-match-location">${escapeHtml(row.sitename || "No site")} / ${escapeHtml(row.sectionname || "No section")} · ${escapeHtml(row.description || "No description")}</div>
+              <div class="asset-match-history-grid">
+                <div><span>Total History</span><strong>${escapeHtml(row.total_history || 0)}</strong></div>
+                <div><span>Visual Inspections</span><strong>${escapeHtml(row.visual_count || 0)}</strong><small>${escapeHtml(formatReportDate(row.latest_visual_date))} · ${escapeHtml(row.latest_visual_status || "-")}</small></div>
+                <div><span>Load Tests</span><strong>${escapeHtml(row.load_count || 0)}</strong><small>${escapeHtml(formatReportDate(row.latest_load_date))} · ${escapeHtml(row.latest_load_status || "-")}</small></div>
+                <div><span>History Assessment</span><strong>${escapeHtml(row.history_summary || "-")}</strong><small>${escapeHtml(formatReportDate(row.first_history_date))} to ${escapeHtml(formatReportDate(row.last_history_date))}</small></div>
+              </div>
+              <div class="form-actions">
+                <button type="button" onclick="openAccuracyAssetHistory('${safeAttr(row.assetid)}')">View Certification History</button>
+                ${canManageAssets ? `<button type="button" class="load-test-btn" onclick="openAssetSetupFromAccuracy('${safeAttr(row.assetid)}')">Open Asset Setup — Edit / Archive</button>` : ""}
+              </div>
+            </article>
+          `).join("") || '<p>No matching records were found.</p>'}
+        </div>
+      </div>
+    </div>
+  `
+}
+
+window.openAssetAccuracyMatches = async function (assetid) {
+  closeAssetAccuracyMatches()
+  const host = document.createElement("div")
+  host.id = "assetAccuracyMatchModalHost"
+  host.innerHTML = '<div class="asset-match-modal"><div class="asset-match-dialog"><p>Loading matching assets and certification history...</p></div></div>'
+  document.body.appendChild(host)
+  const response = await fetch(`${API_BASE}/reports/asset-register-accuracy/${encodeURIComponent(assetid)}/matches`)
+  const result = await response.json()
+  if (!response.ok) {
+    host.innerHTML = `<div class="asset-match-modal"><button class="asset-match-backdrop" onclick="closeAssetAccuracyMatches()"></button><div class="asset-match-dialog"><p class="login-error">${escapeHtml(result.error || "Unable to load matching assets")}</p><button onclick="closeAssetAccuracyMatches()">Close</button></div></div>`
+    return
+  }
+  host.innerHTML = renderAssetAccuracyMatchReview(result)
+}
+
+window.closeAssetAccuracyMatches = function () {
+  document.querySelector("#assetAccuracyMatchModalHost")?.remove()
+}
+
+window.openAccuracyAssetHistory = function (assetid) {
+  closeAssetAccuracyMatches()
+  if (window.currentUser?.role === "CUSTOMER") window.openCustomerAssetHistory?.(assetid)
+  else window.showAssetHistoryFromSetup?.(assetid)
+}
+
+window.openAssetSetupFromAccuracy = function (assetid) {
+  closeAssetAccuracyMatches()
+  window.assetListState = { searchType: "assetid", search: String(assetid), currentPage: 1, rowsPerPage: 25, archiveMode: "all" }
+  window.assetCurrentPage = 1
+  window.showAssetSetup?.()
+}
+
+async function loadAssetRegisterAccuracyReport() {
+  updateAssetAccuracyExcelLink()
+  const box = document.querySelector("#assetAccuracyPreview")
+  if (!box) return
+  box.className = "report-preview-empty"
+  box.innerHTML = "<p>Analysing the asset register...</p>"
+  const response = await fetch(`${API_BASE}/reports/asset-register-accuracy${getAssetAccuracyQuery({ paginated: true })}`)
+  const report = await response.json()
+  if (!response.ok) {
+    box.innerHTML = `<p class="login-error">${escapeHtml(report.error || "Unable to load the accuracy report")}</p>`
+    return
+  }
+  renderAssetAccuracyReport(report)
+}
+
+window.changeAssetAccuracyPage = function (direction) {
+  accuracyReportPage = Math.max(1, accuracyReportPage + Number(direction || 0))
+  loadAssetRegisterAccuracyReport()
+}
+
+window.setAssetAccuracyPageSize = function (value) {
+  accuracyReportPageSize = Number(value) || 25
+  accuracyReportPage = 1
+  loadAssetRegisterAccuracyReport()
 }
 
 window.updateCustomerReportLinks = updateCustomerReportLinks

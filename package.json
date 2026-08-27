@@ -35,6 +35,7 @@
     "test:responsible-ownership": "node scripts/regression/responsible-person-ownership.test.js",
     "test:customer-report-responsible": "node scripts/regression/customer-report-responsible-ownership.test.js",
     "test:customer-asset-history": "node scripts/regression/customer-asset-history.test.js",
+    "test:asset-register-accuracy": "node scripts/regression/asset-register-accuracy.test.js",
     "test:milestone1d-hierarchy": "node scripts/regression/milestone1d-asset-hierarchy-repair.test.js",
     "test:work-package-2-integrity": "node scripts/regression/work-package-2-inspection-integrity.test.js",
     "test:deployment-safety": "node scripts/regression/deployment-safety.test.js",

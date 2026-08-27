@@ -1,0 +1,48 @@
+const assert = require("assert")
+const fs = require("fs")
+const path = require("path")
+
+const root = path.resolve(__dirname, "../..")
+const server = fs.readFileSync(path.join(root, "backend/server.js"), "utf8")
+const page = fs.readFileSync(path.join(root, "frontend/src/pages/CustomerDetailedReport.js"), "utf8")
+const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"))
+
+for (const issue of [
+  "NEVER_CERTIFIED", "NO_VISUAL", "NO_LOAD_TEST", "NOT_PRESENTED",
+  "VISUAL_OVERDUE", "LOAD_TEST_OVERDUE", "POTENTIAL_DUPLICATE",
+  "MISSING_SERIAL", "SUSPICIOUS_SERIAL", "CURRENT_VERIFIED"
+]) {
+  assert(server.includes(`"${issue}"`), `Backend issue classification is missing: ${issue}`)
+  assert(page.includes(issue), `Frontend issue filter is missing: ${issue}`)
+}
+
+assert(server.includes('app.get("/reports/asset-register-accuracy"'), "Accuracy JSON route is missing")
+assert(server.includes('app.get("/reports/asset-register-accuracy.xlsx"'), "Accuracy Excel route is missing")
+assert(server.includes('app.get("/reports/asset-register-accuracy/:assetid/matches"'), "Potential duplicate comparison route is missing")
+assert(server.includes("history_summary"), "Duplicate comparison must explain whether each matching asset has certification history")
+assert(server.match(/routePath\.startsWith\("\/reports\/asset-register-accuracy"\)/g)?.length >= 3, "Accuracy report access must be available to customer, viewer and inspector read roles")
+assert(server.includes("COALESCE(record_status, 'ACTIVE') = 'ACTIVE'"), "Accuracy report must exclude superseded inspection records")
+assert(server.includes("normalizedAssetSerial"), "Normalized duplicate-serial detection is missing")
+assert(server.includes("display_serial"), "Serial selection must support hoist serial fallback")
+assert(server.includes("Action Owner"), "Excel action-owner column is missing")
+assert(server.includes("Action Status"), "Excel action-status column is missing")
+assert(server.includes("Action Notes"), "Excel action-notes column is missing")
+assert(page.includes("Asset Register Accuracy Report"), "Accuracy report UI is missing")
+assert(page.includes('id="assetAccuracyClient"'), "Accuracy report client filter is missing")
+assert(page.includes('id="assetAccuracySite"'), "Accuracy report site filter is missing")
+assert(page.includes('id="assetAccuracySection"'), "Accuracy report section filter is missing")
+assert(page.includes('id="assetAccuracyResponsible"'), "Accuracy report responsible-person filter is missing")
+assert(page.includes('id="assetAccuracyEquipmentGroup"'), "Accuracy report equipment-group filter is missing")
+assert(page.includes('id="assetAccuracyEquipment"'), "Accuracy report equipment-type filter is missing")
+assert(page.includes("refreshAssetAccuracyHierarchy"), "Accuracy report location filters must cascade")
+assert(page.includes("filterAssetAccuracyIssue"), "Accuracy summary amounts must filter the detailed results")
+assert(page.includes("openAssetAccuracyMatches"), "Accuracy assets must open their potential match comparison")
+assert(page.includes("Open Asset Setup — Edit / Archive"), "Potential match review must link to Asset Setup management")
+assert(page.includes("View Certification History"), "Potential match review must link to certification history")
+assert(page.includes('sortHeader("Asset ID", "assetAccuracy"'), "Accuracy table sortable headings are missing")
+assert(server.includes("ASSET_ACCURACY_SORT_KEYS"), "Accuracy report server-side sort allowlist is missing")
+assert(server.includes('requestedIssue === "NEEDS_ACTION"'), "Accuracy report needs a combined action-required filter")
+assert(page.includes("Potential duplicates and suspicious serials are indicators"), "Potential findings need a verification warning")
+assert.strictEqual(packageJson.scripts["test:asset-register-accuracy"], "node scripts/regression/asset-register-accuracy.test.js")
+
+console.log("Asset register accuracy regression checks passed")

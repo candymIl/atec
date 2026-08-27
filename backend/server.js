@@ -1972,6 +1972,7 @@ function authorizeRequest(req, res, next) {
         routePath.startsWith("/certificates") ||
         routePath.includes("/certificate") ||
         routePath.startsWith("/reports/customer-detailed") ||
+        routePath.startsWith("/reports/asset-register-accuracy") ||
         routePath.startsWith("/dashboard") ||
         routePath.startsWith("/inspection-photos") ||
         routePath.startsWith("/ndt/mpi/reports") ||
@@ -2000,6 +2001,7 @@ function authorizeRequest(req, res, next) {
         routePath.startsWith("/certificates") ||
         routePath.includes("/certificate") ||
         routePath.startsWith("/reports/customer-detailed") ||
+        routePath.startsWith("/reports/asset-register-accuracy") ||
         routePath.startsWith("/ndt/mpi/reports")
       )
     ) {
@@ -2036,6 +2038,7 @@ function authorizeRequest(req, res, next) {
         routePath.startsWith("/certificates") ||
         routePath.includes("/certificate") ||
         routePath.startsWith("/reports/customer-detailed") ||
+        routePath.startsWith("/reports/asset-register-accuracy") ||
         routePath.startsWith("/dashboard") ||
         routePath === "/auth/me" ||
         routePath.startsWith("/she/")
@@ -12691,6 +12694,366 @@ app.get("/reports/customer-detailed.xlsx", exportLimiter, async (req, res) => {
     res.end()
   } catch (err) {
     const referenceId = logSafeError("Customer detailed Excel", err)
+    res.status(500).json({ error: "An unexpected server error occurred", referenceId })
+  }
+})
+
+const ASSET_ACCURACY_ISSUES = new Set([
+  "NEVER_CERTIFIED",
+  "NO_VISUAL",
+  "NO_LOAD_TEST",
+  "NOT_PRESENTED",
+  "VISUAL_OVERDUE",
+  "LOAD_TEST_OVERDUE",
+  "POTENTIAL_DUPLICATE",
+  "MISSING_SERIAL",
+  "SUSPICIOUS_SERIAL",
+  "CURRENT_VERIFIED"
+])
+
+const ASSET_ACCURACY_SORT_KEYS = new Set([
+  "clientname", "assetid", "display_serial", "sitename", "sectionname",
+  "equipmenttype", "visual_date", "load_date", "issue_labels", "recommended_action"
+])
+const ASSET_ACCURACY_PLACEHOLDER_SERIALS = new Set(["", "NA", "NONE", "UNKNOWN", "TBC", "TBA", "NIL", "NOTAVAILABLE", "NOSERIAL"])
+
+function normalizedAssetSerial(value) {
+  return String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "")
+}
+
+function assetAccuracySerialForRow(row) {
+  const primary = String(row.serialno || "").trim()
+  if (!ASSET_ACCURACY_PLACEHOLDER_SERIALS.has(normalizedAssetSerial(primary))) return primary
+  return String(row.hoistserialno || "").trim() || primary
+}
+
+function assetAccuracyRecommendation(issues) {
+  if (issues.includes("POTENTIAL_DUPLICATE")) return "Verify physical unit and merge/archive confirmed duplicate records"
+  if (issues.includes("MISSING_SERIAL") || issues.includes("SUSPICIOUS_SERIAL")) return "Verify and correct the serial number against the physical unit"
+  if (issues.includes("NOT_PRESENTED")) return "Confirm the unit still exists and arrange customer presentation"
+  if (issues.includes("NEVER_CERTIFIED") || issues.includes("NO_VISUAL") || issues.includes("NO_LOAD_TEST")) return "Arrange the required inspection or load test"
+  if (issues.includes("VISUAL_OVERDUE") || issues.includes("LOAD_TEST_OVERDUE")) return "Arrange overdue certification"
+  return "No register action required"
+}
+
+async function getAssetRegisterAccuracyReport(req, options = {}) {
+  const filters = customerScopedReportFilters(req)
+  const values = []
+  let where = `
+    WHERE COALESCE(a.archived, false) = false
+      AND COALESCE(c.archived, false) = false
+      AND COALESCE(s.archived, false) = false
+      AND COALESCE(sec.archived, false) = false
+  `
+
+  const addFilter = (value, sql) => {
+    if (!value) return
+    values.push(value)
+    where += ` AND ${sql.replace("?", `$${values.length}`)}`
+  }
+
+  addFilter(filters.clientid, "a.clientid = ?")
+  addFilter(filters.siteid, "a.siteid = ?")
+  addFilter(filters.sectionid, "a.sectionid = ?")
+  addFilter(filters.responsibleid, "sec.responsibleid = ?")
+  addFilter(filters.equipgroupid, "et.equipgroupid = ?")
+  addFilter(filters.equiptypeid, "a.equiptypeid = ?")
+
+  const result = await pool.query(`
+    WITH latest_visual AS (
+      SELECT DISTINCT ON (assetid) assetid, testid, testdate, validdate, status
+      FROM atec.tblinspection
+      WHERE inspectiontype = 'VISUAL'
+        AND COALESCE(record_status, 'ACTIVE') = 'ACTIVE'
+      ORDER BY assetid, testdate DESC NULLS LAST, testid DESC
+    ),
+    latest_load AS (
+      SELECT DISTINCT ON (assetid) assetid, testid, testdate, validdate, status
+      FROM atec.tblinspection
+      WHERE inspectiontype = 'LOADTEST'
+        AND COALESCE(record_status, 'ACTIVE') = 'ACTIVE'
+      ORDER BY assetid, testdate DESC NULLS LAST, testid DESC
+    )
+    SELECT
+      a.assetid, a.clientid, a.assettagno, a.serialno, a.hoistserialno, a.description,
+      c.clientname, s.sitename, sec.sectionname,
+      section_person.name AS responsiblename,
+      et.equipgroupid, eg.groupname AS equipmentgroup, et.description AS equipmenttype,
+      ${assetSupportsLoadTestSql("a")} AS supports_load_test,
+      lv.testid AS visual_testid, lv.testdate AS visual_date, lv.validdate AS visual_valid_date, lv.status AS visual_status,
+      ll.testid AS load_testid, ll.testdate AS load_date, ll.validdate AS load_valid_date, ll.status AS load_status
+    FROM atec.tblasset a
+    JOIN atec.tblclients c ON c.clientid = a.clientid
+    LEFT JOIN atec.tblsites s ON s.siteid = a.siteid
+    LEFT JOIN atec.tblsection sec ON sec.sectionid = a.sectionid
+    LEFT JOIN atec.tblpeople section_person ON section_person.personid = sec.responsibleid
+    LEFT JOIN atec.tblequiptype et ON et.equiptypeid = a.equiptypeid
+    LEFT JOIN atec.tblequipgroup eg ON eg.equipgroupid = et.equipgroupid
+    LEFT JOIN latest_visual lv ON lv.assetid = a.assetid
+    LEFT JOIN latest_load ll ON ll.assetid = a.assetid
+    ${where}
+    ORDER BY c.clientname, s.sitename, sec.sectionname, a.assetid
+  `, values)
+
+  const serialGroups = new Map()
+  result.rows.forEach(row => {
+    const normalized = normalizedAssetSerial(assetAccuracySerialForRow(row))
+    if (ASSET_ACCURACY_PLACEHOLDER_SERIALS.has(normalized)) return
+    const key = `${row.clientid}:${normalized}`
+    serialGroups.set(key, (serialGroups.get(key) || 0) + 1)
+  })
+
+  const cutoffText = String(req.query.cutoff || "").trim()
+  const cutoff = /^\d{4}-\d{2}-\d{2}$/.test(cutoffText) ? new Date(`${cutoffText}T00:00:00Z`) : null
+  const today = new Date()
+  today.setUTCHours(0, 0, 0, 0)
+
+  const allRows = result.rows.map(row => {
+    const rawSerial = assetAccuracySerialForRow(row)
+    const normalizedSerial = normalizedAssetSerial(rawSerial)
+    const missingSerial = ASSET_ACCURACY_PLACEHOLDER_SERIALS.has(normalizedSerial)
+    const suspiciousSerial = !missingSerial && (
+      normalizedSerial.length < 4 ||
+      /^([A-Z0-9])\1+$/.test(normalizedSerial) ||
+      /^(TEST|DUMMY|SAMPLE|TEMP)/.test(normalizedSerial)
+    )
+    const duplicateCount = missingSerial ? 0 : (serialGroups.get(`${row.clientid}:${normalizedSerial}`) || 0)
+    const visualDate = row.visual_date ? new Date(row.visual_date) : null
+    const loadDate = row.load_date ? new Date(row.load_date) : null
+    const latestCertificationDate = [visualDate, loadDate].filter(Boolean).sort((a, b) => b - a)[0] || null
+    const issues = []
+
+    if (!visualDate && !loadDate) issues.push("NEVER_CERTIFIED")
+    if (!visualDate) issues.push("NO_VISUAL")
+    if (row.supports_load_test === true && !loadDate) issues.push("NO_LOAD_TEST")
+    if (cutoff && (!latestCertificationDate || latestCertificationDate < cutoff)) issues.push("NOT_PRESENTED")
+    if (row.visual_valid_date && new Date(row.visual_valid_date) < today) issues.push("VISUAL_OVERDUE")
+    if (row.supports_load_test === true && row.load_valid_date && new Date(row.load_valid_date) < today) issues.push("LOAD_TEST_OVERDUE")
+    if (duplicateCount > 1) issues.push("POTENTIAL_DUPLICATE")
+    if (missingSerial) issues.push("MISSING_SERIAL")
+    if (suspiciousSerial) issues.push("SUSPICIOUS_SERIAL")
+    if (!issues.length) issues.push("CURRENT_VERIFIED")
+
+    return {
+      ...row,
+      display_serial: rawSerial,
+      normalized_serial: normalizedSerial,
+      duplicate_count: duplicateCount,
+      latest_certification_date: latestCertificationDate ? latestCertificationDate.toISOString().slice(0, 10) : null,
+      issues,
+      issue_labels: issues.map(issue => issue.replaceAll("_", " ")),
+      recommended_action: assetAccuracyRecommendation(issues)
+    }
+  })
+
+  const requestedIssue = String(req.query.issue || "").trim().toUpperCase()
+  const filteredRows = requestedIssue === "NEEDS_ACTION"
+    ? allRows.filter(row => !row.issues.includes("CURRENT_VERIFIED"))
+    : ASSET_ACCURACY_ISSUES.has(requestedIssue)
+      ? allRows.filter(row => row.issues.includes(requestedIssue))
+      : allRows
+  const sortKey = ASSET_ACCURACY_SORT_KEYS.has(String(req.query.sortKey || "")) ? String(req.query.sortKey) : "assetid"
+  const sortDirection = String(req.query.sortDir || "asc").toLowerCase() === "desc" ? -1 : 1
+  const rows = [...filteredRows].sort((left, right) => {
+    const leftValue = sortKey === "issue_labels" ? left.issue_labels.join(", ") : left[sortKey]
+    const rightValue = sortKey === "issue_labels" ? right.issue_labels.join(", ") : right[sortKey]
+    if (sortKey === "assetid" || sortKey === "duplicate_count") {
+      return (Number(leftValue || 0) - Number(rightValue || 0)) * sortDirection
+    }
+    return String(leftValue || "").localeCompare(String(rightValue || ""), undefined, { numeric: true }) * sortDirection
+  })
+  const issueCounts = [...ASSET_ACCURACY_ISSUES].reduce((counts, issue) => {
+    counts[issue] = allRows.filter(row => row.issues.includes(issue)).length
+    return counts
+  }, {})
+  const page = parsePositiveInteger(options.page, 1, 100000)
+  const limit = parsePositiveInteger(options.limit, 25, 250)
+  const totalPages = Math.max(1, Math.ceil(rows.length / limit))
+  const safePage = Math.min(page, totalPages)
+  const offset = (safePage - 1) * limit
+
+  return {
+    generatedAt: new Date().toISOString(),
+    cutoff: cutoffText,
+    issue: requestedIssue,
+    summary: {
+      assetsReviewed: allRows.length,
+      assetsNeedingAction: allRows.filter(row => !row.issues.includes("CURRENT_VERIFIED")).length,
+      currentVerified: issueCounts.CURRENT_VERIFIED,
+      issueCounts
+    },
+    rows: options.paginated ? rows.slice(offset, offset + limit) : rows,
+    pagination: options.paginated ? { page: safePage, limit, total: rows.length, totalPages } : null
+  }
+}
+
+function buildAssetAccuracyWorkbook(report, includeCustomerColumns) {
+  const workbook = new ExcelJS.Workbook()
+  const sheet = workbook.addWorksheet("Asset Register Accuracy")
+  sheet.columns = [
+    ...(includeCustomerColumns ? [{ header: "Customer", key: "clientname", width: 28 }] : []),
+    { header: "Asset ID", key: "assetid", width: 12 },
+    { header: "Serial Number", key: "serialno", width: 20 },
+    { header: "Duplicate Count", key: "duplicate_count", width: 16 },
+    { header: "Site", key: "sitename", width: 22 },
+    { header: "Section", key: "sectionname", width: 28 },
+    { header: "Responsible Person", key: "responsiblename", width: 24 },
+    { header: "Equipment Group", key: "equipmentgroup", width: 24 },
+    { header: "Equipment Type", key: "equipmenttype", width: 30 },
+    { header: "Description", key: "description", width: 35 },
+    { header: "Last Visual", key: "visual_date", width: 15 },
+    { header: "Last Load Test", key: "load_date", width: 15 },
+    { header: "Latest Certification", key: "latest_certification_date", width: 18 },
+    { header: "Register Issues", key: "issues", width: 45 },
+    { header: "Recommended Action", key: "recommended_action", width: 55 },
+    { header: "Action Owner", key: "action_owner", width: 20 },
+    { header: "Action Status", key: "action_status", width: 18 },
+    { header: "Action Notes", key: "action_notes", width: 40 }
+  ]
+  report.rows.forEach(row => sheet.addRow({
+    ...row,
+    serialno: row.display_serial || "",
+    visual_date: reportDate(row.visual_date),
+    load_date: reportDate(row.load_date),
+    issues: row.issue_labels.join(", "),
+    action_owner: "",
+    action_status: "OPEN",
+    action_notes: ""
+  }))
+  sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } }
+  sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF1F3B5C" } }
+  sheet.views = [{ state: "frozen", ySplit: 1 }]
+  sheet.autoFilter = { from: "A1", to: `${sheet.getColumn(sheet.columnCount).letter}1` }
+  return workbook
+}
+
+app.get("/reports/asset-register-accuracy", searchLimiter, async (req, res) => {
+  try {
+    res.json(await getAssetRegisterAccuracyReport(req, {
+      paginated: true,
+      page: req.query.page,
+      limit: req.query.limit
+    }))
+  } catch (err) {
+    const referenceId = logSafeError("Asset register accuracy report", err)
+    res.status(500).json({ error: "An unexpected server error occurred", referenceId })
+  }
+})
+
+app.get("/reports/asset-register-accuracy/:assetid/matches", searchLimiter, async (req, res) => {
+  try {
+    const targetValues = [req.params.assetid]
+    let customerScope = ""
+    if (req.user.role === "CUSTOMER") {
+      targetValues.push(req.user.clientid || -1)
+      customerScope = `AND a.clientid = $${targetValues.length}`
+    }
+    const targetResult = await pool.query(`
+      SELECT a.assetid, a.clientid, a.serialno, a.hoistserialno
+      FROM atec.tblasset a
+      WHERE a.assetid = $1 ${customerScope}
+      LIMIT 1
+    `, targetValues)
+    if (!targetResult.rows.length) return res.status(404).json({ error: "Asset not found in your permitted scope." })
+
+    const target = targetResult.rows[0]
+    const targetSerial = assetAccuracySerialForRow(target)
+    const normalizedTarget = normalizedAssetSerial(targetSerial)
+    const candidates = await pool.query(`
+      SELECT
+        a.assetid, a.clientid, a.serialno, a.hoistserialno, a.assettagno, a.description, a.archived,
+        c.clientname, s.sitename, sec.sectionname, et.description AS equipmenttype,
+        history.total_history, history.visual_count, history.load_count,
+        history.first_history_date, history.last_history_date,
+        latest_visual.testid AS latest_visual_testid, latest_visual.testdate AS latest_visual_date, latest_visual.status AS latest_visual_status,
+        latest_load.testid AS latest_load_testid, latest_load.testdate AS latest_load_date, latest_load.status AS latest_load_status
+      FROM atec.tblasset a
+      JOIN atec.tblclients c ON c.clientid = a.clientid
+      LEFT JOIN atec.tblsites s ON s.siteid = a.siteid
+      LEFT JOIN atec.tblsection sec ON sec.sectionid = a.sectionid
+      LEFT JOIN atec.tblequiptype et ON et.equiptypeid = a.equiptypeid
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(DISTINCT i.testid)::int AS total_history,
+          COUNT(DISTINCT i.testid) FILTER (WHERE i.inspectiontype = 'VISUAL')::int AS visual_count,
+          COUNT(DISTINCT i.testid) FILTER (WHERE i.inspectiontype = 'LOADTEST')::int AS load_count,
+          MIN(i.testdate) AS first_history_date,
+          MAX(i.testdate) AS last_history_date
+        FROM atec.tblinspection i
+        WHERE i.assetid = a.assetid AND COALESCE(i.record_status, 'ACTIVE') = 'ACTIVE'
+      ) history ON true
+      LEFT JOIN LATERAL (
+        SELECT i.testid, i.testdate, i.status
+        FROM atec.tblinspection i
+        WHERE i.assetid = a.assetid AND i.inspectiontype = 'VISUAL' AND COALESCE(i.record_status, 'ACTIVE') = 'ACTIVE'
+        ORDER BY i.testdate DESC NULLS LAST, i.testid DESC LIMIT 1
+      ) latest_visual ON true
+      LEFT JOIN LATERAL (
+        SELECT i.testid, i.testdate, i.status
+        FROM atec.tblinspection i
+        WHERE i.assetid = a.assetid AND i.inspectiontype = 'LOADTEST' AND COALESCE(i.record_status, 'ACTIVE') = 'ACTIVE'
+        ORDER BY i.testdate DESC NULLS LAST, i.testid DESC LIMIT 1
+      ) latest_load ON true
+      WHERE a.clientid = $1
+        AND (
+          (
+            $2::text <> ''
+            AND UPPER(REGEXP_REPLACE(
+              CASE
+                WHEN UPPER(REGEXP_REPLACE(COALESCE(a.serialno, ''), '[^A-Za-z0-9]', '', 'g')) NOT IN ('', 'NA', 'NONE', 'UNKNOWN', 'TBC', 'TBA', 'NIL', 'NOTAVAILABLE', 'NOSERIAL')
+                  THEN a.serialno
+                ELSE COALESCE(NULLIF(a.hoistserialno, ''), a.serialno, '')
+              END,
+              '[^A-Za-z0-9]', '', 'g'
+            )) = $2::text
+          )
+          OR ($2::text = '' AND a.assetid = $3)
+        )
+      ORDER BY COALESCE(a.archived, false), a.assetid
+    `, [target.clientid, ASSET_ACCURACY_PLACEHOLDER_SERIALS.has(normalizedTarget) ? "" : normalizedTarget, target.assetid])
+
+    const matches = candidates.rows.filter(row => {
+      if (ASSET_ACCURACY_PLACEHOLDER_SERIALS.has(normalizedTarget)) return String(row.assetid) === String(target.assetid)
+      return normalizedAssetSerial(assetAccuracySerialForRow(row)) === normalizedTarget
+    }).map(row => ({
+      ...row,
+      display_serial: assetAccuracySerialForRow(row),
+      is_selected: String(row.assetid) === String(target.assetid),
+      history_summary: Number(row.total_history || 0) === 0
+        ? "No certification history"
+        : Number(row.visual_count || 0) > 0 && Number(row.load_count || 0) > 0
+          ? "Visual and load-test history"
+          : Number(row.visual_count || 0) > 0
+            ? "Visual inspection history only"
+            : "Load-test history only"
+    }))
+
+    res.json({
+      selectedAssetId: target.assetid,
+      serial: targetSerial,
+      normalizedSerial: normalizedTarget,
+      matchCount: matches.length,
+      matches
+    })
+  } catch (err) {
+    const referenceId = logSafeError("Asset accuracy duplicate review", err)
+    res.status(500).json({ error: "An unexpected server error occurred", referenceId })
+  }
+})
+
+app.get("/reports/asset-register-accuracy.xlsx", exportLimiter, async (req, res) => {
+  try {
+    const report = await getAssetRegisterAccuracyReport(req)
+    if (report.rows.length > reportExportMaxRows) {
+      return res.status(400).json({ error: `Report export is limited to ${reportExportMaxRows} rows. Please use filters to reduce the result size.` })
+    }
+    const workbook = buildAssetAccuracyWorkbook(report, req.user.role !== "CUSTOMER")
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    res.setHeader("Content-Disposition", 'attachment; filename="asset-register-accuracy-report.xlsx"')
+    await workbook.xlsx.write(res)
+    res.end()
+  } catch (err) {
+    const referenceId = logSafeError("Asset register accuracy Excel", err)
     res.status(500).json({ error: "An unexpected server error occurred", referenceId })
   }
 })
