@@ -5866,6 +5866,65 @@ window.unarchiveAsset = async function (assetid) {
   showAssetSetup();
 };
 
+window.permanentlyDeleteArchivedAsset = async function (assetid) {
+  if (window.currentUser?.role !== "ADMIN") {
+    alert("Only administrators may permanently delete assets.")
+    return
+  }
+
+  const eligibilityResponse = await fetch(`${API_BASE}/assets/${encodeURIComponent(assetid)}/permanent-delete-eligibility`)
+  const eligibility = await eligibilityResponse.json()
+  if (!eligibilityResponse.ok) {
+    alert(eligibility.error || "Unable to verify whether this asset can be permanently deleted.")
+    return
+  }
+
+  if (!eligibility.eligible) {
+    const blockers = (eligibility.blockingDependencies || [])
+      .map(item => `${item.label}: ${item.count}`)
+      .join("\n")
+    alert(`${eligibility.reason}${blockers ? `\n\nLinked records:\n${blockers}` : ""}`)
+    return
+  }
+
+  const typedId = prompt(`PERMANENT DELETE cannot be undone.\n\nType Asset ID ${assetid} exactly to continue.`)
+  if (typedId === null) return
+  if (typedId.trim() !== String(assetid)) {
+    alert("The Asset ID did not match. Nothing was deleted.")
+    return
+  }
+
+  const reasonInput = prompt("Enter the verified reason for permanently deleting this empty archived asset.")
+  if (reasonInput === null) return
+  const reason = reasonInput.trim()
+  if (!reason) {
+    alert("A permanent-delete reason is required.")
+    return
+  }
+  if (reason.length > 1000) {
+    alert("The permanent-delete reason must be 1000 characters or fewer.")
+    return
+  }
+
+  if (!confirm(`Final confirmation: permanently delete archived Asset ${assetid}?\n\nThis cannot be undone. An audit record will remain.`)) return
+
+  const response = await fetch(`${API_BASE}/assets/${encodeURIComponent(assetid)}/permanent`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirmation: typedId.trim(), reason })
+  })
+  const result = await response.json()
+  if (!response.ok) {
+    const blockers = (result.dependencies || []).map(item => `${item.label}: ${item.count}`).join("\n")
+    alert(`${result.error || "The asset could not be permanently deleted."}${blockers ? `\n\nLinked records:\n${blockers}` : ""}`)
+    return
+  }
+
+  alert(`Asset ${assetid} was permanently deleted. The audit record was retained.`)
+  await loadData()
+  showAssetSetup()
+}
+
 window.uploadAssetPhotos = async function (assetid) {
   if (!canManageAssetRecords()) {
     alert("You do not have permission to update asset photos.")

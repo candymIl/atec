@@ -25,6 +25,7 @@ export function renderAssetRow(asset) {
   const serialDisplay = asset.serialno || asset.hoistserialno || ''
   const canManageAssets = ['ADMIN', 'MANAGER', 'INSPECTOR'].includes(window.currentUser?.role)
   const canArchiveOrMoveAssets = ['ADMIN', 'MANAGER'].includes(window.currentUser?.role)
+  const canPermanentlyDeleteAssets = window.currentUser?.role === 'ADMIN'
   const assetid = escapeHtml(asset.assetid)
   const assetTag = escapeHtml(asset.assettagno || '')
   const serial = escapeHtml(serialDisplay)
@@ -96,7 +97,10 @@ export function renderAssetRow(asset) {
             </button>
 
             ${isArchived
-              ? `<button onclick="unarchiveAsset(${asset.assetid})">Unarchive</button>`
+              ? `
+                <button onclick="unarchiveAsset(${asset.assetid})">Unarchive</button>
+                ${canPermanentlyDeleteAssets ? `<button class="danger-btn" onclick="permanentlyDeleteArchivedAsset(${asset.assetid})">Delete Permanently</button>` : ''}
+              `
               : `<button onclick="archiveAsset(${asset.assetid})">Archive</button>`}
           ` : ''}
         </div>
