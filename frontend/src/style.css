@@ -5663,6 +5663,8 @@ tr:hover {
 }
 
 #certificateResults {
+  container-name: certificate-results;
+  container-type: inline-size;
   width: 100% !important;
   min-width: 0;
   overflow-x: visible !important;
@@ -5969,6 +5971,239 @@ tr:hover {
   min-width: 64px;
   padding: 4px;
   width: 64px;
+}
+
+/* Compact certificate worklist */
+.certificate-worklist {
+  border: 1px solid #d7deea;
+  border-radius: 8px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.certificate-worklist-header {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.35fr) minmax(90px, .8fr) minmax(78px, .65fr) minmax(92px, .75fr) 82px minmax(112px, .9fr) 188px;
+  gap: 8px;
+  align-items: center;
+}
+
+.certificate-row-summary {
+  display: grid;
+  grid-template-columns: minmax(150px, 1.35fr) minmax(90px, .8fr) minmax(78px, .65fr) minmax(92px, .75fr) 82px minmax(112px, .9fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.certificate-worklist-header {
+  background: #263556;
+  color: #ffffff;
+  font-size: 11px;
+  padding: 7px 10px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.certificate-worklist-header .certificate-sort-heading {
+  min-width: 0;
+}
+
+.certificate-worklist-header .certificate-sort-heading > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.certificate-worklist-row {
+  border-bottom: 1px solid #e0e6ef;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 188px;
+}
+
+.certificate-worklist-row:last-child {
+  border-bottom: 0;
+}
+
+.certificate-worklist-row.expanded,
+.certificate-worklist-row.selected-certificate-row {
+  background: #f5f3ff;
+}
+
+.certificate-row-summary {
+  background: transparent;
+  border: 0;
+  color: #1f2937;
+  cursor: pointer;
+  font: inherit;
+  min-height: 52px;
+  padding: 6px 10px;
+  text-align: left;
+  width: 100%;
+}
+
+.certificate-row-summary:hover {
+  background: #f7f8fc;
+}
+
+.certificate-worklist-identity,
+.certificate-worklist-serial,
+.certificate-worklist-inspector {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.certificate-worklist-identity strong,
+.certificate-worklist-identity small {
+  display: block;
+}
+
+.certificate-worklist-identity small,
+.certificate-worklist-details small {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.certificate-worklist-status strong {
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 10px;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.certificate-worklist-actions {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+  justify-content: flex-end;
+  min-height: 40px;
+  padding: 3px 10px;
+}
+
+.certificate-worklist-actions button,
+.certificate-worklist-actions .cert-action-link {
+  align-items: center;
+  border-radius: 5px;
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 700;
+  height: 30px;
+  justify-content: center;
+  min-width: 54px;
+  padding: 5px 8px;
+  text-decoration: none;
+}
+
+.certificate-worklist-actions .cert-download-btn {
+  background: #16a34a;
+  color: #ffffff;
+}
+
+.certificate-more-btn {
+  background: #475569;
+}
+
+.certificate-worklist-details {
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px 18px;
+  grid-column: 1 / -1;
+  padding: 10px 14px 11px;
+}
+
+.certificate-worklist-details[hidden] {
+  display: none;
+}
+
+.certificate-worklist-details > span,
+.certificate-worklist-details > span small {
+  display: block;
+}
+
+.certificate-detail-actions {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+}
+
+.certificate-detail-actions button {
+  min-height: 32px;
+}
+
+.certificate-detail-actions .cert-delete-btn {
+  background: #dc2626;
+}
+
+@container certificate-results (max-width: 1000px) {
+  .certificate-worklist-header {
+    grid-template-columns: minmax(170px, 1.5fr) minmax(100px, .8fr) minmax(100px, .8fr) 90px 188px;
+  }
+
+  .certificate-row-summary {
+    grid-template-columns: minmax(170px, 1.5fr) minmax(100px, .8fr) minmax(100px, .8fr) 90px;
+  }
+
+  .certificate-worklist-header > :nth-child(3),
+  .certificate-worklist-header > :nth-child(6),
+  .certificate-worklist-type,
+  .certificate-worklist-inspector {
+    display: none;
+  }
+}
+
+@container certificate-results (max-width: 650px) {
+  .certificate-worklist-header {
+    display: none;
+  }
+
+  .certificate-row-summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+    min-height: 58px;
+    padding: 8px 10px;
+  }
+
+  .certificate-worklist-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .certificate-worklist-serial,
+  .certificate-worklist-type,
+  .certificate-worklist-date,
+  .certificate-worklist-inspector {
+    display: none;
+  }
+
+  .certificate-worklist-status {
+    align-self: start;
+  }
+
+  .certificate-worklist-actions {
+    justify-content: flex-start;
+    min-height: 48px;
+    padding: 0 10px 8px;
+  }
+
+  .certificate-worklist-actions button,
+  .certificate-worklist-actions .cert-action-link {
+    min-height: 40px;
+    min-width: 64px;
+  }
+
+  .certificate-worklist-details {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .certificate-detail-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 .voided-certificates-card { margin-top: 18px; }

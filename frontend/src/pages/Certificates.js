@@ -630,127 +630,78 @@ function renderCertificateResults(certificates) {
       onPageSize: "setCertificateRowsPerPage"
     })}
 
-    <div class="certificate-table-scrollbar-top ${isCustomerUser ? "customer-scoped" : ""}" aria-label="Scroll certificate table left and right" tabindex="0">
-      <div class="certificate-table-scrollbar-spacer"></div>
-    </div>
-    <div class="certificate-table-scroll-region ${isCustomerUser ? "customer-scoped" : ""}">
-    <table class="certificate-search-table ${isCustomerUser ? "customer-scoped" : ""}">
-      <colgroup>
-        <col class="certificate-col-test-id">
-        <col class="certificate-col-job-number">
-        ${isCustomerUser ? "" : `<col class="certificate-col-tag-number">`}
-        ${isCustomerUser ? "" : `<col class="certificate-col-client">`}
-        <col class="certificate-col-site">
-        <col class="certificate-col-asset">
-        <col class="certificate-col-serial">
-        <col class="certificate-col-type">
-        <col class="certificate-col-date">
-        <col class="certificate-col-status">
-        <col class="certificate-col-inspector">
-        <col class="certificate-col-actions">
-      </colgroup>
-      <thead>
-        <tr>
-          <th>${certificateSortHeader('Test ID', 'testid')}</th>
-          <th>${certificateSortHeader('Job Number', 'job_number')}</th>
-          ${isCustomerUser ? "" : `<th>${certificateSortHeader('Tag No', 'tagnumber')}</th>`}
-          ${isCustomerUser ? "" : `<th>${certificateSortHeader('Client', 'clientname')}</th>`}
-          <th>${certificateSortHeader('Site', 'sitename')}</th>
-          <th>${certificateSortHeader('Asset', 'description')}</th>
-          <th>${certificateSortHeader('Serial No', 'serialno')}</th>
-          <th>${certificateSortHeader('Type', 'inspectiontype')}</th>
-          <th>${certificateSortHeader('Date', 'testdate')}</th>
-          <th>${certificateSortHeader('Status', 'status')}</th>
-          <th>${certificateSortHeader('Inspector', 'inspector')}</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-
-      <tbody>
+    <div class="certificate-worklist ${isCustomerUser ? "customer-scoped" : ""}">
+      <div class="certificate-worklist-header">
+        <span>${certificateSortHeader(isCustomerUser ? 'Asset' : 'Tag / Asset', isCustomerUser ? 'description' : 'tagnumber')}</span>
+        <span>${certificateSortHeader('Serial No', 'serialno')}</span>
+        <span>${certificateSortHeader('Type', 'inspectiontype')}</span>
+        <span>${certificateSortHeader('Date', 'testdate')}</span>
+        <span>${certificateSortHeader('Status', 'status')}</span>
+        <span>${certificateSortHeader('Inspector', 'inspector')}</span>
+        <span>Actions</span>
+      </div>
+      <div class="certificate-worklist-body">
         ${pagination.rows.map(cert => {
           const testid = safeAttr(cert.testid)
           const status = escapeHtml(cert.status || "")
+          const tag = escapeHtml(cert.tagnumber || "-")
+          const asset = escapeHtml(cert.description || "-")
 
           return `
-          <tr data-testid="${testid}">
-            <td>${escapeHtml(cert.testid)}</td>
-            <td>${escapeHtml(cert.job_number || "-")}</td>
-            ${isCustomerUser ? "" : `<td>${escapeHtml(cert.tagnumber || "-")}</td>`}
-            ${isCustomerUser ? "" : `<td>${escapeHtml(cert.clientname || "")}</td>`}
-            <td>${escapeHtml(cert.sitename || "")}</td>
-            <td class="certificate-asset-cell">${escapeHtml(cert.description || "")}</td>
-            <td class="certificate-serial-cell">${escapeHtml(cert.serialno || "")}</td>
-            <td class="certificate-type-cell">${escapeHtml(cert.inspectiontype || "")}</td>
-            <td>${escapeHtml(formatDate(cert.testdate))}</td>
-            <td>
+          <article class="certificate-worklist-row" data-testid="${testid}">
+            <button
+              type="button"
+              class="certificate-row-summary"
+              data-testid="${testid}"
+              aria-expanded="false"
+              aria-controls="certificate-details-${testid}"
+            >
+              <span class="certificate-worklist-identity">
+                <strong>${isCustomerUser ? asset : tag}</strong>
+                <small>${isCustomerUser ? `Certificate ${escapeHtml(cert.testid)}` : `${asset} · Cert ${escapeHtml(cert.testid)}`}</small>
+              </span>
+              <span class="certificate-worklist-serial" data-label="Serial No">${escapeHtml(cert.serialno || "-")}</span>
+              <span class="certificate-worklist-type" data-label="Type">${escapeHtml(cert.inspectiontype || "-")}</span>
+              <span class="certificate-worklist-date" data-label="Date">${escapeHtml(formatDate(cert.testdate))}</span>
+              <span class="certificate-worklist-status" data-label="Status">
               <strong class="${cert.status === "SAFE" ? "status-safe" : "status-unsafe"}">
                 ${status}
               </strong>
-            </td>
-            <td>${escapeHtml(cert.inspector || "-")}</td>
-            <td>
+              </span>
+              <span class="certificate-worklist-inspector" data-label="Inspector">${escapeHtml(cert.inspector || "-")}</span>
+            </button>
+            <div class="certificate-worklist-actions" data-label="Actions">
               <button type="button" class="cert-preview-btn" data-testid="${testid}">
                 Preview
               </button>
-
-              <button type="button" class="cert-view-btn" data-testid="${testid}">
-                View
-              </button>
-
               <a
                 class="cert-action-link cert-download-btn"
                 href="${API_BASE}/inspections/${encodeURIComponent(cert.testid)}/certificate.pdf?t=${Date.now()}"
                 download="certificate-${testid}.pdf"
                 onclick="event.stopPropagation()"
               >
-                Download PDF
+                PDF
               </a>
-
-              <button type="button" class="cert-mail-btn" data-testid="${testid}">
-                Mail
-              </button>
-
-              ${showVoidCertificateAction ? `
-                <button
-                  type="button"
-                  class="cert-delete-btn"
-                  data-testid="${testid}"
-                  title="Mark this certificate as entered in error and retain it in the audit history"
-                  aria-label="Mark certificate ${testid} as entered in error"
-                >
-                  Mark as Error
-                </button>
-              ` : ""}
-            </td>
-          </tr>
+              <button type="button" class="certificate-more-btn" data-testid="${testid}" aria-expanded="false" aria-controls="certificate-details-${testid}">More</button>
+            </div>
+            <div class="certificate-worklist-details" id="certificate-details-${testid}" hidden>
+              ${isCustomerUser ? "" : `<span><small>Client</small>${escapeHtml(cert.clientname || "-")}</span>`}
+              <span><small>Site</small>${escapeHtml(cert.sitename || "-")}</span>
+              <span><small>Job Number</small>${escapeHtml(cert.job_number || "-")}</span>
+              <span><small>Certificate ID</small>${escapeHtml(cert.testid)}</span>
+              <div class="certificate-detail-actions">
+                <button type="button" class="cert-view-btn" data-testid="${testid}">View Details</button>
+                <button type="button" class="cert-mail-btn" data-testid="${testid}">Mail</button>
+                ${showVoidCertificateAction ? `<button type="button" class="cert-delete-btn" data-testid="${testid}" title="Mark this certificate as entered in error and retain it in the audit history" aria-label="Mark certificate ${testid} as entered in error">Mark as Error</button>` : ""}
+              </div>
+            </div>
+          </article>
         `}).join("")}
-      </tbody>
-    </table>
+      </div>
     </div>
   `
 
-  bindCertificateTableScrollbars()
   bindCertificateResultEvents()
-}
-
-function bindCertificateTableScrollbars() {
-  const topScrollbar = document.querySelector('#certificateResults .certificate-table-scrollbar-top')
-  const topSpacer = document.querySelector('#certificateResults .certificate-table-scrollbar-spacer')
-  const tableRegion = document.querySelector('#certificateResults .certificate-table-scroll-region')
-  const table = tableRegion?.querySelector('.certificate-search-table')
-  if (!topScrollbar || !topSpacer || !tableRegion || !table) return
-
-  topSpacer.style.width = `${table.scrollWidth}px`
-  let synchronizing = false
-  const synchronize = (source, target) => {
-    if (synchronizing) return
-    synchronizing = true
-    target.scrollLeft = source.scrollLeft
-    window.requestAnimationFrame(() => { synchronizing = false })
-  }
-
-  topScrollbar.addEventListener('scroll', () => synchronize(topScrollbar, tableRegion))
-  tableRegion.addEventListener('scroll', () => synchronize(tableRegion, topScrollbar))
 }
 
 window.searchBulkCertificates = async function () {
@@ -1219,9 +1170,23 @@ window.goToCertificatePage = function (page) {
 }
 
 function bindCertificateResultEvents() {
-  document.querySelectorAll('#certificateResults tbody tr').forEach(row => {
-    row.addEventListener('click', () => {
-      window.selectCertificateRow(row, row.dataset.testid)
+  const toggleDetails = button => {
+    const row = button.closest('.certificate-worklist-row')
+    const details = row?.querySelector('.certificate-worklist-details')
+    if (!row || !details) return
+
+    const expanded = details.hidden
+    details.hidden = !expanded
+    row.classList.toggle('expanded', expanded)
+    row.querySelectorAll('.certificate-row-summary, .certificate-more-btn')
+      .forEach(control => control.setAttribute('aria-expanded', String(expanded)))
+  }
+
+  document.querySelectorAll('.certificate-row-summary, .certificate-more-btn').forEach(button => {
+    button.addEventListener('click', event => {
+      event.preventDefault()
+      event.stopPropagation()
+      toggleDetails(button)
     })
   })
 
@@ -1260,7 +1225,7 @@ function bindCertificateResultEvents() {
 
 window.selectCertificateRow = function (rowElement, testid) {
   document
-    .querySelectorAll('#certificateResults tbody tr')
+    .querySelectorAll('#certificateResults .certificate-worklist-row')
     .forEach(row => row.classList.remove('selected-certificate-row'))
 
   rowElement.classList.add('selected-certificate-row')
