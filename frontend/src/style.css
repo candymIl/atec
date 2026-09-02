@@ -7586,6 +7586,9 @@ tr:hover {
 .job-card-list-item small { color: #667085; }
 .job-card-primary > strong { font-size: 14px; }
 .job-card-primary > span { color: #667085; font-size: 12px; }
+.job-card-primary .job-card-accelo-number { align-items: center; display: flex; gap: 5px; }
+.job-card-primary .job-card-accelo-number small { color: #475467; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.job-card-primary .job-card-accelo-number b { color: #173d9a; font-size: 12px; }
 .job-card-assignee > small, .job-card-date > small { font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .job-card-assignee > strong, .job-card-date > strong { color: #344054; font-size: 12px; font-weight: 600; }
 .job-card-deviation-count { color: #a03a2a !important; font-weight: 700; }

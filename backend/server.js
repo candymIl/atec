@@ -15524,7 +15524,7 @@ app.get("/job-cards", asyncRoute(async (req, res) => {
     where.push(`j.status = $${values.length}`)
   }
   const result = await pool.query(`
-    SELECT j.jobcardid, j.jobcard_reference, j.job_type, j.priority, j.status, j.equipment_status,
+    SELECT j.jobcardid, j.jobcard_reference, j.customer_reference, j.job_type, j.priority, j.status, j.equipment_status,
       j.planned_at, j.updated_at, c.clientname, s.sitename,
       COALESCE(NULLIF(u.fullname, ''), u.username) AS assigned_to_name,
       (SELECT count(*)::int FROM atec.tbljobcarddeviation d WHERE d.jobcardid = j.jobcardid AND d.deviation_status = 'OPEN') AS open_deviations
