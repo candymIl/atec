@@ -4096,9 +4096,173 @@ tr:hover {
 
 .bulk-certificate-table-wrap {
   max-height: 360px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   border: 1px solid #d9e1ec;
   border-radius: 8px;
+}
+
+.bulk-certificate-results {
+  container-name: bulk-certificate-results;
+  container-type: inline-size;
+}
+
+.bulk-certificate-worklist-header,
+.bulk-certificate-worklist-row {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 58px minmax(170px, 1.35fr) minmax(135px, .9fr) minmax(155px, 1fr) minmax(100px, .7fr) minmax(145px, 1fr);
+}
+
+.bulk-certificate-worklist-header {
+  background: #263556;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  min-height: 36px;
+  padding: 6px 10px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.bulk-certificate-select-all {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 5px;
+}
+
+.bulk-certificate-worklist-row {
+  border-bottom: 1px solid #e0e6ef;
+  color: #1f2937;
+  cursor: pointer;
+  min-height: 54px;
+  padding: 6px 10px;
+}
+
+.bulk-certificate-worklist-row:last-child {
+  border-bottom: 0;
+}
+
+.bulk-certificate-worklist-row:hover {
+  background: #f7f8fc;
+}
+
+.bulk-certificate-worklist-row:has(.bulk-cert-check:checked) {
+  background: #f5f3ff;
+}
+
+.bulk-certificate-check-cell {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+}
+
+.bulk-certificate-check-cell input,
+.bulk-certificate-select-all input {
+  height: 17px;
+  margin: 0;
+  width: 17px;
+}
+
+.bulk-certificate-primary,
+.bulk-certificate-primary strong,
+.bulk-certificate-primary small,
+.bulk-certificate-site-inspector,
+.bulk-certificate-site-inspector small {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.bulk-certificate-primary small,
+.bulk-certificate-tag-serial small,
+.bulk-certificate-dates small,
+.bulk-certificate-site-inspector small {
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.bulk-certificate-tag-serial,
+.bulk-certificate-dates {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.bulk-certificate-tag-serial > span,
+.bulk-certificate-dates > span,
+.bulk-certificate-tag-serial small,
+.bulk-certificate-dates small {
+  display: block;
+}
+
+.bulk-certificate-type-status {
+  align-items: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.bulk-certificate-type-status strong {
+  font-size: 10px;
+}
+
+@container bulk-certificate-results (max-width: 900px) {
+  .bulk-certificate-worklist-header,
+  .bulk-certificate-worklist-row {
+    grid-template-columns: 54px minmax(180px, 1.4fr) minmax(150px, 1fr) minmax(145px, 1fr) minmax(110px, .75fr);
+  }
+
+  .bulk-certificate-worklist-header > :nth-child(6),
+  .bulk-certificate-site-inspector {
+    display: none;
+  }
+}
+
+@container bulk-certificate-results (max-width: 650px) {
+  .bulk-certificate-worklist-header {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+
+  .bulk-certificate-worklist-header > :nth-child(n + 3) {
+    display: none;
+  }
+
+  .bulk-certificate-worklist-row {
+    align-items: start;
+    grid-template-columns: 38px minmax(0, 1fr) auto;
+    gap: 7px;
+    padding: 8px;
+  }
+
+  .bulk-certificate-check-cell {
+    grid-row: 1 / 3;
+    padding-top: 2px;
+  }
+
+  .bulk-certificate-tag-serial {
+    display: block;
+  }
+
+  .bulk-certificate-tag-serial > span:first-child {
+    display: none;
+  }
+
+  .bulk-certificate-dates {
+    grid-column: 2 / -1;
+  }
+
+  .bulk-certificate-type-status {
+    align-items: flex-end;
+  }
+
+  .bulk-certificate-site-inspector {
+    display: none;
+  }
 }
 
 .bulk-certificate-table {

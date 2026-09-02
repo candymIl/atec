@@ -862,67 +862,65 @@ function renderBulkCertificateResults(certificates, summary = {}) {
 
     ${renderBlockedCertificateDetails(blockedCertificates)}
 
-    <div class="table-scroll bulk-certificate-table-wrap">
-      <table class="bulk-certificate-table">
-        <thead>
-          <tr>
-            <th>
-              <input
-                 type="checkbox"
-                 id="bulkCertSelectAll"
-                 ${certificates.length <= bulkCertificateBatchSize ? "checked" : ""}
-                aria-label="Select all certificates"
-              >
-            </th>
-            <th>Certificate No</th>
-            <th>Job Number</th>
-            <th>Date</th>
-            <th>Valid Date</th>
-            <th>Type</th>
-            <th>Status</th>
-            <th>Asset</th>
-            ${isCustomerUser ? "" : `<th>Asset Tag</th>`}
-            <th>Serial No</th>
-            <th>Site</th>
-            <th>Inspector</th>
-          </tr>
-        </thead>
-
-        <tbody>
-          ${certificates.map((certificate, certificateIndex) => {
+    <div class="bulk-certificate-table-wrap bulk-certificate-worklist">
+      <div class="bulk-certificate-worklist-header">
+        <label class="bulk-certificate-select-all">
+          <input
+            type="checkbox"
+            id="bulkCertSelectAll"
+            ${certificates.length <= bulkCertificateBatchSize ? "checked" : ""}
+            aria-label="Select all certificates"
+          >
+          <span>Select</span>
+        </label>
+        <span>Certificate / Asset</span>
+        <span>Tag / Serial</span>
+        <span>Inspection Dates</span>
+        <span>Type / Status</span>
+        <span>Site / Inspector</span>
+      </div>
+      <div class="bulk-certificate-worklist-body">
+        ${certificates.map((certificate, certificateIndex) => {
             const inspection = certificate.inspection || {}
+            const assetTag = inspection.assettagno || inspection.tagnumber || "-"
 
             return `
-              <tr>
-                <td>
+              <label class="bulk-certificate-worklist-row">
+                <span class="bulk-certificate-check-cell">
                   <input
-                    type="checkbox"
-                    class="bulk-cert-check"
-                    value="${safeAttr(inspection.testid)}"
-                    ${certificateIndex < bulkCertificateBatchSize ? "checked" : ""}
-                    aria-label="Select certificate ${safeAttr(inspection.testid)}"
-                  >
-                </td>
-                <td>${escapeHtml(inspection.testid || "")}</td>
-                <td>${escapeHtml(inspection.job_number || "-")}</td>
-                <td>${escapeHtml(formatDate(inspection.testdate))}</td>
-                <td>${escapeHtml(formatDate(inspection.validdate))}</td>
-                <td>${escapeHtml(inspection.inspectiontype || "")}</td>
-                <td>
+                      type="checkbox"
+                      class="bulk-cert-check"
+                      value="${safeAttr(inspection.testid)}"
+                      ${certificateIndex < bulkCertificateBatchSize ? "checked" : ""}
+                      aria-label="Select certificate ${safeAttr(inspection.testid)}"
+                    >
+                </span>
+                <span class="bulk-certificate-primary">
+                  <strong>${escapeHtml(inspection.testid || "-")}</strong>
+                  <small>${escapeHtml(inspection.description || "-")} · Job ${escapeHtml(inspection.job_number || "-")}</small>
+                </span>
+                <span class="bulk-certificate-tag-serial">
+                  ${isCustomerUser ? "" : `<span><small>Tag</small>${escapeHtml(assetTag)}</span>`}
+                  <span><small>Serial</small>${escapeHtml(inspection.serialno || "-")}</span>
+                </span>
+                <span class="bulk-certificate-dates">
+                  <span><small>Tested</small>${escapeHtml(formatDate(inspection.testdate))}</span>
+                  <span><small>Valid to</small>${escapeHtml(formatDate(inspection.validdate))}</span>
+                </span>
+                <span class="bulk-certificate-type-status">
+                  <span>${escapeHtml(inspection.inspectiontype || "-")}</span>
                   <strong class="${inspection.status === "SAFE" ? "status-safe" : "status-unsafe"}">
                     ${escapeHtml(inspection.status || "")}
                   </strong>
-                </td>
-                <td>${escapeHtml(inspection.description || "")}</td>
-                ${isCustomerUser ? "" : `<td>${escapeHtml(inspection.assettagno || inspection.tagnumber || "-")}</td>`}
-                <td>${escapeHtml(inspection.serialno || "")}</td>
-                <td>${escapeHtml(inspection.sitename || "")}</td>
-                <td>${escapeHtml(inspection.inspector || "-")}</td>
-              </tr>
+                </span>
+                <span class="bulk-certificate-site-inspector">
+                  <span>${escapeHtml(inspection.sitename || "-")}</span>
+                  <small>${escapeHtml(inspection.inspector || "-")}</small>
+                </span>
+              </label>
             `
-          }).join("")}
-        </tbody>
-      </table>
+        }).join("")}
+      </div>
     </div>
   `
 
