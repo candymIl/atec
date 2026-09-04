@@ -856,6 +856,7 @@ window.showUserManagement = async function () {
   localStorage.setItem('userManagementMode', managementMode)
   const modeRoles = userRolesForManagementMode(managementMode)
   const statusFilter = getUserStatusFilter(managementMode)
+  const searchTerm = String(window.userManagementSearchTerm || '')
   const modeUsers = users.filter(user => userBelongsToManagementMode(user, managementMode))
   const filteredUsers = modeUsers.filter(user => userMatchesStatusFilter(user, statusFilter))
   const sortedUsers = sortUserManagementRows(filteredUsers)
@@ -970,7 +971,17 @@ window.showUserManagement = async function () {
 
     <div class="user-management-table-wrap">
     <div class="user-list-toolbar">
-      <p><strong>${sortedUsers.length}</strong> of <strong>${modeUsers.length}</strong> ${managementMode === 'customers' ? 'customer portal user(s)' : 'ATEC user(s)'} shown.</p>
+      <p><strong id="userManagementVisibleCount">${sortedUsers.length}</strong> of <strong>${modeUsers.length}</strong> ${managementMode === 'customers' ? 'customer portal user(s)' : 'ATEC user(s)'} shown.</p>
+      <label class="user-quick-search" for="userManagementSearch">
+        <span>Search users</span>
+        <input
+          id="userManagementSearch"
+          type="search"
+          placeholder="Name, username, email, role, employee or LMI..."
+          value="${safeAttr(searchTerm)}"
+          oninput="filterUserManagementSearch(this)"
+        >
+      </label>
       <div class="user-status-filter" role="group" aria-label="Filter users by active status">
         <span>Status:</span>
         ${[
@@ -1006,7 +1017,17 @@ window.showUserManagement = async function () {
       </thead>
       <tbody>
         ${sortedUsers.length ? sortedUsers.map(user => `
-          <tr class="${user.is_active ? '' : 'inactive-user-row'}">
+          <tr
+            class="user-data-row ${user.is_active ? '' : 'inactive-user-row'}"
+            data-user-search="${safeAttr([
+              user.username,
+              user.email,
+              user.full_name,
+              user.role,
+              user.lmi_number,
+              user.employee_number
+            ].filter(Boolean).join(' ').toLowerCase())}"
+          >
             <td class="user-name-cell">${escapeHtml(user.username)}</td>
             <td><input id="user-email-${safeAttr(user.user_id)}" value="${safeAttr(user.email || '')}"></td>
             <td><input id="user-name-${safeAttr(user.user_id)}" value="${safeAttr(user.full_name || '')}"></td>
@@ -1042,12 +1063,13 @@ window.showUserManagement = async function () {
             </td>
             <td class="user-row-actions">
               <div class="user-row-action-buttons">
+                <span class="user-row-status-badge ${user.is_active ? 'active' : 'inactive'}">${user.is_active ? 'Active' : 'Inactive'}</span>
                 <button onclick="saveUser(${user.user_id})">Save</button>
                 <button
                   type="button"
                   class="secondary-small-btn user-status-action ${user.is_active ? 'deactivate' : 'activate'}"
                   onclick="toggleUserStatus(${user.user_id}, ${user.is_active ? 'false' : 'true'})"
-                >${user.is_active ? 'Deactivate' : 'Activate'}</button>
+                >${user.is_active ? 'Deactivate User' : 'Activate User'}</button>
                 <button class="secondary-small-btn" onclick="resetUserPassword(${user.user_id})">Reset Password</button>
                 ${user.is_active ? '' : `<button class="secondary-small-btn" onclick="deleteUser(${user.user_id})">Delete Permanently</button>`}
               </div>
@@ -1065,6 +1087,23 @@ window.showUserManagement = async function () {
     </div>
     </div>
   `
+
+  if (searchTerm) window.filterUserManagementSearch(document.querySelector('#userManagementSearch'))
+}
+
+window.filterUserManagementSearch = function (input) {
+  const query = String(input?.value || '').trim().toLowerCase()
+  window.userManagementSearchTerm = input?.value || ''
+
+  let visibleCount = 0
+  document.querySelectorAll('.user-management-table .user-data-row').forEach(row => {
+    const matches = !query || String(row.dataset.userSearch || '').includes(query)
+    row.hidden = !matches
+    if (matches) visibleCount += 1
+  })
+
+  const count = document.querySelector('#userManagementVisibleCount')
+  if (count) count.textContent = String(visibleCount)
 }
 
 window.createUser = async function () {
@@ -9737,6 +9776,7 @@ const dashboardReviewQueues = {
       ["Site", row => row.sitename],
       ["Equipment", row => row.equipmenttype],
       ["Issue", row => row.issue],
+      ["Inspector", row => dashboardCertificateMetadataInspector(row)],
       ["Visual Date", row => formatDashboardReviewDate(row.visualtestdate)],
       ["Load Date", row => formatDashboardReviewDate(row.loadtestdate)]
     ],
@@ -9795,6 +9835,17 @@ const dashboardReviewQueues = {
     ],
     action: row => `<button class="small-btn" onclick="showDashboardCustomerReport(${safeAttr(row.clientid)})">View Report</button>`
   }
+}
+
+function dashboardCertificateMetadataInspector(row) {
+  const visualInspector = String(row.visualinspector || '').trim()
+  const loadInspector = String(row.loadinspector || '').trim()
+
+  if (visualInspector && loadInspector && visualInspector !== loadInspector) {
+    return `Visual: ${visualInspector} | Load: ${loadInspector}`
+  }
+
+  return visualInspector || loadInspector || 'Not recorded'
 }
 
 window.showDashboardReviewQueue = async function (queueKey) {
@@ -10462,36 +10513,20 @@ function renderDashboardNotificationCentre() {
       <button type="button" class="secondary-small-btn" onclick="clearDashboardNotificationFilters()">Clear</button>
     </div>
     <div id="dashboardNotificationPreview" class="dashboard-notification-preview" hidden></div>
-    <div class="report-scroll-control dashboard-notification-scroll-control">
-      <button id="dashboardNotificationScrollLeft" type="button" class="dashboard-notification-scroll-button" onclick="scrollDashboardNotificationTable(-1)" aria-label="Scroll table left" title="Scroll table left">&#8592;</button>
-      <input id="dashboardNotificationTableSlider" type="range" min="0" max="0" value="0" step="1">
-      <button id="dashboardNotificationScrollRight" type="button" class="dashboard-notification-scroll-button" onclick="scrollDashboardNotificationTable(1)" aria-label="Scroll table right" title="Scroll table right">&#8594;</button>
-    </div>
-    <div class="dashboard-notification-table-wrap">
-      <table class="dashboard-table dashboard-notification-table">
-        <thead>
-          <tr>
-            <th>${sortHeader("Customer", "dashboardNotifications", "clientname", "renderDashboardNotificationCentre")}</th>
-            <th>${sortHeader("Site", "dashboardNotifications", "sitename", "renderDashboardNotificationCentre")}</th>
-            <th>${sortHeader("Due", "dashboardNotifications", "due_assets", "renderDashboardNotificationCentre")}</th>
-            <th>${sortHeader("Overdue", "dashboardNotifications", "overdue_assets", "renderDashboardNotificationCentre")}</th>
-            <th>${sortHeader("Expiring", "dashboardNotifications", "expiring_certificates", "renderDashboardNotificationCentre")}</th>
-            <th>${sortHeader("Failed", "dashboardNotifications", "failed_assets", "renderDashboardNotificationCentre")}</th>
-            <th>${sortHeader("Visit Items", "dashboardNotifications", "unresolved_visit_items", "renderDashboardNotificationCentre")}</th>
-            <th>${sortHeader("Portal Recipients", "dashboardNotifications", "portal_recipients", "renderDashboardNotificationCentre")}</th>
-            <th>${sortHeader("Last Sent", "dashboardNotifications", "last_notification_sent_at", "renderDashboardNotificationCentre")}</th>
-            <th>${sortHeader("Auto", "dashboardNotifications", "automatic_notification_ready", "renderDashboardNotificationCentre")}</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${pageRows.length ? pageRows.map(row => renderDashboardNotificationRow(row)).join("") : `
-            <tr>
-              <td colspan="11" class="empty-row">No notification rows match the selected filters.</td>
-            </tr>
-          `}
-        </tbody>
-      </table>
+    <div class="dashboard-notification-worklist">
+      <div class="dashboard-notification-worklist-header">
+        <span>${sortHeader("Customer / Site", "dashboardNotifications", "clientname", "renderDashboardNotificationCentre")}</span>
+        <span>${sortHeader("Due", "dashboardNotifications", "due_assets", "renderDashboardNotificationCentre")}</span>
+        <span>${sortHeader("Overdue", "dashboardNotifications", "overdue_assets", "renderDashboardNotificationCentre")}</span>
+        <span>${sortHeader("Expiring", "dashboardNotifications", "expiring_certificates", "renderDashboardNotificationCentre")}</span>
+        <span>${sortHeader("Failed", "dashboardNotifications", "failed_assets", "renderDashboardNotificationCentre")}</span>
+        <span>Actions</span>
+      </div>
+      <div class="dashboard-notification-worklist-body">
+        ${pageRows.length ? pageRows.map(row => renderDashboardNotificationRow(row)).join("") : `
+          <div class="empty-row dashboard-notification-empty">No notification rows match the selected filters.</div>
+        `}
+      </div>
     </div>
     ${displayRows.length ? `
       <div class="dashboard-notification-pagination">
@@ -10511,8 +10546,6 @@ function renderDashboardNotificationCentre() {
       </div>
     ` : ''}
   `
-
-  bindDashboardNotificationSlider()
 }
 
 window.dashboardNotificationFiltersChanged = function () {
@@ -10594,20 +10627,27 @@ function renderDashboardNotificationRow(row) {
     : "No portal users"
   const autoClass = row.automatic_notification_ready ? "ready" : "missing"
   const autoText = row.automatic_notification_ready ? "Ready" : "Waiting"
+  const rowKey = `dashboard-notification-${String(row.clientid || 'customer').replace(/[^a-zA-Z0-9_-]/g, '-')}-${String(row.siteid || 'all').replace(/[^a-zA-Z0-9_-]/g, '-')}`
 
   return `
-    <tr>
-      <td>${escapeHtml(row.clientname || "")}</td>
-      <td>${escapeHtml(row.sitename || "All Sites")}</td>
-      <td><strong>${escapeHtml(row.due_assets || 0)}</strong></td>
-      <td><strong>${escapeHtml(row.overdue_assets || 0)}</strong></td>
-      <td>${escapeHtml(row.expiring_certificates || 0)}</td>
-      <td>${escapeHtml(row.failed_assets || 0)}</td>
-      <td>${escapeHtml(row.unresolved_visit_items || 0)}</td>
-      <td><span class="notification-recipient ${recipientClass}">${escapeHtml(recipientText)}</span></td>
-      <td>${escapeHtml(formatDashboardNotificationDate(row.last_notification_sent_at))}</td>
-      <td><span class="notification-recipient ${autoClass}">${escapeHtml(autoText)}</span></td>
-      <td class="dashboard-notification-actions">
+    <article class="dashboard-notification-worklist-row" id="${safeAttr(rowKey)}">
+      <button
+        type="button"
+        class="dashboard-notification-row-summary"
+        onclick="toggleDashboardNotificationDetails('${safeAttr(rowKey)}')"
+        aria-expanded="false"
+        aria-controls="${safeAttr(rowKey)}-details"
+      >
+        <span class="dashboard-notification-identity">
+          <strong>${escapeHtml(row.clientname || "")}</strong>
+          <small>${escapeHtml(row.sitename || "All Sites")}</small>
+        </span>
+        <span class="dashboard-notification-metric" data-label="Due"><strong>${escapeHtml(row.due_assets || 0)}</strong></span>
+        <span class="dashboard-notification-metric overdue" data-label="Overdue"><strong>${escapeHtml(row.overdue_assets || 0)}</strong></span>
+        <span class="dashboard-notification-metric" data-label="Expiring">${escapeHtml(row.expiring_certificates || 0)}</span>
+        <span class="dashboard-notification-metric failed" data-label="Failed">${escapeHtml(row.failed_assets || 0)}</span>
+      </button>
+      <div class="dashboard-notification-actions">
         <button class="small-btn" onclick="previewDashboardNotification(${safeAttr(row.clientid)}, '${safeAttr(row.siteid || '')}')">
           Preview
         </button>
@@ -10617,9 +10657,29 @@ function renderDashboardNotificationRow(row) {
         <button class="small-btn" onclick="showCustomerDetailedReport(${reportArgs})">
           Report
         </button>
-      </td>
-    </tr>
+        <button class="small-btn dashboard-notification-more-btn" onclick="toggleDashboardNotificationDetails('${safeAttr(rowKey)}')" aria-expanded="false" aria-controls="${safeAttr(rowKey)}-details">
+          More
+        </button>
+      </div>
+      <div class="dashboard-notification-row-details" id="${safeAttr(rowKey)}-details" hidden>
+        <span><small>Visit Items</small><strong>${escapeHtml(row.unresolved_visit_items || 0)}</strong></span>
+        <span><small>Portal Recipients</small><strong class="notification-recipient ${recipientClass}">${escapeHtml(recipientText)}</strong></span>
+        <span><small>Last Sent</small><strong>${escapeHtml(formatDashboardNotificationDate(row.last_notification_sent_at))}</strong></span>
+        <span><small>Automatic Status</small><strong class="notification-recipient ${autoClass}">${escapeHtml(autoText)}</strong></span>
+      </div>
+    </article>
   `
+}
+
+window.toggleDashboardNotificationDetails = function (rowKey) {
+  const row = document.getElementById(rowKey)
+  const details = document.getElementById(`${rowKey}-details`)
+  if (!row || !details) return
+
+  const expanded = details.hidden
+  details.hidden = !expanded
+  row.classList.toggle('expanded', expanded)
+  row.querySelectorAll('[aria-controls]').forEach(control => control.setAttribute('aria-expanded', String(expanded)))
 }
 
 window.renderDashboardNotificationCentre = renderDashboardNotificationCentre

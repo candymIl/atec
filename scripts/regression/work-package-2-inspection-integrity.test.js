@@ -222,6 +222,21 @@ assertIncludes(
   "Types Without Criteria",
   "Dashboard UI must display equipment types without criteria"
 )
+assertIncludes(
+  server,
+  "lv.inspector AS visualinspector",
+  "Certificate metadata review rows must expose the saved visual inspector"
+)
+assertIncludes(
+  server,
+  "ll.inspector AS loadinspector",
+  "Certificate metadata review rows must expose the saved load-test inspector"
+)
+assertIncludes(
+  frontendMain,
+  '["Inspector", row => dashboardCertificateMetadataInspector(row)]',
+  "Certificate metadata review must identify the responsible inspector"
+)
 
 const reportQuery = sourceBetween(
   server,

@@ -73,6 +73,11 @@ assertIncludes(main, "if (!canManageInternalUsers()) return 'customers'", "Manag
 assertIncludes(main, "onclick=\"toggleUserStatus(${user.user_id}, ${user.is_active ? 'false' : 'true'})\"", "User rows must expose an explicit active or inactive action")
 assertIncludes(main, "window.toggleUserStatus = async function", "The active or inactive user action handler is missing")
 assertIncludes(main, "statusCheckbox.checked = makeActive", "The active or inactive action must update the saved status control")
+assertIncludes(main, "user-row-status-badge", "The pinned user action cell must show the current active status")
+assertIncludes(main, "Deactivate User' : 'Activate User", "The user status action must have an unmistakable label")
+assertIncludes(main, "filterUserManagementSearch", "User management must provide a quick user search")
+assertIncludes(main, "data-user-search", "User rows must expose searchable identity fields")
+assertIncludes(main, "Name, username, email, role, employee or LMI...", "The quick search must explain the supported user fields")
 
 assertIncludes(portal, "/customer-portal/summary", "Portal page must call the scoped summary endpoint")
 assertIncludes(portal, "/customer-portal/assets", "Portal page must call the scoped asset endpoint")
@@ -99,6 +104,8 @@ assertIncludes(certificatesPage, 'isCustomerUser ? "" : `<th>Asset Tag</th>`', "
 
 assertIncludes(style, ".customer-portal-page", "Portal page styles are missing")
 assertIncludes(style, ".user-status-action.activate", "The user activation action style is missing")
+assertIncludes(style, ".user-row-status-badge.active", "The visible active user status badge is missing")
+assertIncludes(style, ".user-quick-search", "The quick user search styling is missing")
 assertIncludes(style, ".portal-metric-grid", "Portal metric grid styles are missing")
 assertIncludes(style, "grid-template-columns: repeat(4, minmax(0, 1fr))", "Portal metrics must use a balanced desktop grid")
 assertIncludes(style, "align-content: space-between", "Portal metric labels and values must have consistent vertical spacing")
