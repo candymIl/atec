@@ -11,6 +11,13 @@ import { renderQuickInspection } from './pages/QuickInspection.js'
 import { renderCertificateSearch } from './pages/Certificates.js'
 import { renderCustomerDetailedReport } from './pages/CustomerDetailedReport.js'
 import { renderCustomerPortal } from './pages/CustomerPortal.js'
+import {
+  downloadComplianceDocument,
+  renderComplianceDocuments,
+  setComplianceDocumentStatus,
+  toggleComplianceCustomers,
+  uploadComplianceDocument
+} from './pages/ComplianceDocuments.js'
 import { renderRiskAssessments, renderRiskAssessmentReports, renderRiskAssessmentTable } from './pages/RiskAssessments.js'
 import { renderSystemHealthPage } from './pages/SystemHealth.js'
 import { renderMpiReportsPage } from './pages/MpiReports.js'
@@ -185,6 +192,7 @@ const pageAccess = {
   criteria: ['ADMIN'],
   users: ['ADMIN', 'MANAGER'],
   'system-health': ['ADMIN'],
+  'compliance-documents': ['ADMIN', 'MANAGER', 'HR'],
   profile: ['ADMIN', 'MANAGER', 'INSPECTOR', 'ASSISTANT', 'HR', 'VIEWER', 'CUSTOMER']
 }
 
@@ -254,7 +262,8 @@ function renderRoleMenu() {
     menuGroup('customers-assets','Customers & Assets',[
       menuButton('customers','Customer Setup','showCustomerSetup()'),menuButton('sites','Sites','showSites()'),
       menuButton('responsible','Responsible Persons','showResponsiblePersons()'),menuButton('sections','Sections','showSections()'),
-      menuButton('assets','Assets','showAssetSetup()')
+      menuButton('assets','Assets','showAssetSetup()'),
+      menuButton('compliance-documents','Compliance Documents','showComplianceDocuments()')
     ]),
     menuGroup('people','People & Access',[
       canManageInternalUsers() ? menuButton('users', 'ATEC Users', 'showInternalUserManagement()') : '',
@@ -1906,6 +1915,16 @@ window.showCustomerPortal = function () {
   setCurrentPage("portal")
   renderCustomerPortal(currentUser)
 }
+
+window.showComplianceDocuments = function () {
+  if (!ensurePageAccess('compliance-documents')) return
+  setCurrentPage('compliance-documents')
+  return renderComplianceDocuments()
+}
+window.toggleComplianceCustomers = toggleComplianceCustomers
+window.uploadComplianceDocument = uploadComplianceDocument
+window.setComplianceDocumentStatus = setComplianceDocumentStatus
+window.downloadComplianceDocument = downloadComplianceDocument
 
 let customerArchiveMode = localStorage.getItem("customerArchiveMode") || "active"
 
@@ -12154,6 +12173,10 @@ switch (currentPage) {
     showSystemHealth()
     break
 
+  case "compliance-documents":
+    showComplianceDocuments()
+    break
+
   case "profile":
     showMyProfile()
     break
@@ -12205,6 +12228,7 @@ window.addEventListener('popstate', event => {
     'she-reports': window.showRiskAssessmentReports,
     users: window.showUserManagement,
     'system-health': window.showSystemHealth,
+    'compliance-documents': window.showComplianceDocuments,
     profile: window.showMyProfile
   }
 

@@ -95,6 +95,59 @@ function renderRecentCertificates(rows = []) {
   `
 }
 
+function complianceDocumentState(expiryDate) {
+  if (!expiryDate) return { label: "Current", className: "current" }
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const expiry = new Date(`${formatDate(expiryDate)}T00:00:00`)
+  const days = Math.ceil((expiry - today) / 86400000)
+  if (days < 0) return { label: "Expired", className: "expired" }
+  if (days <= 60) return { label: `Expires in ${days} day${days === 1 ? "" : "s"}`, className: "expiring" }
+  return { label: "Current", className: "current" }
+}
+
+function renderPortalComplianceDocuments(rows = []) {
+  if (!rows.length) return `<p class="portal-section-note">No company compliance documents are currently published.</p>`
+  return `<div class="portal-compliance-grid">${rows.map(row => {
+    const state = complianceDocumentState(row.expiry_date)
+    return `<article class="portal-compliance-document">
+      <div><span class="compliance-status ${state.className}">${escapeHtml(state.label)}</span><h4>${escapeHtml(row.title)}</h4></div>
+      <dl>
+        <div><dt>Reference</dt><dd>${escapeHtml(row.reference_number || "-")}</dd></div>
+        <div><dt>Issued by</dt><dd>${escapeHtml(row.issuing_authority || "-")}</dd></div>
+        <div><dt>Valid until</dt><dd>${escapeHtml(row.expiry_date ? formatDate(row.expiry_date) : "No expiry")}</dd></div>
+      </dl>
+      <button type="button" onclick="downloadPortalComplianceDocument(this, ${row.compliancedocumentid})">Download PDF</button>
+    </article>`
+  }).join("")}</div>`
+}
+
+async function downloadPortalComplianceDocument(button, documentId) {
+  const originalLabel = button.textContent
+  button.disabled = true
+  button.textContent = "Downloading..."
+  try {
+    const response = await fetch(`${API_BASE}/customer-portal/compliance-documents/${documentId}/download`)
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}))
+      throw new Error(error.error || "Unable to download document")
+    }
+    const url = URL.createObjectURL(await response.blob())
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `company-compliance-document-${documentId}.pdf`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+  } catch (error) {
+    alert(error.message)
+  } finally {
+    button.disabled = false
+    button.textContent = originalLabel
+  }
+}
+
 function assetStatusClass(status) {
   if (status === "OK") return "is-ok"
   if (status === "NOT SAFE") return "is-danger"
@@ -440,11 +493,15 @@ export async function renderCustomerPortal(currentUser = null) {
   const content = document.querySelector("#customerPortalContent")
 
   try {
-    const response = await fetch(`${API_BASE}/customer-portal/summary`)
+    const [response, complianceResponse] = await Promise.all([
+      fetch(`${API_BASE}/customer-portal/summary`),
+      fetch(`${API_BASE}/customer-portal/compliance-documents`)
+    ])
     const data = await response.json()
+    const complianceDocuments = await complianceResponse.json()
 
-    if (!response.ok) {
-      content.innerHTML = `<p class="login-error">${escapeHtml(data.error || "Could not load the customer portal.")}</p>`
+    if (!response.ok || !complianceResponse.ok) {
+      content.innerHTML = `<p class="login-error">${escapeHtml(data.error || complianceDocuments.error || "Could not load the customer portal.")}</p>`
       return
     }
 
@@ -497,6 +554,13 @@ export async function renderCustomerPortal(currentUser = null) {
           </div>
         </section>
       </div>
+
+      <section id="portalComplianceDocuments" class="filter-card portal-compliance-section">
+        <div class="customer-portal-section-heading">
+          <div><h3>Company Compliance Documents</h3><p class="portal-section-note">Current ATEC registrations, standing letters and management-system certificates.</p></div>
+        </div>
+        ${renderPortalComplianceDocuments(complianceDocuments)}
+      </section>
 
       <section class="filter-card">
         <div class="customer-portal-section-heading">
@@ -558,6 +622,7 @@ function bindPortalAssetControls() {
 
 window.loadPortalAssets = loadPortalAssets
 window.customerPortalDownloadCertificate = downloadPortalCertificate
+window.downloadPortalComplianceDocument = downloadPortalComplianceDocument
 window.openPortalAssets = openPortalAssets
 window.openPortalCertificates = openPortalCertificates
 window.openCustomerAssetHistory = openCustomerAssetHistory

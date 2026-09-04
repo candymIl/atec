@@ -50,6 +50,7 @@
     "test:public-qr-certificate": "node scripts/regression/public-qr-certificate.test.js",
     "test:lean-workforce": "node scripts/regression/lean-workforce-timesheets.test.js",
     "test:demonstration-request": "node scripts/regression/demonstration-request.test.js",
+    "test:compliance-documents": "node scripts/regression/compliance-documents.test.js",
     "test:lean-workforce-db": "node scripts/uat/lean-workforce-database-uat.js",
     "test:mpi-db": "node scripts/uat/mpi-database-uat.js",
     "uat:inspection-job-number:apply-local": "node scripts/uat/apply-inspection-job-number-local.js",

@@ -41,6 +41,7 @@
     "2026-08-18-job-card-delivery-emails.sql",
     "2026-08-18-remove-empty-timesheet-drafts.sql",
     "2026-08-19-multiple-employee-managers.sql",
-    "2026-08-20-expand-asset-text-fields.sql"
+    "2026-08-20-expand-asset-text-fields.sql",
+    "2026-09-04-customer-compliance-documents.sql"
   ]
 }

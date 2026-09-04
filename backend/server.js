@@ -367,6 +367,10 @@ const storage = multer.diskStorage({
       folder = path.join(uploadsRoot, "mpi")
     }
 
+    if (file.fieldname === "complianceDocument") {
+      folder = path.join(uploadsRoot, "compliance-documents")
+    }
+
     fs.mkdirSync(folder, { recursive: true })
     cb(null, folder);
   },
@@ -455,6 +459,20 @@ async function compressUploadedPhotos(req, res, next) {
 app.get("/", (req, res) => {
   res.send("ATEC backend is running");
 });
+
+const complianceDocumentUpload = multer({
+  storage,
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: function (req, file, cb) {
+    const extension = path.extname(file.originalname || "").toLowerCase()
+    if (file.mimetype !== "application/pdf" || extension !== ".pdf") {
+      const error = new Error("Only PDF compliance documents are allowed")
+      error.statusCode = 400
+      return cb(error)
+    }
+    return cb(null, true)
+  }
+})
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok" })
@@ -546,6 +564,10 @@ function canManageAllUsers(user) {
 
 function canManageCustomerPortalUsers(user) {
   return ["ADMIN", "MANAGER"].includes(user?.role)
+}
+
+function canManageComplianceDocuments(user) {
+  return ["ADMIN", "MANAGER", "HR"].includes(user?.role)
 }
 
 const INSPECTION_PHOTO_TYPES = new Set([
@@ -1863,6 +1885,14 @@ function authorizeRequest(req, res, next) {
   if (routePath === "/users/me/password" && method === "POST") return next()
 
   if (
+    routePath.startsWith("/compliance-documents") &&
+    canManageComplianceDocuments(req.user) &&
+    ["GET", "POST", "PUT"].includes(method)
+  ) {
+    return next()
+  }
+
+  if (
     routePath.startsWith("/workforce") &&
     ["MANAGER", "INSPECTOR", "ASSISTANT", "HR"].includes(role)
   ) {
@@ -2667,6 +2697,253 @@ app.post("/users/me/password", passwordChangeLimiter, asyncRoute(async (req, res
 
   await req.logAudit("PASSWORD_CHANGE", "users", req.user.user_id)
   res.json({ success: true })
+}))
+
+const COMPLIANCE_DOCUMENT_TYPES = new Set([
+  "TAX_CLEARANCE",
+  "LETTER_OF_GOOD_STANDING",
+  "LME",
+  "ISO_14001",
+  "ISO_9001",
+  "ISO_45001",
+  "OTHER"
+])
+
+function complianceAudienceIds(value) {
+  let parsed = value
+  if (typeof value === "string") {
+    try { parsed = JSON.parse(value) } catch { parsed = [] }
+  }
+  return [...new Set((Array.isArray(parsed) ? parsed : [])
+    .map(Number)
+    .filter(id => Number.isInteger(id) && id > 0))]
+}
+
+function complianceDocumentSelect(whereSql = "") {
+  return `
+    SELECT
+      d.*,
+      TO_CHAR(d.issue_date, 'YYYY-MM-DD') AS issue_date,
+      TO_CHAR(d.expiry_date, 'YYYY-MM-DD') AS expiry_date,
+      COALESCE(NULLIF(u.fullname, ''), u.username) AS uploaded_by_name,
+      COALESCE(
+        json_agg(json_build_object('clientid', c.clientid, 'clientname', c.clientname) ORDER BY c.clientname)
+          FILTER (WHERE c.clientid IS NOT NULL),
+        '[]'::json
+      ) AS customers
+    FROM atec.tblcompliancedocument d
+    LEFT JOIN atec.tblusers u ON u.userid = d.uploaded_by_user_id
+    LEFT JOIN atec.tblcompliancedocumentaudience audience
+      ON audience.compliancedocumentid = d.compliancedocumentid
+    LEFT JOIN atec.tblclients c ON c.clientid = audience.clientid
+    ${whereSql}
+    GROUP BY d.compliancedocumentid, u.fullname, u.username
+  `
+}
+
+app.get("/compliance-documents/customers", asyncRoute(async (req, res) => {
+  const result = await pool.query(
+    "SELECT clientid, clientname FROM atec.tblclients WHERE COALESCE(archived, false) = false ORDER BY clientname"
+  )
+  res.json(result.rows)
+}))
+
+app.get("/compliance-documents", asyncRoute(async (req, res) => {
+  const result = await pool.query(`${complianceDocumentSelect()} ORDER BY d.created_at DESC`)
+  res.json(result.rows)
+}))
+
+app.post(
+  "/compliance-documents",
+  uploadLimiter,
+  complianceDocumentUpload.single("complianceDocument"),
+  asyncRoute(async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "Select a PDF document to upload" })
+
+    const signature = fs.readFileSync(req.file.path, { encoding: null, flag: "r" }).subarray(0, 5).toString("ascii")
+    if (signature !== "%PDF-") {
+      removeUploadedFiles([req.file])
+      return res.status(400).json({ error: "The selected file is not a valid PDF document" })
+    }
+
+    const documentType = String(req.body.document_type || "").trim().toUpperCase()
+    const title = String(req.body.title || "").trim()
+    const status = String(req.body.status || "DRAFT").trim().toUpperCase()
+    const audienceAll = String(req.body.audience_all || "true") === "true"
+    const customerIds = complianceAudienceIds(req.body.customer_ids)
+    const issueDate = String(req.body.issue_date || "").trim() || null
+    const expiryDate = String(req.body.expiry_date || "").trim() || null
+
+    if (!COMPLIANCE_DOCUMENT_TYPES.has(documentType) || !title) {
+      removeUploadedFiles([req.file])
+      return res.status(400).json({ error: "Document type and display name are required" })
+    }
+    if (!new Set(["DRAFT", "PUBLISHED"]).has(status)) {
+      removeUploadedFiles([req.file])
+      return res.status(400).json({ error: "Invalid document status" })
+    }
+    if (!audienceAll && customerIds.length === 0) {
+      removeUploadedFiles([req.file])
+      return res.status(400).json({ error: "Select at least one customer or choose All customers" })
+    }
+    if (issueDate && expiryDate && expiryDate < issueDate) {
+      removeUploadedFiles([req.file])
+      return res.status(400).json({ error: "Expiry date cannot be before the issue date" })
+    }
+
+    const client = await pool.connect()
+    try {
+      await client.query("BEGIN")
+      if (status === "PUBLISHED" && audienceAll) {
+        await client.query(
+          `UPDATE atec.tblcompliancedocument
+           SET status = 'ARCHIVED', archived_at = now(), archived_by_user_id = $1, updated_at = now()
+           WHERE document_type = $2 AND status = 'PUBLISHED' AND audience_all = TRUE`,
+          [req.user.user_id, documentType]
+        )
+      }
+
+      const inserted = await client.query(
+        `INSERT INTO atec.tblcompliancedocument (
+          document_type, title, reference_number, issuing_authority, issue_date, expiry_date,
+          status, audience_all, file_path, original_filename, mime_type, file_size_bytes,
+          uploaded_by_user_id
+        ) VALUES ($1,$2,NULLIF($3,''),NULLIF($4,''),$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        RETURNING compliancedocumentid`,
+        [
+          documentType,
+          title,
+          String(req.body.reference_number || "").trim(),
+          String(req.body.issuing_authority || "").trim(),
+          issueDate,
+          expiryDate,
+          status,
+          audienceAll,
+          `/uploads/compliance-documents/${req.file.filename}`,
+          path.basename(req.file.originalname),
+          "application/pdf",
+          req.file.size,
+          req.user.user_id
+        ]
+      )
+      const documentId = inserted.rows[0].compliancedocumentid
+      for (const customerId of audienceAll ? [] : customerIds) {
+        await client.query(
+          "INSERT INTO atec.tblcompliancedocumentaudience (compliancedocumentid, clientid) VALUES ($1, $2)",
+          [documentId, customerId]
+        )
+      }
+      await client.query("COMMIT")
+      await req.logAudit("UPLOAD", "compliance_documents", documentId, { documentType, status, audienceAll })
+      res.status(201).json({ success: true, document_id: documentId })
+    } catch (error) {
+      await client.query("ROLLBACK")
+      removeUploadedFiles([req.file])
+      throw error
+    } finally {
+      client.release()
+    }
+  })
+)
+
+app.put("/compliance-documents/:id/status", asyncRoute(async (req, res) => {
+  const status = String(req.body.status || "").toUpperCase()
+  if (!new Set(["PUBLISHED", "ARCHIVED"]).has(status)) {
+    return res.status(400).json({ error: "Status must be Published or Archived" })
+  }
+  const client = await pool.connect()
+  let result
+  try {
+    await client.query("BEGIN")
+    const target = await client.query(
+      "SELECT document_type, audience_all FROM atec.tblcompliancedocument WHERE compliancedocumentid = $1 FOR UPDATE",
+      [req.params.id]
+    )
+    if (!target.rows.length) {
+      await client.query("ROLLBACK")
+      return res.status(404).json({ error: "Compliance document not found" })
+    }
+    if (status === "PUBLISHED" && target.rows[0].audience_all) {
+      await client.query(
+        `UPDATE atec.tblcompliancedocument
+         SET status = 'ARCHIVED', archived_at = now(), archived_by_user_id = $1, updated_at = now()
+         WHERE document_type = $2 AND status = 'PUBLISHED'
+           AND audience_all = TRUE AND compliancedocumentid <> $3`,
+        [req.user.user_id, target.rows[0].document_type, req.params.id]
+      )
+    }
+    result = await client.query(
+      `UPDATE atec.tblcompliancedocument
+       SET status = $1,
+           archived_at = CASE WHEN $1 = 'ARCHIVED' THEN now() ELSE NULL END,
+           archived_by_user_id = CASE WHEN $1 = 'ARCHIVED' THEN $2 ELSE NULL END,
+           updated_at = now()
+       WHERE compliancedocumentid = $3
+       RETURNING compliancedocumentid`,
+      [status, req.user.user_id, req.params.id]
+    )
+    await client.query("COMMIT")
+  } catch (error) {
+    await client.query("ROLLBACK")
+    throw error
+  } finally {
+    client.release()
+  }
+  await req.logAudit(status, "compliance_documents", req.params.id)
+  res.json({ success: true })
+}))
+
+app.get("/compliance-documents/:id/download", asyncRoute(async (req, res) => {
+  const result = await pool.query(
+    "SELECT file_path, original_filename FROM atec.tblcompliancedocument WHERE compliancedocumentid = $1",
+    [req.params.id]
+  )
+  if (!result.rows.length) return res.status(404).json({ error: "Compliance document not found" })
+  const filePath = resolveUploadFilePath(result.rows[0].file_path)
+  if (!filePath || !fs.existsSync(filePath)) return res.status(404).json({ error: "Document file not found" })
+  await req.logAudit("DOWNLOAD", "compliance_documents", req.params.id)
+  res.download(filePath, path.basename(result.rows[0].original_filename))
+}))
+
+app.get("/customer-portal/compliance-documents", asyncRoute(async (req, res) => {
+  if (req.user.role !== "CUSTOMER" || !req.user.clientid) {
+    return res.status(403).json({ error: "Customer portal access required" })
+  }
+  const result = await pool.query(
+    `${complianceDocumentSelect(`
+      WHERE d.status = 'PUBLISHED'
+        AND (d.audience_all = TRUE OR EXISTS (
+          SELECT 1 FROM atec.tblcompliancedocumentaudience permitted
+          WHERE permitted.compliancedocumentid = d.compliancedocumentid
+            AND permitted.clientid = $1
+        ))
+    `)} ORDER BY d.document_type, d.expiry_date DESC NULLS LAST, d.created_at DESC`,
+    [req.user.clientid]
+  )
+  res.json(result.rows)
+}))
+
+app.get("/customer-portal/compliance-documents/:id/download", asyncRoute(async (req, res) => {
+  if (req.user.role !== "CUSTOMER" || !req.user.clientid) {
+    return res.status(403).json({ error: "Customer portal access required" })
+  }
+  const result = await pool.query(
+    `SELECT d.file_path, d.original_filename
+     FROM atec.tblcompliancedocument d
+     WHERE d.compliancedocumentid = $1
+       AND d.status = 'PUBLISHED'
+       AND (d.audience_all = TRUE OR EXISTS (
+         SELECT 1 FROM atec.tblcompliancedocumentaudience audience
+         WHERE audience.compliancedocumentid = d.compliancedocumentid
+           AND audience.clientid = $2
+       ))`,
+    [req.params.id, req.user.clientid]
+  )
+  if (!result.rows.length) return res.status(404).json({ error: "Compliance document not found" })
+  const filePath = resolveUploadFilePath(result.rows[0].file_path)
+  if (!filePath || !fs.existsSync(filePath)) return res.status(404).json({ error: "Document file not found" })
+  await req.logAudit("DOWNLOAD", "compliance_documents", req.params.id)
+  res.download(filePath, path.basename(result.rows[0].original_filename))
 }))
 
 app.post("/users", asyncRoute(async (req, res) => {

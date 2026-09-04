@@ -50,6 +50,16 @@
       "table": "tblusermanagerassignment",
       "columns": ["employee_user_id", "manager_user_id", "is_primary", "created_by_user_id"],
       "migration": "2026-08-19-multiple-employee-managers.sql"
+    },
+    {
+      "table": "tblcompliancedocument",
+      "columns": ["compliancedocumentid", "document_type", "status", "audience_all", "file_path", "expiry_date"],
+      "migration": "2026-09-04-customer-compliance-documents.sql"
+    },
+    {
+      "table": "tblcompliancedocumentaudience",
+      "columns": ["compliancedocumentid", "clientid"],
+      "migration": "2026-09-04-customer-compliance-documents.sql"
     }
   ]
 }
