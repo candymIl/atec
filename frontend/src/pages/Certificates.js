@@ -71,7 +71,7 @@ export function renderCertificateSearch(customers = [], sites = [], sections = [
     <h1>Certificates</h1>
     <p>Search, view and manage inspection and load test certificates.</p>
 
-    <div class="filter-card">
+    <div class="filter-card certificate-section-card certificate-search-card">
       <h2>Search Certificates</h2>
 
       <div class="asset-form-grid">
@@ -145,7 +145,7 @@ export function renderCertificateSearch(customers = [], sites = [], sections = [
       </div>
     </div>
 
-    <div class="filter-card bulk-certificate-card">
+    <div class="filter-card certificate-section-card certificate-bulk-card bulk-certificate-card">
       <h2>Bulk Print Certificates</h2>
       <p>${isCustomerUser ? "Select a date range, then choose the certificates to print together." : "Select a date range, then choose the certificates to print together. Customer is optional."}</p>
 
@@ -211,7 +211,7 @@ export function renderCertificateSearch(customers = [], sites = [], sections = [
     </div>
 
     <div class="certificate-dashboard-grid">
-      <div class="filter-card">
+      <div class="filter-card certificate-section-card certificate-results-card">
         <h2>Search Results</h2>
         <div id="certificateResults">
           <p>Loading certificates...</p>
@@ -219,14 +219,14 @@ export function renderCertificateSearch(customers = [], sites = [], sections = [
       </div>
 
       <div>
-        <div class="filter-card">
+        <div class="filter-card certificate-section-card certificate-support-card">
           <h2>Quick Stats</h2>
           <div id="certificateStats">
             <p>No search loaded yet.</p>
           </div>
         </div>
 
-        <div class="filter-card" id="certificatePreviewPanel">
+        <div class="filter-card certificate-section-card certificate-support-card" id="certificatePreviewPanel">
           <h2>Certificate Preview</h2>
           <p>Select Preview on a certificate to view quick details here.</p>
         </div>

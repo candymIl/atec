@@ -82,13 +82,28 @@ assertIncludes(
 )
 assertIncludes(
   customerReportPage,
-  'report-table ${isCustomerUser ? "customer-scoped" : ""}',
-  "Customer Detailed Report must use the compact customer table layout"
+  'customer-report-worklist ${isCustomerUser ? "customer-scoped" : ""}',
+  "Customer Detailed Report must use the compact customer worklist layout"
 )
 assertIncludes(
   customerReportPage,
-  'isCustomerUser ? "" : `<th>${sortHeader(\'Asset Tag\'',
-  "Customer Detailed Report must omit Asset Tag from the on-screen customer table"
+  "toggleCustomerReportAssetDetails",
+  "Customer Detailed Report must expose secondary asset details on demand"
+)
+assertIncludes(
+  customerReportPage,
+  "customerReportRequiredAction",
+  "Customer Detailed Report must explain the corrective action for each status"
+)
+assertIncludes(
+  customerReportPage,
+  "Asset Record",
+  "Internal report users must be able to open the relevant asset record"
+)
+assertIncludes(
+  customerReportPage,
+  "Visual Certificate",
+  "Report rows must link to the latest visual certificate when available"
 )
 assertIncludes(
   server,

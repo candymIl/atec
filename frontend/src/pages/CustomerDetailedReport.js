@@ -1004,70 +1004,120 @@ function renderCustomerReportPreview(report) {
         </div>
       </div>
 
-      <div class="report-scroll-control">
-        <span>Left</span>
-        <input id="reportTableSlider" type="range" min="0" max="0" value="0" step="1">
-        <span>Right</span>
-      </div>
-
-      <div class="report-table-wrap">
-        <table class="report-table ${isCustomerUser ? "customer-scoped" : ""}">
-          <thead>
-            <tr>
-              ${isCustomerUser ? "" : `<th>${sortHeader('Customer', 'customerReport', 'clientname', 'rerenderCustomerReport')}</th>`}
-              <th>${sortHeader('Asset ID', 'customerReport', 'assetid', 'rerenderCustomerReport')}</th>
-              ${isCustomerUser ? "" : `<th>${sortHeader('Asset Tag', 'customerReport', 'assettagno', 'rerenderCustomerReport')}</th>`}
-              <th>${sortHeader('Serial No', 'customerReport', 'serialno', 'rerenderCustomerReport')}</th>
-              <th>${sortHeader('Site', 'customerReport', 'sitename', 'rerenderCustomerReport')}</th>
-              <th>${sortHeader('Section', 'customerReport', 'sectionname', 'rerenderCustomerReport')}</th>
-              <th>${sortHeader('Responsible Person', 'customerReport', 'responsiblename', 'rerenderCustomerReport')}</th>
-              <th>${sortHeader('Equipment Type', 'customerReport', 'equipmenttype', 'rerenderCustomerReport')}</th>
-              <th>${sortHeader('Description', 'customerReport', 'description', 'rerenderCustomerReport')}</th>
-              <th>${sortHeader('Latest Inspection', 'customerReport', 'latestinspectiondate', 'rerenderCustomerReport')}</th>
-              <th>${sortHeader('Last Visual', 'customerReport', 'visualtestdate', 'rerenderCustomerReport')}</th>
-              <th>${sortHeader('Visual Status', 'customerReport', 'visualstatus', 'rerenderCustomerReport')}</th>
-              <th>${sortHeader('Last Load', 'customerReport', 'loadtestdate', 'rerenderCustomerReport')}</th>
-              <th>${sortHeader('Load Status', 'customerReport', 'loadstatus', 'rerenderCustomerReport')}</th>
-              <th>${sortHeader('Report Status', 'customerReport', 'reportstatus', 'rerenderCustomerReport')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows.map(row => `
-              <tr>
-                ${isCustomerUser ? "" : `<td>${escapeHtml(row.clientname || "-")}</td>`}
-                <td>
-                  ${isCustomerUser
-                    ? `<button type="button" class="customer-asset-history-link" onclick="openCustomerAssetHistory('${escapeHtml(row.assetid)}')">${escapeHtml(row.assetid || "-")}</button>`
-                    : escapeHtml(row.assetid || "-")}
-                </td>
-                ${isCustomerUser ? "" : `<td>${escapeHtml(row.assettagno || "-")}</td>`}
-                <td>${escapeHtml(row.serialno || "-")}</td>
-                <td>${escapeHtml(row.sitename || "-")}</td>
-                <td>${escapeHtml(row.sectionname || "-")}</td>
-                <td>${escapeHtml(row.responsiblename || "-")}</td>
-                <td>${escapeHtml(row.equipmenttype || "-")}</td>
-                <td>${escapeHtml(row.description || "-")}</td>
-                <td>${formatReportDate(row.latestinspectiondate)}</td>
-                <td>${formatReportDate(row.visualtestdate)}</td>
-                <td class="${statusClass(row.visualstatus)}">${escapeHtml(row.visualstatus || "-")}</td>
-                <td>${formatReportDate(row.loadtestdate)}</td>
-                <td class="${statusClass(row.loadstatus)}">${escapeHtml(row.loadstatus || "-")}</td>
-                <td>
-                  <span class="report-status-pill ${reportStatusClass(row.reportstatus)}">
-                    ${escapeHtml(row.reportstatus || "-")}
-                  </span>
-                </td>
-              </tr>
-            `).join("") || `
-              <tr>
-                <td colspan="${isCustomerUser ? 13 : 15}">No assets found for this report.</td>
-              </tr>
-            `}
-          </tbody>
-        </table>
+      <div class="customer-report-worklist ${isCustomerUser ? "customer-scoped" : ""}">
+        <div class="customer-report-worklist-header">
+          <span>${sortHeader(isCustomerUser ? 'Asset' : 'Customer / Asset', 'customerReport', isCustomerUser ? 'assetid' : 'clientname', 'rerenderCustomerReport')}</span>
+          <span>${sortHeader('Serial No', 'customerReport', 'serialno', 'rerenderCustomerReport')}</span>
+          <span>${sortHeader('Site / Section', 'customerReport', 'sitename', 'rerenderCustomerReport')}</span>
+          <span>${sortHeader('Equipment', 'customerReport', 'equipmenttype', 'rerenderCustomerReport')}</span>
+          <span>${sortHeader('Latest', 'customerReport', 'latestinspectiondate', 'rerenderCustomerReport')}</span>
+          <span>${sortHeader('Status', 'customerReport', 'reportstatus', 'rerenderCustomerReport')}</span>
+          <span>Actions</span>
+        </div>
+        <div class="customer-report-worklist-body">
+          ${rows.map(row => renderCustomerReportWorklistRow(row, isCustomerUser)).join("") || `
+            <div class="customer-report-worklist-empty">No assets found for this report.</div>
+          `}
+        </div>
       </div>
     </div>
   `
+}
+
+function renderCustomerReportWorklistRow(row, isCustomerUser) {
+  const rowKey = `customer-report-asset-${String(row.assetid || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '-')}`
+
+  return `
+    <article class="customer-report-worklist-row" id="${safeAttr(rowKey)}">
+      <div class="customer-report-row-summary">
+        <span class="customer-report-asset-identity">
+          <strong>Asset ${escapeHtml(row.assetid || "-")}</strong>
+          <small>${escapeHtml(isCustomerUser ? (row.assettagno || row.description || "-") : (row.clientname || "-"))}</small>
+          <small class="customer-report-line-issue">${escapeHtml(customerReportIssueSummary(row))}</small>
+        </span>
+        <span data-label="Serial No">${escapeHtml(row.serialno || "-")}</span>
+        <span class="customer-report-location" data-label="Location">
+          <strong>${escapeHtml(row.sitename || "-")}</strong>
+          <small>${escapeHtml(row.sectionname || "No section")}</small>
+        </span>
+        <span data-label="Equipment">${escapeHtml(row.equipmenttype || "-")}</span>
+        <span data-label="Latest">${formatReportDate(row.latestinspectiondate)}</span>
+        <span data-label="Status"><span class="report-status-pill ${reportStatusClass(row.reportstatus)}">${escapeHtml(row.reportstatus || "-")}</span></span>
+      </div>
+      <div class="customer-report-worklist-actions">
+        ${isCustomerUser ? `<button type="button" class="customer-asset-history-link" onclick="openCustomerAssetHistory('${safeAttr(row.assetid)}')">History</button>` : ""}
+        <button type="button" class="customer-report-more-btn" onclick="toggleCustomerReportAssetDetails('${safeAttr(rowKey)}')" aria-expanded="false" aria-controls="${safeAttr(rowKey)}-details">More</button>
+      </div>
+      <div class="customer-report-row-details" id="${safeAttr(rowKey)}-details" hidden>
+        <div class="customer-report-guidance">
+          <span><small>Issue</small><strong>${escapeHtml(customerReportIssueDetail(row))}</strong></span>
+          <span><small>What must be done</small><strong>${escapeHtml(customerReportRequiredAction(row))}</strong></span>
+        </div>
+        ${isCustomerUser ? "" : `<span><small>Asset Tag</small><strong>${escapeHtml(row.assettagno || "-")}</strong></span>`}
+        <span><small>Responsible Person</small><strong>${escapeHtml(row.responsiblename || "-")}</strong></span>
+        <span class="customer-report-description"><small>Description</small><strong>${escapeHtml(row.description || "-")}</strong></span>
+        <span><small>Last Visual</small><strong>${formatReportDate(row.visualtestdate)}</strong><em class="${statusClass(row.visualstatus)}">${escapeHtml(row.visualstatus || "-")}</em></span>
+        <span><small>Last Load Test</small><strong>${formatReportDate(row.loadtestdate)}</strong><em class="${statusClass(row.loadstatus)}">${escapeHtml(row.loadstatus || "-")}</em></span>
+        <div class="customer-report-detail-actions">
+          ${isCustomerUser
+            ? `<button type="button" onclick="openCustomerAssetHistory('${safeAttr(row.assetid)}')">Asset History</button>`
+            : `<button type="button" onclick="openAssetSetupFromAccuracy('${safeAttr(row.assetid)}')">Asset Record</button><button type="button" class="secondary-btn" onclick="openAccuracyAssetHistory('${safeAttr(row.assetid)}')">Asset History</button>`}
+          ${row.visualtestid ? `<button type="button" class="secondary-btn" onclick="window.openCertificateModal?.(${safeAttr(row.visualtestid)})">Visual Certificate ${escapeHtml(row.visualtestid)}</button>` : ""}
+          ${row.loadtestid ? `<button type="button" class="secondary-btn" onclick="window.openCertificateModal?.(${safeAttr(row.loadtestid)})">Load Certificate ${escapeHtml(row.loadtestid)}</button>` : ""}
+        </div>
+      </div>
+    </article>
+  `
+}
+
+function customerReportIssueSummary(row) {
+  const status = String(row.reportstatus || '').trim()
+  if (status === 'MISSING CERTIFICATE METADATA') return 'Certificate information needs attention'
+  if (status === 'INCOMPLETE INSPECTION') return 'Latest inspection is incomplete'
+  if (status === 'NOT SAFE') return 'Latest inspection recorded NOT SAFE'
+  if (status === 'VISUAL OVERDUE') return 'Visual inspection is overdue'
+  if (status === 'LOAD TEST OVERDUE') return 'Load test is overdue'
+  if (status === 'NO VISUAL') return 'No visual inspection recorded'
+  if (status === 'NO LOAD TEST') return 'No required load test recorded'
+  if (status === 'ARCHIVED') return 'Asset is archived'
+  return 'No current report exception'
+}
+
+function customerReportIssueDetail(row) {
+  const issues = []
+
+  if (row.visualmissinglmi) issues.push(`Visual inspection ${row.visualtestid}: inspector LMI number missing`)
+  if (row.visualmissingsignature) issues.push(`Visual inspection ${row.visualtestid}: signature missing`)
+  if (row.loadmissinglmi) issues.push(`Load test ${row.loadtestid}: inspector LMI number missing`)
+  if (row.loadmissingsignature) issues.push(`Load test ${row.loadtestid}: signature missing`)
+  if (Number(row.visualresultcount || 0) === 0 && row.visualtestid) issues.push(`Visual inspection ${row.visualtestid}: no result rows`)
+  if (Number(row.loadresultcount || 0) === 0 && row.loadtestid) issues.push(`Load test ${row.loadtestid}: no result rows`)
+
+  return issues.join('; ') || customerReportIssueSummary(row)
+}
+
+function customerReportRequiredAction(row) {
+  const status = String(row.reportstatus || '').trim()
+  if (status === 'MISSING CERTIFICATE METADATA') return 'Confirm the saved inspector and their profile LMI/signature, then use Certificate Metadata Review to repair the saved certificate information.'
+  if (status === 'INCOMPLETE INSPECTION') return 'Open the latest inspection, complete the missing results and submit it through the normal review process.'
+  if (status === 'NOT SAFE') return 'Review the failed certificate, keep the asset out of service where required, complete corrective action and arrange reinspection.'
+  if (status === 'VISUAL OVERDUE') return 'Schedule and complete the overdue visual inspection.'
+  if (status === 'LOAD TEST OVERDUE') return 'Schedule and complete the overdue load test.'
+  if (status === 'NO VISUAL') return 'Create and complete the first visual inspection for this asset.'
+  if (status === 'NO LOAD TEST') return 'Confirm the load-test requirement, then create and complete the required load test.'
+  if (status === 'ARCHIVED') return 'Review the archived asset record; restore it only if it has returned to service.'
+  return 'No corrective action is currently required.'
+}
+
+window.toggleCustomerReportAssetDetails = function (rowKey) {
+  const row = document.getElementById(rowKey)
+  const details = document.getElementById(`${rowKey}-details`)
+  if (!row || !details) return
+
+  const expanded = details.hidden
+  details.hidden = !expanded
+  row.classList.toggle('expanded', expanded)
+  row.querySelectorAll('[aria-controls]').forEach(control => control.setAttribute('aria-expanded', String(expanded)))
 }
 
 function renderCustomerReportPage() {
@@ -1077,7 +1127,6 @@ function renderCustomerReportPage() {
 
   preview.innerHTML = renderCustomerReportPreview(currentReport)
   bindReportPagination()
-  bindReportSlider()
 }
 
 function bindReportPagination() {

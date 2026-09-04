@@ -12308,6 +12308,8 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
       lv.status AS visualstatus,
       lv.inspector AS visualinspector,
       lv.result_count AS visualresultcount,
+      (lv.testid IS NOT NULL AND COALESCE(lv.inspector_lmi_number, '') = '') AS visualmissinglmi,
+      (lv.testid IS NOT NULL AND COALESCE(lv.inspector_signature_image, '') = '') AS visualmissingsignature,
       CASE
         WHEN lv.testid IS NULL THEN 'NO VISUAL'
         WHEN COALESCE(lv.result_count, 0) = 0 THEN 'INCOMPLETE'
@@ -12329,6 +12331,8 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
       ll.status AS loadstatus,
       ll.inspector AS loadinspector,
       ll.result_count AS loadresultcount,
+      (ll.testid IS NOT NULL AND COALESCE(ll.inspector_lmi_number, '') = '') AS loadmissinglmi,
+      (ll.testid IS NOT NULL AND COALESCE(ll.inspector_signature_image, '') = '') AS loadmissingsignature,
       CASE
         WHEN NOT ${assetSupportsLoadTestSql("a")} THEN 'NOT REQUIRED'
         WHEN ll.testid IS NULL THEN 'NO LOAD TEST'
