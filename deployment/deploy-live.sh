@@ -23,6 +23,37 @@ NPM_LOCK_DRIFT_FILES=(
   "frontend/package-lock.json"
 )
 
+install_packages_if_needed() {
+  local package_dir="$1"
+  shift
+  local label="$1"
+  shift
+  local install_args=("$@")
+  local lock_file="$package_dir/package-lock.json"
+  local modules_dir="$package_dir/node_modules"
+  local fingerprint_file="$modules_dir/.atec-package-lock.sha256"
+
+  echo "Checking $label packages..."
+
+  if [ ! -f "$lock_file" ]; then
+    echo "No $label package-lock.json found; running npm install."
+    (cd "$package_dir" && npm install "${install_args[@]}")
+    return
+  fi
+
+  local current_fingerprint
+  current_fingerprint="$(sha256sum "$lock_file" | awk '{print $1}')"
+
+  if [ -d "$modules_dir" ] && [ -f "$fingerprint_file" ] && [ "$(cat "$fingerprint_file")" = "$current_fingerprint" ]; then
+    echo "$label packages unchanged; reusing installed packages."
+    return
+  fi
+
+  echo "Installing $label packages because dependencies changed or are missing..."
+  (cd "$package_dir" && npm ci --prefer-offline --no-audit --no-fund "${install_args[@]}")
+  printf '%s\n' "$current_fingerprint" > "$fingerprint_file"
+}
+
 echo "ATEC deploy starting..."
 echo "Project: $PROJECT_DIR"
 
@@ -76,15 +107,10 @@ else
 fi
 echo "Bulk certificate PDF limit: $(grep '^BULK_PDF_MAX_CERTIFICATES=' "$ENV_FILE" | tail -n 1 | cut -d= -f2)"
 
-echo "Installing frontend packages..."
-cd "$PROJECT_DIR/frontend"
-if [ -f package-lock.json ]; then
-  npm ci --include=dev
-else
-  npm install --include=dev
-fi
+install_packages_if_needed "$PROJECT_DIR/frontend" "frontend" --include=dev
 
 echo "Building frontend..."
+cd "$PROJECT_DIR/frontend"
 if [ -z "${VITE_GOOGLE_MAPS_API_KEY:-}" ] && [ ! -f "$FRONTEND_ENV_FILE" ]; then
   echo "ERROR: Google Maps is not configured for the production frontend build."
   echo "Set VITE_GOOGLE_MAPS_API_KEY in frontend/.env.production, then rerun this deploy."
@@ -104,13 +130,7 @@ echo "Frontend API URL: $VITE_API_URL"
 echo "Google Maps configuration: present"
 npm run build
 
-echo "Installing backend packages..."
-cd "$PROJECT_DIR/backend"
-if [ -f package-lock.json ]; then
-  npm ci
-else
-  npm install
-fi
+install_packages_if_needed "$PROJECT_DIR/backend" "backend"
 
 cd "$PROJECT_DIR"
 for drift_file in "${NPM_LOCK_DRIFT_FILES[@]}"; do
