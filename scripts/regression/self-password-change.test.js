@@ -1,0 +1,22 @@
+const assert = require("assert")
+const fs = require("fs")
+const path = require("path")
+
+const root = path.join(__dirname, "..", "..")
+const serverSource = fs.readFileSync(path.join(root, "backend", "server.js"), "utf8")
+const frontendSource = fs.readFileSync(path.join(root, "frontend", "src", "main.js"), "utf8")
+const styleSource = fs.readFileSync(path.join(root, "frontend", "src", "style.css"), "utf8")
+
+assert(serverSource.includes('app.post("/users/me/password", passwordChangeLimiter'))
+assert(serverSource.includes('routePath === "/users/me/password" && method === "POST"'))
+assert(serverSource.includes('bcrypt.compare(currentPassword, result.rows[0].password_hash)'))
+assert(serverSource.includes('bcrypt.compare(newPassword, result.rows[0].password_hash)'))
+assert(serverSource.includes('validatePassword(newPassword)'))
+assert(serverSource.includes('req.logAudit("PASSWORD_CHANGE", "users", req.user.user_id)'))
+assert(frontendSource.includes('window.changeMyPassword = async function ()'))
+assert(frontendSource.includes('autocomplete="current-password"'))
+assert(frontendSource.includes('autocomplete="new-password"'))
+assert(frontendSource.includes('newPassword !== confirmPassword'))
+assert(styleSource.includes('.my-profile-password-card'))
+
+console.log("Self-service password change regression checks passed.")

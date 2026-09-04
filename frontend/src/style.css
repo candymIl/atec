@@ -377,6 +377,26 @@ button[hidden],
   font-size: 13px;
 }
 
+.asset-table .asset-result-actions .action-buttons {
+  align-items: stretch;
+  display: grid;
+  gap: 5px;
+  grid-template-columns: repeat(2, minmax(72px, 1fr));
+  width: 100%;
+}
+
+.asset-table .asset-result-actions .action-buttons button {
+  font-size: 11px;
+  line-height: 1.1;
+  min-height: 30px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 5px 6px;
+  text-wrap: balance;
+  white-space: normal;
+  width: 100%;
+}
+
 .secondary-button {
   background: #64748b;
 }
@@ -942,6 +962,33 @@ td {
   max-width: 980px;
 }
 
+.my-profile-password-card {
+  align-items: end;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  max-width: 980px;
+}
+
+.my-profile-password-card > div:first-child {
+  grid-column: 1 / -1;
+}
+
+.my-profile-password-card p {
+  color: #526274;
+  margin: 4px 0 0;
+}
+
+.profile-password-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.profile-password-grid input {
+  width: 100%;
+}
+
 .profile-signature-status {
   background: #f4f7fb;
   border: 1px solid #d4dfec;
@@ -950,7 +997,7 @@ td {
   padding: 8px 12px;
 }
 
-.my-profile-card + .user-signature-card {
+.user-signature-card {
   align-items: stretch;
   grid-template-columns: 1fr;
   max-width: 980px;
@@ -999,6 +1046,19 @@ td {
   padding: 10px;
   place-items: center;
   width: min(100%, 520px);
+}
+
+.profile-current-signature > span {
+  color: #64748b;
+  text-align: center;
+}
+
+.profile-signature-preview-error {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 6px;
+  color: #9a3412 !important;
+  padding: 10px 12px;
 }
 
 .profile-current-signature img {
@@ -1359,15 +1419,41 @@ td {
   background: #f8fafc;
 }
 
-.inactive-user-row .user-name-cell::after {
-  background: #e2e8f0;
+.user-name-cell > span {
+  display: block;
+}
+
+.user-name-status-toggle {
   border-radius: 999px;
-  color: #475569;
-  content: "Inactive";
-  display: inline-block;
-  font-size: 10px;
-  margin-left: 6px;
-  padding: 2px 6px;
+  display: inline-flex;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+  margin-top: 5px;
+  min-height: 24px;
+  padding: 5px 8px;
+}
+
+.user-name-status-toggle.active {
+  background: #dcfce7;
+  border: 1px solid #86efac;
+  color: #166534;
+}
+
+.user-name-status-toggle.active:hover {
+  background: #bbf7d0;
+  color: #14532d;
+}
+
+.user-name-status-toggle.inactive {
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  color: #991b1b;
+}
+
+.user-name-status-toggle.inactive:hover {
+  background: #fecaca;
+  color: #7f1d1d;
 }
 
 .user-active-cell {
@@ -1427,22 +1513,22 @@ td {
 
 .user-row-action-buttons {
   align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: center;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .user-row-action-buttons button {
   font-size: 11px;
   margin: 0;
-  min-width: 56px;
-  padding: 8px 10px;
+  min-width: 0;
+  padding: 7px 8px;
+  width: 100%;
   white-space: nowrap;
 }
 
 .user-row-action-buttons .secondary-small-btn {
-  min-width: 96px;
+  min-width: 0;
 }
 
 .user-row-action-buttons .user-status-action.activate {
@@ -1465,24 +1551,9 @@ td {
   background: #b91c1c !important;
 }
 
-.user-row-status-badge {
-  border-radius: 999px;
-  display: inline-flex;
-  font-size: 10px;
-  font-weight: 800;
-  justify-content: center;
-  min-width: 68px;
-  padding: 4px 8px;
-}
-
-.user-row-status-badge.active {
-  background: #dcfce7;
-  color: #166534;
-}
-
-.user-row-status-badge.inactive {
-  background: #e2e8f0;
-  color: #334155;
+.user-reset-password-action,
+.user-delete-action {
+  grid-column: 1 / -1;
 }
 
 @media (max-width: 1100px) {
@@ -8180,6 +8251,9 @@ tr:hover {
 .job-card-submit .form-actions { flex-wrap: wrap; justify-content: flex-end; }
 
 @media (max-width: 850px) {
+  .my-profile-password-card { align-items: stretch; grid-template-columns: 1fr; }
+  .profile-password-grid { grid-template-columns: 1fr; }
+  .my-profile-password-card > button { min-height: 44px; width: 100%; }
   .inspection-signature-reminder { align-items: stretch; flex-direction: column; }
   .inspection-signature-reminder button { width: 100%; min-height: 44px; }
   .job-card-overview { grid-template-columns: 1fr 1fr 1fr; }

@@ -87,6 +87,10 @@ export function renderAssetRow(asset) {
             QR Label
           </button>
 
+          <button class="qr-label-btn secondary-btn" onclick="downloadAssetQrPlt(${asset.assetid})">
+            QR Only PLT
+          </button>
+
           ${canArchiveOrMoveAssets ? `
             <button class="move-btn" onclick="showMoveAssetForm(${asset.assetid})">
               Set Site / Section

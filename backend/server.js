@@ -21,6 +21,7 @@ const {
 } = require("./services/customerAssetHistory")
 const ExcelJS = require("exceljs");
 const QRCode = require("qrcode");
+const { createQrHpgl } = require("./services/qrHpgl")
 const nodemailer = require("nodemailer");
 const puppeteer = require("puppeteer-core");
 const sharp = require("sharp");
@@ -463,6 +464,14 @@ const loginLimiter = rateLimit({
   windowMs: parseRateLimitEnv("AUTH_RATE_LIMIT_WINDOW_MS", 15 * 60 * 1000, 60 * 60 * 1000),
   limit: parseRateLimitEnv("AUTH_RATE_LIMIT", 10, 100),
   message: rateLimitMessage("login"),
+  standardHeaders: true,
+  legacyHeaders: false
+})
+
+const passwordChangeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  message: { error: "Too many password change attempts. Please wait 15 minutes and try again." },
   standardHeaders: true,
   legacyHeaders: false
 })
@@ -1851,6 +1860,8 @@ function authorizeRequest(req, res, next) {
 
   if (routePath.startsWith("/users/me/signature")) return next()
 
+  if (routePath === "/users/me/password" && method === "POST") return next()
+
   if (
     routePath.startsWith("/workforce") &&
     ["MANAGER", "INSPECTOR", "ASSISTANT", "HR"].includes(role)
@@ -2614,6 +2625,48 @@ app.put("/users/me", asyncRoute(async (req, res) => {
 
   await req.logAudit("UPDATE_PROFILE", "users", req.user.user_id)
   res.json({ user: result.rows[0] })
+}))
+
+app.post("/users/me/password", passwordChangeLimiter, asyncRoute(async (req, res) => {
+  const currentPassword = String(req.body?.current_password || "")
+  const newPassword = String(req.body?.new_password || "")
+
+  if (!currentPassword) {
+    return res.status(400).json({ error: "Enter your current password" })
+  }
+
+  const passwordValidation = validatePassword(newPassword)
+  if (!passwordValidation.valid) {
+    return res.status(400).json({ error: passwordValidation.message })
+  }
+
+  const result = await pool.query(
+    "SELECT password AS password_hash FROM atec.tblusers WHERE userid = $1 AND is_active = TRUE",
+    [req.user.user_id]
+  )
+
+  if (result.rows.length === 0) {
+    return res.status(404).json({ error: "User profile not found" })
+  }
+
+  const currentPasswordMatches = await bcrypt.compare(currentPassword, result.rows[0].password_hash)
+  if (!currentPasswordMatches) {
+    return res.status(400).json({ error: "Current password is incorrect" })
+  }
+
+  const passwordIsUnchanged = await bcrypt.compare(newPassword, result.rows[0].password_hash)
+  if (passwordIsUnchanged) {
+    return res.status(400).json({ error: "New password must be different from your current password" })
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 12)
+  await pool.query(
+    "UPDATE atec.tblusers SET password = $1, updated_at = now() WHERE userid = $2",
+    [passwordHash, req.user.user_id]
+  )
+
+  await req.logAudit("PASSWORD_CHANGE", "users", req.user.user_id)
+  res.json({ success: true })
 }))
 
 app.post("/users", asyncRoute(async (req, res) => {
@@ -4504,6 +4557,35 @@ app.get("/assets/:id/qr-label.pdf", pdfLimiter, async (req, res) => {
     res.status(500).json({ error: "An unexpected server error occurred" })
   }
 })
+
+app.get("/assets/:id/qr-only.plt", pdfLimiter, asyncRoute(async (req, res) => {
+  const result = await pool.query(
+    `SELECT assetid, qrcode FROM atec.tblasset WHERE assetid = $1 LIMIT 1`,
+    [req.params.id]
+  )
+
+  if (result.rows.length === 0) {
+    return res.status(404).json({ error: "Asset not found" })
+  }
+
+  const asset = await ensureAssetQrCode(result.rows[0])
+  const appUrl = (process.env.PUBLIC_APP_URL || "https://www.atecinspections.co.za").replace(/\/$/, "")
+  const qrPayload = publicAssetCertificatesUrl(appUrl, asset.assetid)
+  const hpgl = createQrHpgl(qrPayload, {
+    sizeMm: 32,
+    quietZoneModules: 4,
+    errorCorrectionLevel: "M"
+  })
+
+  res.setHeader("Content-Type", "application/vnd.hp-hpgl")
+  res.setHeader("Content-Disposition", `attachment; filename="asset-${asset.assetid}-qr-only.plt"`)
+  await req.logAudit("GENERATE_QR_ONLY_PLT", "assets", asset.assetid, {
+    qrcode: asset.qrcode,
+    size_mm: 32,
+    format: "HPGL2"
+  })
+  res.send(hpgl)
+}))
 
 app.get("/assets/:id/quick-details", searchLimiter, async (req, res) => {
   try {

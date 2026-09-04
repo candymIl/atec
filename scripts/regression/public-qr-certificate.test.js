@@ -9,6 +9,7 @@ const {
   publicAssetCertificatesUrl,
   publicCertificateUrl
 } = require("../../backend/services/publicCertificateAccess")
+const { createQrHpgl, HPGL_UNITS_PER_MM } = require("../../backend/services/qrHpgl")
 
 const env = { PUBLIC_CERTIFICATE_SECRET: "test-secret-that-is-definitely-longer-than-32-characters" }
 const token = createPublicCertificateToken(123, env)
@@ -23,6 +24,7 @@ assert.match(publicAssetCertificatesUrl("https://example.test/", 32793, env), /^
 
 const server = fs.readFileSync(path.join(__dirname, "../../backend/server.js"), "utf8")
 const frontend = fs.readFileSync(path.join(__dirname, "../../frontend/src/main.js"), "utf8")
+const assetSetup = fs.readFileSync(path.join(__dirname, "../../frontend/src/pages/AssetSetup.js"), "utf8")
 const publicRoute = server.indexOf('app.get("/public/certificates/:testid.pdf"')
 const authGate = server.indexOf("app.use(requireAuth)")
 const protectedCertificateRoute = server.indexOf('app.get("/inspections/:testid/certificate.pdf"')
@@ -31,10 +33,18 @@ assert(publicRoute >= 0 && publicRoute < authGate, "Signed public certificate ro
 assert(protectedCertificateRoute > authGate, "Existing staff certificate route must remain authenticated")
 assert(server.includes('app.get("/public/assets/:assetid/certificates"'), "Public asset certificate selection page must exist")
 assert(server.includes("publicAssetCertificatesUrl(appUrl, asset.assetid)"), "QR must open the asset certificate selection page")
-assert.strictEqual((server.match(/const qrPayload = publicAssetCertificatesUrl\(appUrl, asset\.assetid\)/g) || []).length, 2, "Single and bulk QR labels must always open public inspection history")
+assert.strictEqual((server.match(/const qrPayload = publicAssetCertificatesUrl\(appUrl, asset\.assetid\)/g) || []).length, 3, "Single, bulk and PLT QR outputs must always open public inspection history")
 assert(!server.includes('const lookupUrl = `${appUrl}/?qr=${encodeURIComponent(asset.qrcode)}`'), "QR labels must not fall back to the signed-in asset lookup page")
 assert(frontend.includes("publicAssetCertificatesMatch[1]"), "ATEC scanner must extract the asset ID from public certificate QR URLs")
 assert(server.includes('app.get("/assets/qr-labels/bulk.pdf"'), "Bulk QR label PDF route must exist")
+assert(server.includes('app.get("/assets/:id/qr-only.plt"'), "QR-only HPGL route must exist")
+assert(frontend.includes("downloadAssetQrPlt"), "Asset Setup must expose the QR-only PLT download")
+assert(assetSetup.includes("QR Only PLT"), "QR-only PLT download must be clearly labelled")
+const hpgl = createQrHpgl("https://example.test/api/public/assets/32793/certificates?token=test", { sizeMm: 32 })
+assert(hpgl.startsWith("IN; DF; SP1; IP0,0,1280,1280"), "PLT must initialize a 32 mm HPGL/2 drawing area")
+assert(hpgl.includes("PM0;PD;PA"), "PLT must contain filled vector QR module polygons")
+assert(hpgl.endsWith("SP0; IN;\n"), "PLT must safely deselect the plotter pen")
+assert.strictEqual(HPGL_UNITS_PER_MM, 40, "PLT output must use standard HPGL physical units")
 assert(server.includes("Maximum 500") || server.includes("More than 500 assets match"), "Bulk QR generation must have a safe batch limit")
 assert(frontend.includes("showBulkQrLabelForm"), "Asset Setup must expose the bulk QR label facility")
 assert(frontend.includes("bulkQrEquipment"), "Bulk QR labels must support equipment type filtering")

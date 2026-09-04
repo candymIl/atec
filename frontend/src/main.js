@@ -937,7 +937,7 @@ window.showUserManagement = async function () {
           </div>
           <div class="form-group">
             <label>Approving Managers <small>(select up to 3)</small></label>
-            <select id="newUserManager" multiple size="3">${users.filter(user => ['ADMIN','MANAGER'].includes(user.role)).map(user => `<option value="${safeAttr(user.user_id)}">${escapeHtml(user.full_name)}</option>`).join('')}</select>
+            <select id="newUserManager" multiple size="3">${users.filter(user => ['ADMIN','MANAGER'].includes(user.role) && user.is_active).map(user => `<option value="${safeAttr(user.user_id)}">${escapeHtml(user.full_name)}</option>`).join('')}</select>
           </div>
         ` : ''}
         ${managementMode === 'customers' ? `
@@ -1028,7 +1028,15 @@ window.showUserManagement = async function () {
               user.employee_number
             ].filter(Boolean).join(' ').toLowerCase())}"
           >
-            <td class="user-name-cell">${escapeHtml(user.username)}</td>
+            <td class="user-name-cell">
+              <span>${escapeHtml(user.username)}</span>
+              <button
+                type="button"
+                class="user-name-status-toggle ${user.is_active ? 'active' : 'inactive'}"
+                onclick="toggleUserStatus(${user.user_id}, ${user.is_active ? 'false' : 'true'})"
+                title="${user.is_active ? 'Deactivate this user' : 'Activate this user'}"
+              >${user.is_active ? 'Active · Deactivate' : 'Inactive · Activate'}</button>
+            </td>
             <td><input id="user-email-${safeAttr(user.user_id)}" value="${safeAttr(user.email || '')}"></td>
             <td><input id="user-name-${safeAttr(user.user_id)}" value="${safeAttr(user.full_name || '')}"></td>
             <td>
@@ -1038,7 +1046,7 @@ window.showUserManagement = async function () {
                 `).join('')}
               </select>
             </td>
-            ${managementMode === 'internal' ? `<td><input id="user-lmi-${safeAttr(user.user_id)}" value="${safeAttr(user.lmi_number || '')}"></td><td><input id="user-employee-${safeAttr(user.user_id)}" value="${safeAttr(user.employee_number || '')}"></td><td class="user-manager-cell"><select id="user-manager-${safeAttr(user.user_id)}" class="user-manager-select" multiple size="3" aria-label="Approving Managers for ${safeAttr(user.full_name)}" title="Hold Ctrl while clicking to select more than one Manager">${users.filter(manager => ['ADMIN','MANAGER'].includes(manager.role) && String(manager.user_id) !== String(user.user_id)).map(manager => `<option value="${safeAttr(manager.user_id)}" ${(user.manager_user_ids || [user.manager_user_id]).map(String).includes(String(manager.user_id)) ? 'selected' : ''}>${escapeHtml(manager.full_name)}</option>`).join('')}</select><small class="manager-select-help">Ctrl + click, or tap on mobile · max 3</small></td>` : ''}
+            ${managementMode === 'internal' ? `<td><input id="user-lmi-${safeAttr(user.user_id)}" value="${safeAttr(user.lmi_number || '')}"></td><td><input id="user-employee-${safeAttr(user.user_id)}" value="${safeAttr(user.employee_number || '')}"></td><td class="user-manager-cell"><select id="user-manager-${safeAttr(user.user_id)}" class="user-manager-select" multiple size="3" aria-label="Approving Managers for ${safeAttr(user.full_name)}" title="Hold Ctrl while clicking to select more than one Manager">${users.filter(manager => ['ADMIN','MANAGER'].includes(manager.role) && manager.is_active && String(manager.user_id) !== String(user.user_id)).map(manager => `<option value="${safeAttr(manager.user_id)}" ${(user.manager_user_ids || [user.manager_user_id]).map(String).includes(String(manager.user_id)) ? 'selected' : ''}>${escapeHtml(manager.full_name)}</option>`).join('')}</select><small class="manager-select-help">Active Admins and Managers only · max 3</small></td>` : ''}
             ${managementMode === 'customers' ? `
               <td>
                 <select id="user-client-${user.user_id}" onchange="filterCustomerUserSites(${user.user_id})">
@@ -1063,15 +1071,14 @@ window.showUserManagement = async function () {
             </td>
             <td class="user-row-actions">
               <div class="user-row-action-buttons">
-                <span class="user-row-status-badge ${user.is_active ? 'active' : 'inactive'}">${user.is_active ? 'Active' : 'Inactive'}</span>
                 <button onclick="saveUser(${user.user_id})">Save</button>
                 <button
                   type="button"
                   class="secondary-small-btn user-status-action ${user.is_active ? 'deactivate' : 'activate'}"
                   onclick="toggleUserStatus(${user.user_id}, ${user.is_active ? 'false' : 'true'})"
                 >${user.is_active ? 'Deactivate User' : 'Activate User'}</button>
-                <button class="secondary-small-btn" onclick="resetUserPassword(${user.user_id})">Reset Password</button>
-                ${user.is_active ? '' : `<button class="secondary-small-btn" onclick="deleteUser(${user.user_id})">Delete Permanently</button>`}
+                <button class="secondary-small-btn user-reset-password-action" onclick="resetUserPassword(${user.user_id})">Reset Password</button>
+                ${user.is_active ? '' : `<button class="secondary-small-btn user-delete-action" onclick="deleteUser(${user.user_id})">Delete Permanently</button>`}
               </div>
             </td>
           </tr>
@@ -1419,10 +1426,32 @@ window.showMyProfile = async function () {
       <button onclick="saveMyProfile()">Save Profile</button>
     </div>
 
+    <div class="filter-card my-profile-password-card">
+      <div>
+        <h2>Change My Password</h2>
+        <p>Confirm your current password, then choose a new password of at least 8 characters.</p>
+      </div>
+      <div class="profile-password-grid">
+        <div class="form-group">
+          <label for="myCurrentPassword">Current Password</label>
+          <input id="myCurrentPassword" type="password" autocomplete="current-password">
+        </div>
+        <div class="form-group">
+          <label for="myNewPassword">New Password</label>
+          <input id="myNewPassword" type="password" autocomplete="new-password" minlength="8">
+        </div>
+        <div class="form-group">
+          <label for="myConfirmPassword">Confirm New Password</label>
+          <input id="myConfirmPassword" type="password" autocomplete="new-password" minlength="8">
+        </div>
+      </div>
+      <button id="changeMyPasswordButton" type="button" onclick="changeMyPassword()">Change Password</button>
+    </div>
+
     <div class="filter-card user-signature-card">
       <div class="profile-signature-heading"><h2>My Signature</h2><p>Your saved signature will be used on new inspection and load-test certificates completed under your login.</p></div>
       <div class="profile-signature-status">Current signature: <strong>${currentUser.signature_image ? 'Saved' : 'Not uploaded yet'}</strong></div>
-      ${currentUser.signature_image ? `<div class="profile-current-signature"><img src="${uploadUrl(currentUser.signature_image)}" alt="Current saved signature"></div>` : ''}
+      ${currentUser.signature_image ? `<div id="myProfileSignaturePreview" class="profile-current-signature"><span>Loading saved signature...</span></div>` : ''}
       <div class="profile-signature-draw">
         <strong>Sign directly in the white box</strong>
         <p>Use your finger, stylus or mouse, then press Save drawn signature.</p>
@@ -1432,7 +1461,32 @@ window.showMyProfile = async function () {
       <div class="profile-signature-upload"><strong>Or upload a signature image</strong><input id="mySignatureUpload" type="file" accept="image/*"><button type="button" onclick="uploadMySignature()">Upload image</button></div>
     </div>
   `
+  await loadMyProfileSignaturePreview(currentUser.signature_image)
   initialiseMyProfileSignaturePad()
+}
+
+async function loadMyProfileSignaturePreview(signaturePath) {
+  const preview = document.querySelector('#myProfileSignaturePreview')
+  if (!preview || !signaturePath) return
+
+  try {
+    const response = await fetch(uploadUrl(signaturePath), { cache: 'no-store' })
+    if (!response.ok) throw new Error(`Signature image returned ${response.status}`)
+
+    const signatureBlobUrl = URL.createObjectURL(await response.blob())
+    const image = document.createElement('img')
+    image.alt = 'Current saved signature'
+    image.onload = () => URL.revokeObjectURL(signatureBlobUrl)
+    image.onerror = () => {
+      URL.revokeObjectURL(signatureBlobUrl)
+      preview.innerHTML = '<span class="profile-signature-preview-error">The saved signature image could not be displayed. Upload it again below.</span>'
+    }
+    image.src = signatureBlobUrl
+    preview.replaceChildren(image)
+  } catch (error) {
+    console.error('Unable to load saved signature preview:', error)
+    preview.innerHTML = '<span class="profile-signature-preview-error">The saved signature file could not be found. Upload it again below.</span>'
+  }
 }
 
 window.saveMyProfile = async function () {
@@ -1457,6 +1511,66 @@ window.saveMyProfile = async function () {
   window.currentUser = currentUser
   alert('Profile saved successfully')
   showMyProfile()
+}
+
+window.changeMyPassword = async function () {
+  const currentPasswordInput = document.querySelector('#myCurrentPassword')
+  const newPasswordInput = document.querySelector('#myNewPassword')
+  const confirmPasswordInput = document.querySelector('#myConfirmPassword')
+  const button = document.querySelector('#changeMyPasswordButton')
+  const currentPassword = currentPasswordInput?.value || ''
+  const newPassword = newPasswordInput?.value || ''
+  const confirmPassword = confirmPasswordInput?.value || ''
+
+  if (!currentPassword) {
+    alert('Enter your current password')
+    currentPasswordInput?.focus()
+    return
+  }
+
+  if (newPassword.length < 8) {
+    alert('New password must be at least 8 characters')
+    newPasswordInput?.focus()
+    return
+  }
+
+  if (newPassword !== confirmPassword) {
+    alert('New password and confirmation do not match')
+    confirmPasswordInput?.focus()
+    return
+  }
+
+  if (button) {
+    button.disabled = true
+    button.textContent = 'Changing...'
+  }
+
+  try {
+    const response = await fetch(`${API_BASE}/users/me/password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
+    })
+    const result = await readApiResponse(response)
+
+    if (!response.ok) {
+      alert(result.error || 'Unable to change your password')
+      return
+    }
+
+    currentPasswordInput.value = ''
+    newPasswordInput.value = ''
+    confirmPasswordInput.value = ''
+    alert('Password changed successfully')
+  } catch (error) {
+    console.error('Unable to change password:', error)
+    alert('Unable to change your password. Please check your connection and try again.')
+  } finally {
+    if (button) {
+      button.disabled = false
+      button.textContent = 'Change Password'
+    }
+  }
 }
 
 async function fetchJsonOrDefault(url, fallback) {
@@ -3673,6 +3787,10 @@ window.archiveRiskAssessment = async function (riskid) {
 
 window.openAssetQrLabel = function (assetid) {
   window.open(`${API_BASE}/assets/${assetid}/qr-label.pdf`, "_blank")
+}
+
+window.downloadAssetQrPlt = function (assetid) {
+  window.open(`${API_BASE}/assets/${assetid}/qr-only.plt`, "_blank")
 }
 
 window.showBulkQrLabelForm = function () {
