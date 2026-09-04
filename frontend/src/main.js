@@ -15,6 +15,7 @@ import {
   downloadComplianceDocument,
   renderComplianceDocuments,
   setComplianceDocumentStatus,
+  sortComplianceDocuments,
   toggleComplianceCustomers,
   uploadComplianceDocument
 } from './pages/ComplianceDocuments.js'
@@ -1925,6 +1926,7 @@ window.toggleComplianceCustomers = toggleComplianceCustomers
 window.uploadComplianceDocument = uploadComplianceDocument
 window.setComplianceDocumentStatus = setComplianceDocumentStatus
 window.downloadComplianceDocument = downloadComplianceDocument
+window.sortComplianceDocuments = sortComplianceDocuments
 
 let customerArchiveMode = localStorage.getItem("customerArchiveMode") || "active"
 

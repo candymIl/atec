@@ -1123,6 +1123,20 @@ td {
   min-width: 150px;
 }
 
+.compliance-sort-heading {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.compliance-sort-heading > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .compliance-table td strong,
 .compliance-table td small {
   display: block;

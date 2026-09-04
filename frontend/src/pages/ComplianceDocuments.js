@@ -11,6 +11,9 @@ const TYPE_LABELS = {
   OTHER: "Other Compliance Document"
 }
 
+let complianceDocuments = []
+let complianceSort = { key: "created_at", direction: "desc" }
+
 function dateLabel(value) {
   if (!value) return "No expiry"
   return String(value).slice(0, 10)
@@ -29,15 +32,41 @@ function expiryState(value, status) {
   return { label: "Current", className: "current" }
 }
 
+function audienceLabel(document) {
+  return document.audience_all
+    ? "All customers"
+    : (document.customers || []).map(customer => customer.clientname).join(", ") || "No customers"
+}
+
+function sortValue(document, key) {
+  if (key === "audience") return audienceLabel(document)
+  if (key === "status") return expiryState(document.expiry_date, document.status).label
+  return document[key] || ""
+}
+
+function sortedDocuments(documents) {
+  const direction = complianceSort.direction === "asc" ? 1 : -1
+  return [...documents].sort((left, right) => {
+    const leftValue = sortValue(left, complianceSort.key)
+    const rightValue = sortValue(right, complianceSort.key)
+    return String(leftValue).localeCompare(String(rightValue), undefined, { numeric: true, sensitivity: "base" }) * direction
+  })
+}
+
+function sortHeading(label, key) {
+  const active = complianceSort.key === key
+  const direction = active ? complianceSort.direction : ""
+  const nextDirection = active && direction === "asc" ? "descending" : "ascending"
+  return `<div class="compliance-sort-heading"><span>${escapeHtml(label)}</span><button type="button" class="user-sort-btn ${active ? `active ${direction}` : ""}" onclick="sortComplianceDocuments('${key}')" aria-label="Sort ${escapeHtml(label)} ${nextDirection}" title="Sort ${escapeHtml(label)} ${nextDirection}"></button></div>`
+}
+
 function renderRows(documents) {
   if (!documents.length) {
     return `<tr><td colspan="8"><div class="compliance-empty"><strong>No compliance documents uploaded yet.</strong><span>Use the form above to publish the first document.</span></div></td></tr>`
   }
   return documents.map(document => {
     const expiry = expiryState(document.expiry_date, document.status)
-    const audience = document.audience_all
-      ? "All customers"
-      : (document.customers || []).map(customer => customer.clientname).join(", ") || "No customers"
+    const audience = audienceLabel(document)
     return `<tr>
       <td data-label="Document"><strong>${escapeHtml(document.title)}</strong><small>${escapeHtml(TYPE_LABELS[document.document_type] || document.document_type)}</small></td>
       <td data-label="Reference">${escapeHtml(document.reference_number || "-")}</td>
@@ -69,6 +98,7 @@ export async function renderComplianceDocuments() {
     if (!documentsResponse.ok || !customersResponse.ok) {
       throw new Error(documents.error || customers.error || "Unable to load compliance documents")
     }
+    complianceDocuments = documents
 
     page.innerHTML = `
       <div class="page-heading"><div><h1>Compliance Documents</h1><p>Upload once, control customer access, and keep current company certificates available in the portal.</p></div></div>
@@ -96,11 +126,27 @@ export async function renderComplianceDocuments() {
       </section>
       <section class="filter-card compliance-library-card">
         <div class="section-heading"><div><h2>Document Library</h2><p>${documents.length} document${documents.length === 1 ? "" : "s"}, including drafts and archived versions.</p></div></div>
-        <div class="table-scroll"><table class="mobile-card-table compliance-table"><thead><tr><th>Document</th><th>Reference</th><th>Issuer</th><th>Valid Until</th><th>Customer Access</th><th>Status</th><th>Uploaded</th><th>Actions</th></tr></thead><tbody>${renderRows(documents)}</tbody></table></div>
+        <div class="table-scroll"><table class="mobile-card-table compliance-table"><thead><tr><th>${sortHeading("Document", "title")}</th><th>${sortHeading("Reference", "reference_number")}</th><th>${sortHeading("Issuer", "issuing_authority")}</th><th>${sortHeading("Valid Until", "expiry_date")}</th><th>${sortHeading("Customer Access", "audience")}</th><th>${sortHeading("Status", "status")}</th><th>${sortHeading("Uploaded", "created_at")}</th><th>Actions</th></tr></thead><tbody>${renderRows(sortedDocuments(documents))}</tbody></table></div>
       </section>`
   } catch (error) {
     page.innerHTML = `<h1>Compliance Documents</h1><div class="filter-card"><p class="login-error">${escapeHtml(error.message)}</p></div>`
   }
+}
+
+export function sortComplianceDocuments(key) {
+  complianceSort = {
+    key,
+    direction: complianceSort.key === key && complianceSort.direction === "asc" ? "desc" : "asc"
+  }
+  const table = document.querySelector(".compliance-table")
+  if (!table) return
+  table.querySelector("tbody").innerHTML = renderRows(sortedDocuments(complianceDocuments))
+  table.querySelectorAll(".user-sort-btn").forEach(button => {
+    const isActive = button.getAttribute("onclick")?.includes(`'${key}'`)
+    button.classList.toggle("active", isActive)
+    button.classList.toggle("asc", isActive && complianceSort.direction === "asc")
+    button.classList.toggle("desc", isActive && complianceSort.direction === "desc")
+  })
 }
 
 export function toggleComplianceCustomers() {
