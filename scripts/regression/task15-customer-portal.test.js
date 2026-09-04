@@ -70,6 +70,9 @@ assertIncludes(main, "sectionid: null", "Customer portal user saves must clear s
 assertIncludes(main, "users: ['ADMIN', 'MANAGER']", "Managers must be able to open customer portal user management")
 assertIncludes(main, "function canManageInternalUsers()", "Internal ATEC user management must remain admin-only in the UI")
 assertIncludes(main, "if (!canManageInternalUsers()) return 'customers'", "Managers must land on Customer Portal Users")
+assertIncludes(main, "onclick=\"toggleUserStatus(${user.user_id}, ${user.is_active ? 'false' : 'true'})\"", "User rows must expose an explicit active or inactive action")
+assertIncludes(main, "window.toggleUserStatus = async function", "The active or inactive user action handler is missing")
+assertIncludes(main, "statusCheckbox.checked = makeActive", "The active or inactive action must update the saved status control")
 
 assertIncludes(portal, "/customer-portal/summary", "Portal page must call the scoped summary endpoint")
 assertIncludes(portal, "/customer-portal/assets", "Portal page must call the scoped asset endpoint")
@@ -95,6 +98,7 @@ assertIncludes(certificatesPage, "isCustomerUser ? asset : tag", "Customer certi
 assertIncludes(certificatesPage, 'isCustomerUser ? "" : `<th>Asset Tag</th>`', "Customer bulk certificate tables must omit asset tag columns on screen")
 
 assertIncludes(style, ".customer-portal-page", "Portal page styles are missing")
+assertIncludes(style, ".user-status-action.activate", "The user activation action style is missing")
 assertIncludes(style, ".portal-metric-grid", "Portal metric grid styles are missing")
 assertIncludes(style, "grid-template-columns: repeat(4, minmax(0, 1fr))", "Portal metrics must use a balanced desktop grid")
 assertIncludes(style, "align-content: space-between", "Portal metric labels and values must have consistent vertical spacing")

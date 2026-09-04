@@ -1043,6 +1043,11 @@ window.showUserManagement = async function () {
             <td class="user-row-actions">
               <div class="user-row-action-buttons">
                 <button onclick="saveUser(${user.user_id})">Save</button>
+                <button
+                  type="button"
+                  class="secondary-small-btn user-status-action ${user.is_active ? 'deactivate' : 'activate'}"
+                  onclick="toggleUserStatus(${user.user_id}, ${user.is_active ? 'false' : 'true'})"
+                >${user.is_active ? 'Deactivate' : 'Activate'}</button>
                 <button class="secondary-small-btn" onclick="resetUserPassword(${user.user_id})">Reset Password</button>
                 ${user.is_active ? '' : `<button class="secondary-small-btn" onclick="deleteUser(${user.user_id})">Delete Permanently</button>`}
               </div>
@@ -1185,6 +1190,21 @@ window.saveUser = async function (userId) {
 
   alert('User saved successfully')
   showUserManagement()
+}
+
+window.toggleUserStatus = async function (userId, makeActive) {
+  const statusCheckbox = document.querySelector(`#user-active-${userId}`)
+  if (!statusCheckbox) {
+    alert('This user status control is unavailable. The list will refresh now.')
+    showUserManagement()
+    return
+  }
+
+  const action = makeActive ? 'activate' : 'deactivate'
+  if (!confirm(`Are you sure you want to ${action} this user?`)) return
+
+  statusCheckbox.checked = makeActive
+  await saveUser(userId)
 }
 
 window.uploadUserSignature = async function (userId) {

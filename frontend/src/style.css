@@ -1350,6 +1350,16 @@ td {
   width: 16px !important;
 }
 
+.user-status-action.activate {
+  border-color: #86efac;
+  color: #166534;
+}
+
+.user-status-action.deactivate {
+  border-color: #fbbf24;
+  color: #92400e;
+}
+
 .signature-status {
   color: #64748b;
   font-weight: 700;
