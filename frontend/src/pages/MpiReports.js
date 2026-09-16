@@ -274,10 +274,10 @@ function techniqueSection(record = {}) {
         </div>
       </div>
       <div class="form-row">
-        <div class="form-group"><label>Surface temperature °C</label><input id="mpiSurfaceTemperature" type="number" step="0.1" value="${inputValue(detail.surface_temperature_c)}"></div>
-        <div class="form-group"><label>Visible light lux</label><input id="mpiVisibleLight" type="number" step="0.1" value="${inputValue(detail.visible_light_lux)}"></div>
-        <div class="form-group"><label>UV-A µW/cm²</label><input id="mpiUva" type="number" step="0.1" value="${inputValue(detail.uva_intensity_uw_cm2)}"></div>
-        <div class="form-group"><label>Demagnetisation gauss</label><input id="mpiDemag" type="number" step="0.001" value="${inputValue(detail.demagnetisation_gauss)}"></div>
+        <div class="form-group"><label>Surface temperature °C</label><input id="mpiSurfaceTemperature" type="number" inputmode="decimal" step="0.1" value="${inputValue(detail.surface_temperature_c)}"></div>
+        <div class="form-group"><label>Visible light lux</label><input id="mpiVisibleLight" type="number" inputmode="decimal" step="0.1" value="${inputValue(detail.visible_light_lux)}"></div>
+        <div class="form-group"><label>UV-A µW/cm²</label><input id="mpiUva" type="number" inputmode="decimal" step="0.1" value="${inputValue(detail.uva_intensity_uw_cm2)}"></div>
+        <div class="form-group"><label>Demagnetisation gauss</label><input id="mpiDemag" type="number" inputmode="decimal" step="0.001" value="${inputValue(detail.demagnetisation_gauss)}"></div>
         <div class="form-group">
           <label>Flux indicator</label>
           <select id="mpiFluxIndicator">
@@ -371,10 +371,10 @@ function renderIndications() {
         <div class="form-row">
           <div class="form-group"><label>Examined area</label><input data-key="examined_area" value="${inputValue(row.examined_area)}"></div>
           <div class="form-group"><label>Datum description</label><input data-key="datum_description" value="${inputValue(row.datum_description)}"></div>
-          <div class="form-group"><label>Distance from datum mm</label><input data-key="distance_from_datum_mm" type="number" step="0.001" value="${inputValue(row.distance_from_datum_mm)}"></div>
-          <div class="form-group"><label>Distance from centreline mm</label><input data-key="distance_from_centreline_mm" type="number" step="0.001" value="${inputValue(row.distance_from_centreline_mm)}"></div>
-          <div class="form-group"><label>Length mm</label><input data-key="length_mm" type="number" step="0.001" value="${inputValue(row.length_mm)}"></div>
-          <div class="form-group"><label>Width mm</label><input data-key="width_mm" type="number" step="0.001" value="${inputValue(row.width_mm)}"></div>
+          <div class="form-group"><label>Distance from datum mm</label><input data-key="distance_from_datum_mm" type="number" inputmode="decimal" step="0.001" value="${inputValue(row.distance_from_datum_mm)}"></div>
+          <div class="form-group"><label>Distance from centreline mm</label><input data-key="distance_from_centreline_mm" type="number" inputmode="decimal" step="0.001" value="${inputValue(row.distance_from_centreline_mm)}"></div>
+          <div class="form-group"><label>Length mm</label><input data-key="length_mm" type="number" inputmode="decimal" step="0.001" value="${inputValue(row.length_mm)}"></div>
+          <div class="form-group"><label>Width mm</label><input data-key="width_mm" type="number" inputmode="decimal" step="0.001" value="${inputValue(row.width_mm)}"></div>
           <div class="form-group">
             <label>Classification</label>
             <select data-key="confirmed_classification">
@@ -395,9 +395,9 @@ function renderIndications() {
               ${option('UNDETERMINED', 'Undetermined', row.code_disposition)}
             </select>
           </div>
-          <div class="form-group"><label>Diagram number</label><input data-key="diagram_number" type="number" min="1" value="${inputValue(row.diagram_number)}"></div>
-          <div class="form-group"><label>Diagram X (0–1)</label><input data-key="diagram_x" type="number" min="0" max="1" step="0.001" value="${inputValue(row.diagram_x)}"></div>
-          <div class="form-group"><label>Diagram Y (0–1)</label><input data-key="diagram_y" type="number" min="0" max="1" step="0.001" value="${inputValue(row.diagram_y)}"></div>
+          <div class="form-group"><label>Diagram number</label><input data-key="diagram_number" type="number" inputmode="numeric" min="1" value="${inputValue(row.diagram_number)}"></div>
+          <div class="form-group"><label>Diagram X (0–1)</label><input data-key="diagram_x" type="number" inputmode="decimal" min="0" max="1" step="0.001" value="${inputValue(row.diagram_x)}"></div>
+          <div class="form-group"><label>Diagram Y (0–1)</label><input data-key="diagram_y" type="number" inputmode="decimal" min="0" max="1" step="0.001" value="${inputValue(row.diagram_y)}"></div>
         </div>
         <label>Description</label>
         <textarea data-key="description">${escapeHtml(row.description || '')}</textarea>

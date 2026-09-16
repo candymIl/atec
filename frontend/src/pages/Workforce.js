@@ -545,13 +545,13 @@ export async function loadWorkSchedule() {
       <h4>Monday to Thursday</h4><div class="job-card-grid">
         <label>Start<input id="scheduleWeekStart" type="time" value="${safeAttr(weekdayStart)}" oninput="updateScheduleHours()"></label>
         <label>End<input id="scheduleWeekEnd" type="time" value="${safeAttr(weekdayEnd)}" oninput="updateScheduleHours()"></label>
-        <label>Unpaid lunch (minutes)<input id="scheduleWeekLunch" type="number" min="0" max="180" step="5" value="${weekdayLunch}" oninput="updateScheduleHours()"></label>
+        <label>Unpaid lunch (minutes)<input id="scheduleWeekLunch" type="number" inputmode="numeric" min="0" max="180" step="5" value="${weekdayLunch}" oninput="updateScheduleHours()"></label>
         <div><span class="muted-text">Normal paid hours</span><br><strong id="scheduleWeekHours">${paidHours(weekdayStart,weekdayEnd,weekdayLunch)}</strong></div>
       </div>
       <h4>Friday</h4><div class="job-card-grid">
         <label>Start<input id="scheduleFridayStart" type="time" value="${safeAttr(fridayStart)}" oninput="updateScheduleHours()"></label>
         <label>End<input id="scheduleFridayEnd" type="time" value="${safeAttr(fridayEnd)}" oninput="updateScheduleHours()"></label>
-        <label>Unpaid lunch (minutes)<input id="scheduleFridayLunch" type="number" min="0" max="180" step="5" value="${fridayLunch}" oninput="updateScheduleHours()"></label>
+        <label>Unpaid lunch (minutes)<input id="scheduleFridayLunch" type="number" inputmode="numeric" min="0" max="180" step="5" value="${fridayLunch}" oninput="updateScheduleHours()"></label>
         <div><span class="muted-text">Normal paid hours</span><br><strong id="scheduleFridayHours">${paidHours(fridayStart,fridayEnd,fridayLunch)}</strong></div>
       </div>
       <div class="work-schedule-total"><span>Weekly normal paid hours</span><strong id="scheduleTotalHours">${(Number(paidHours(weekdayStart,weekdayEnd,weekdayLunch)) * 4 + Number(paidHours(fridayStart,fridayEnd,fridayLunch))).toFixed(2)}</strong><small>Monday to Thursday × 4, plus Friday</small></div>

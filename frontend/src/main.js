@@ -2033,7 +2033,7 @@ function renderCustomerForm(customer = null) {
           </div>
           <div class="form-group customer-notification-days">
             <label for="notificationLeadDays">Expiry reminder days</label>
-            <input id="notificationLeadDays" type="number" min="0" max="365" value="${safeAttr(Number.isFinite(notificationLeadDays) ? notificationLeadDays : 30)}">
+            <input id="notificationLeadDays" type="number" inputmode="numeric" min="0" max="365" value="${safeAttr(Number.isFinite(notificationLeadDays) ? notificationLeadDays : 30)}">
           </div>
         </fieldset>
 
@@ -4902,52 +4902,52 @@ window.loadDynamicAssetFields = function () {
   if (groupid === '100') {
     const isElectricRopeHoist = String(selectedType.equiptypeid) === '105'
     html = `
-      <div class="form-group"><label>WLL(kg)</label><input id="assetWLL" type="number"></div>
-      <div class="form-group"><label>Height of Lift(mm)</label><input id="assetHeightOfLift" type="number"></div>
-      <div class="form-group"><label>${isElectricRopeHoist ? 'Number of Rope Falls' : 'Number of Chain Falls'}</label><input id="assetNumberOfChainFalls" type="number"></div>
-      ${isElectricRopeHoist ? '' : '<div class="form-group"><label>OEM Top Hook Size(mm)</label><input id="assetOEMTopHookSize" type="number"></div>'}
-      <div class="form-group"><label>OEM Bottom Hook Size(mm)</label><input id="assetOEMBottomHookSize" type="number"></div>
-      <div class="form-group"><label>${isElectricRopeHoist ? 'Rope Size(mm)' : 'Load Chain Diameter(mm)'}</label><input id="assetLoadChainDiameter" type="number"></div>
+      <div class="form-group"><label>WLL(kg)</label><input id="assetWLL" type="number" inputmode="decimal"></div>
+      <div class="form-group"><label>Height of Lift(mm)</label><input id="assetHeightOfLift" type="number" inputmode="decimal"></div>
+      <div class="form-group"><label>${isElectricRopeHoist ? 'Number of Rope Falls' : 'Number of Chain Falls'}</label><input id="assetNumberOfChainFalls" type="number" inputmode="numeric"></div>
+      ${isElectricRopeHoist ? '' : '<div class="form-group"><label>OEM Top Hook Size(mm)</label><input id="assetOEMTopHookSize" type="number" inputmode="decimal"></div>'}
+      <div class="form-group"><label>OEM Bottom Hook Size(mm)</label><input id="assetOEMBottomHookSize" type="number" inputmode="decimal"></div>
+      <div class="form-group"><label>${isElectricRopeHoist ? 'Rope Size(mm)' : 'Load Chain Diameter(mm)'}</label><input id="assetLoadChainDiameter" type="number" inputmode="decimal"></div>
     `
   }
 
   if (groupid === '200') {
     html = `
-      <div class="form-group"><label>WLL(kg)</label><input id="assetWLL" type="number"></div>
-      <div class="form-group"><label>Effective Length(mm)</label><input id="assetEffectiveLength" type="number"></div>
+      <div class="form-group"><label>WLL(kg)</label><input id="assetWLL" type="number" inputmode="decimal"></div>
+      <div class="form-group"><label>Effective Length(mm)</label><input id="assetEffectiveLength" type="number" inputmode="decimal"></div>
     `
   }
 
   if (groupid === '300' || groupid === '600') {
     html = `
-      <div class="form-group"><label>WLL(kg)</label><input id="assetWLL" type="number"></div>
+      <div class="form-group"><label>WLL(kg)</label><input id="assetWLL" type="number" inputmode="decimal"></div>
     `
   }
 
   if (groupid === '400') {
     html = `
-      <div class="form-group"><label>Main Hoist WLL(kg)</label><input id="assetWLL" type="number"></div>
-      <div class="form-group"><label>Auxiliary Hoist WLL(kg)</label><input id="assetAuxHoistWLL" type="number"></div>
-      <div class="form-group"><label>Span(mm)</label><input id="assetSpan" type="number"></div>
-      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="assetPermissibleDeflection" type="number" min="0" step="1" placeholder="Whole number, e.g. 19"></div>
+      <div class="form-group"><label>Main Hoist WLL(kg)</label><input id="assetWLL" type="number" inputmode="decimal"></div>
+      <div class="form-group"><label>Auxiliary Hoist WLL(kg)</label><input id="assetAuxHoistWLL" type="number" inputmode="decimal"></div>
+      <div class="form-group"><label>Span(mm)</label><input id="assetSpan" type="number" inputmode="decimal"></div>
+      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="assetPermissibleDeflection" type="number" inputmode="numeric" min="0" step="1" placeholder="Whole number, e.g. 19"></div>
       <div class="form-group"><label>Main Hoist Description</label><input id="assetHoistDescription" type="text"></div>
       <div class="form-group"><label>Main Hoist Serial No</label><input id="assetHoistSerialNo" type="text"></div>
       <div class="form-group"><label>Auxiliary Hoist Description</label><input id="assetAuxHoistDescription" type="text"></div>
       <div class="form-group"><label>Auxiliary Hoist Serial No</label><input id="assetAuxHoistSerialNo" type="text"></div>
-      <div class="form-group"><label>Main Hoist Hook Size(mm)</label><input id="assetHookSize" type="number"></div>
-      <div class="form-group"><label>Auxiliary Hoist Hook Size(mm)</label><input id="assetAuxHoistHookSize" type="number"></div>
-      <div class="form-group"><label>Height of Lift(mm)</label><input id="assetHeightOfLift" type="number"></div>
-      <div class="form-group"><label>Main Hoist Steel Wire Rope(mm)</label><input id="assetSteelWireRopeMM" type="number"></div>
-      <div class="form-group"><label>Auxiliary Hoist Steel Wire Rope(mm)</label><input id="assetAuxHoistRopeMM" type="number"></div>
+      <div class="form-group"><label>Main Hoist Hook Size(mm)</label><input id="assetHookSize" type="number" inputmode="decimal"></div>
+      <div class="form-group"><label>Auxiliary Hoist Hook Size(mm)</label><input id="assetAuxHoistHookSize" type="number" inputmode="decimal"></div>
+      <div class="form-group"><label>Height of Lift(mm)</label><input id="assetHeightOfLift" type="number" inputmode="decimal"></div>
+      <div class="form-group"><label>Main Hoist Steel Wire Rope(mm)</label><input id="assetSteelWireRopeMM" type="number" inputmode="decimal"></div>
+      <div class="form-group"><label>Auxiliary Hoist Steel Wire Rope(mm)</label><input id="assetAuxHoistRopeMM" type="number" inputmode="decimal"></div>
     `
   }
 
   if (groupid === '500') {
     html = `
-      <div class="form-group"><label>WLL(kg)</label><input id="assetWLL" type="number"></div>
-      <div class="form-group"><label>Span(mm)</label><input id="assetSpan" type="number"></div>
-      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="assetPermissibleDeflection" type="number" min="0" step="1" placeholder="Whole number, e.g. 19"></div>
-      <div class="form-group"><label>Hook Size(mm)</label><input id="assetHookSize" type="number"></div>
+      <div class="form-group"><label>WLL(kg)</label><input id="assetWLL" type="number" inputmode="decimal"></div>
+      <div class="form-group"><label>Span(mm)</label><input id="assetSpan" type="number" inputmode="decimal"></div>
+      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="assetPermissibleDeflection" type="number" inputmode="numeric" min="0" step="1" placeholder="Whole number, e.g. 19"></div>
+      <div class="form-group"><label>Hook Size(mm)</label><input id="assetHookSize" type="number" inputmode="decimal"></div>
       <div class="form-group"><label>Hoist Description</label><input id="assetHoistDescription" type="text"></div>
       <div class="form-group"><label>Hoist Serial No</label><input id="assetHoistSerialNo" type="text"></div>
     `
@@ -5665,52 +5665,52 @@ function buildEditAssetDynamicFields(groupid, values = {}, equiptypeid = '') {
   if (groupid === '100') {
     const isElectricRopeHoist = String(equiptypeid) === '105'
     dynamicEditFields = `
-      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${safeAttr(values.wll || '')}"></div>
-      <div class="form-group"><label>Height of Lift(mm)</label><input id="editAssetHeightOfLift" type="number" value="${safeAttr(values.heightoflift || '')}"></div>
-      <div class="form-group"><label>${isElectricRopeHoist ? 'Number of Rope Falls' : 'Number of Chain Falls'}</label><input id="editAssetNumberOfChainFalls" type="number" value="${safeAttr(values.numberofchainfalls || '')}"></div>
-      ${isElectricRopeHoist ? '' : `<div class="form-group"><label>OEM Top Hook Size(mm)</label><input id="editAssetOEMTopHookSize" type="number" value="${safeAttr(values.oemtophooksize || '')}"></div>`}
-      <div class="form-group"><label>OEM Bottom Hook Size(mm)</label><input id="editAssetOEMBottomHookSize" type="number" value="${safeAttr(values.oembottomhooksize || '')}"></div>
-      <div class="form-group"><label>${isElectricRopeHoist ? 'Rope Size(mm)' : 'Load Chain Diameter(mm)'}</label><input id="editAssetLoadChainDiameter" type="number" value="${safeAttr(values.loadchaindiameter || '')}"></div>
+      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" inputmode="decimal" value="${safeAttr(values.wll || '')}"></div>
+      <div class="form-group"><label>Height of Lift(mm)</label><input id="editAssetHeightOfLift" type="number" inputmode="decimal" value="${safeAttr(values.heightoflift || '')}"></div>
+      <div class="form-group"><label>${isElectricRopeHoist ? 'Number of Rope Falls' : 'Number of Chain Falls'}</label><input id="editAssetNumberOfChainFalls" type="number" inputmode="numeric" value="${safeAttr(values.numberofchainfalls || '')}"></div>
+      ${isElectricRopeHoist ? '' : `<div class="form-group"><label>OEM Top Hook Size(mm)</label><input id="editAssetOEMTopHookSize" type="number" inputmode="decimal" value="${safeAttr(values.oemtophooksize || '')}"></div>`}
+      <div class="form-group"><label>OEM Bottom Hook Size(mm)</label><input id="editAssetOEMBottomHookSize" type="number" inputmode="decimal" value="${safeAttr(values.oembottomhooksize || '')}"></div>
+      <div class="form-group"><label>${isElectricRopeHoist ? 'Rope Size(mm)' : 'Load Chain Diameter(mm)'}</label><input id="editAssetLoadChainDiameter" type="number" inputmode="decimal" value="${safeAttr(values.loadchaindiameter || '')}"></div>
     `
   }
 
   if (groupid === '200') {
     dynamicEditFields = `
-      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${safeAttr(values.wll || '')}"></div>
-      <div class="form-group"><label>Effective Length(mm)</label><input id="editAssetEffectiveLength" type="number" value="${safeAttr(values.effectivelength || '')}"></div>
+      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" inputmode="decimal" value="${safeAttr(values.wll || '')}"></div>
+      <div class="form-group"><label>Effective Length(mm)</label><input id="editAssetEffectiveLength" type="number" inputmode="decimal" value="${safeAttr(values.effectivelength || '')}"></div>
     `
   }
 
   if (groupid === '300' || groupid === '600') {
     dynamicEditFields = `
-      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${safeAttr(values.wll || '')}"></div>
+      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" inputmode="decimal" value="${safeAttr(values.wll || '')}"></div>
     `
   }
 
   if (groupid === '400') {
     dynamicEditFields = `
-      <div class="form-group"><label>Main Hoist WLL(kg)</label><input id="editAssetWLL" type="number" value="${safeAttr(values.wll || '')}"></div>
-      <div class="form-group"><label>Auxiliary Hoist WLL(kg)</label><input id="editAssetAuxHoistWLL" type="number" value="${safeAttr(values.auxhoistwll || '')}"></div>
-      <div class="form-group"><label>Span(mm)</label><input id="editAssetSpan" type="number" value="${safeAttr(values.span || '')}"></div>
-      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="editAssetPermissibleDeflection" type="number" min="0" step="1" placeholder="Whole number, e.g. 19" value="${safeAttr(values.permissibledeflection || '')}"></div>
+      <div class="form-group"><label>Main Hoist WLL(kg)</label><input id="editAssetWLL" type="number" inputmode="decimal" value="${safeAttr(values.wll || '')}"></div>
+      <div class="form-group"><label>Auxiliary Hoist WLL(kg)</label><input id="editAssetAuxHoistWLL" type="number" inputmode="decimal" value="${safeAttr(values.auxhoistwll || '')}"></div>
+      <div class="form-group"><label>Span(mm)</label><input id="editAssetSpan" type="number" inputmode="decimal" value="${safeAttr(values.span || '')}"></div>
+      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="editAssetPermissibleDeflection" type="number" inputmode="numeric" min="0" step="1" placeholder="Whole number, e.g. 19" value="${safeAttr(values.permissibledeflection || '')}"></div>
       <div class="form-group"><label>Main Hoist Description</label><input id="editAssetHoistDescription" type="text" value="${safeAttr(values.hoistdescription || '')}"></div>
       <div class="form-group"><label>Main Hoist Serial No</label><input id="editAssetHoistSerialNo" type="text" value="${safeAttr(values.hoistserialno || '')}"></div>
       <div class="form-group"><label>Auxiliary Hoist Description</label><input id="editAssetAuxHoistDescription" type="text" value="${safeAttr(values.auxhoistdescription || '')}"></div>
       <div class="form-group"><label>Auxiliary Hoist Serial No</label><input id="editAssetAuxHoistSerialNo" type="text" value="${safeAttr(values.auxhoistserialno || '')}"></div>
-      <div class="form-group"><label>Main Hoist Hook Size(mm)</label><input id="editAssetHookSize" type="number" value="${safeAttr(values.hooksize || '')}"></div>
-      <div class="form-group"><label>Auxiliary Hoist Hook Size(mm)</label><input id="editAssetAuxHoistHookSize" type="number" value="${safeAttr(values.auxhoisthooksize || '')}"></div>
-      <div class="form-group"><label>Height of Lift(mm)</label><input id="editAssetHeightOfLift" type="number" value="${safeAttr(values.heightoflift || '')}"></div>
-      <div class="form-group"><label>Main Hoist Steel Wire Rope(mm)</label><input id="editAssetSteelWireRopeMM" type="number" value="${safeAttr(values.steelwireropemm || '')}"></div>
-      <div class="form-group"><label>Auxiliary Hoist Steel Wire Rope(mm)</label><input id="editAssetAuxHoistRopeMM" type="number" value="${safeAttr(values.auxhoistropemm || '')}"></div>
+      <div class="form-group"><label>Main Hoist Hook Size(mm)</label><input id="editAssetHookSize" type="number" inputmode="decimal" value="${safeAttr(values.hooksize || '')}"></div>
+      <div class="form-group"><label>Auxiliary Hoist Hook Size(mm)</label><input id="editAssetAuxHoistHookSize" type="number" inputmode="decimal" value="${safeAttr(values.auxhoisthooksize || '')}"></div>
+      <div class="form-group"><label>Height of Lift(mm)</label><input id="editAssetHeightOfLift" type="number" inputmode="decimal" value="${safeAttr(values.heightoflift || '')}"></div>
+      <div class="form-group"><label>Main Hoist Steel Wire Rope(mm)</label><input id="editAssetSteelWireRopeMM" type="number" inputmode="decimal" value="${safeAttr(values.steelwireropemm || '')}"></div>
+      <div class="form-group"><label>Auxiliary Hoist Steel Wire Rope(mm)</label><input id="editAssetAuxHoistRopeMM" type="number" inputmode="decimal" value="${safeAttr(values.auxhoistropemm || '')}"></div>
     `
   }
 
   if (groupid === '500') {
     dynamicEditFields = `
-      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" value="${safeAttr(values.wll || '')}"></div>
-      <div class="form-group"><label>Span(mm)</label><input id="editAssetSpan" type="number" value="${safeAttr(values.span || '')}"></div>
-      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="editAssetPermissibleDeflection" type="number" min="0" step="1" placeholder="Whole number, e.g. 19" value="${safeAttr(values.permissibledeflection || '')}"></div>
-      <div class="form-group"><label>Hook Size(mm)</label><input id="editAssetHookSize" type="number" value="${safeAttr(values.hooksize || '')}"></div>
+      <div class="form-group"><label>WLL(kg)</label><input id="editAssetWLL" type="number" inputmode="decimal" value="${safeAttr(values.wll || '')}"></div>
+      <div class="form-group"><label>Span(mm)</label><input id="editAssetSpan" type="number" inputmode="decimal" value="${safeAttr(values.span || '')}"></div>
+      <div class="form-group"><label>Permissible Deflection(mm)</label><input id="editAssetPermissibleDeflection" type="number" inputmode="numeric" min="0" step="1" placeholder="Whole number, e.g. 19" value="${safeAttr(values.permissibledeflection || '')}"></div>
+      <div class="form-group"><label>Hook Size(mm)</label><input id="editAssetHookSize" type="number" inputmode="decimal" value="${safeAttr(values.hooksize || '')}"></div>
       <div class="form-group"><label>Hoist Description</label><input id="editAssetHoistDescription" type="text" value="${safeAttr(values.hoistdescription || '')}"></div>
       <div class="form-group"><label>Hoist Serial No</label><input id="editAssetHoistSerialNo" type="text" value="${safeAttr(values.hoistserialno || '')}"></div>
     `
@@ -6512,7 +6512,7 @@ function renderCriteriaPopup(row = {}) {
           <div class="form-row">
             <div class="form-group">
               <label>Display Order</label>
-              <input id="criteriaDisplayOrder" type="number" min="1" value="${escapeAttribute(row.displayorder || row.sortorder || 1)}">
+              <input id="criteriaDisplayOrder" type="number" inputmode="numeric" min="1" value="${escapeAttribute(row.displayorder || row.sortorder || 1)}">
             </div>
 
             <div class="form-group">
@@ -8407,7 +8407,7 @@ function renderHarnessWizard(asset, assetCriteria, inspectiontype, quickDetails,
             </div>
             <div class="form-group">
               <label>Job Number <span class="optional-label">(Accelo reference)</span></label>
-              <input id="inspectionJobNumber" type="text" maxlength="200" placeholder="Enter Accelo job number" autocomplete="off">
+              <input id="inspectionJobNumber" type="text" inputmode="numeric" maxlength="200" placeholder="Enter Accelo job number" autocomplete="off">
             </div>
             <div class="form-group">
               <label>Certificate Expiry Date</label>
@@ -8508,7 +8508,7 @@ function renderSlingWizard(asset, assetCriteria, inspectiontype, quickDetails, r
             </div>
             <div class="form-group">
               <label>Job Number <span class="optional-label">(Accelo reference)</span></label>
-              <input id="inspectionJobNumber" type="text" maxlength="200" placeholder="Enter Accelo job number" autocomplete="off">
+              <input id="inspectionJobNumber" type="text" inputmode="numeric" maxlength="200" placeholder="Enter Accelo job number" autocomplete="off">
             </div>
             <div class="form-group">
               <label>Certificate Expiry Date</label>
@@ -8519,8 +8519,8 @@ function renderSlingWizard(asset, assetCriteria, inspectiontype, quickDetails, r
           ${inspectiontype === "LOADTEST" ? `
             <div class="crane-load-test-grid">
               <label>Rated WLL<input id="craneRatedCapacity" type="text" value="${escapeAttribute(asset.wll || "")}" readonly></label>
-              <label>Intended Test Load<input id="craneIntendedTestLoad" type="number" step="0.01" min="0" placeholder="Manual capture required"></label>
-              <label>SWL / Test Load Actually Lifted<input id="craneActualTestLoad" type="number" step="0.01" min="0" placeholder="Enter load actually lifted" required></label>
+              <label>Intended Test Load<input id="craneIntendedTestLoad" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Manual capture required"></label>
+              <label>SWL / Test Load Actually Lifted<input id="craneActualTestLoad" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Enter load actually lifted" required></label>
               <label>Test Duration<input id="craneTestDuration" type="text"></label>
               <label class="crane-wide-field">Reason if full test could not be completed<input id="craneLoadExceptionReason" type="text"></label>
             </div>
@@ -8618,7 +8618,7 @@ function renderCraneWizard(asset, assetCriteria, inspectiontype, quickDetails, r
             </div>
             <div class="form-group">
               <label>Job Number <span class="optional-label">(Accelo reference)</span></label>
-              <input id="inspectionJobNumber" type="text" maxlength="200" placeholder="Enter Accelo job number" autocomplete="off">
+              <input id="inspectionJobNumber" type="text" inputmode="numeric" maxlength="200" placeholder="Enter Accelo job number" autocomplete="off">
             </div>
             <div class="form-group">
               <label>Certificate Expiry Date</label>
@@ -8629,8 +8629,8 @@ function renderCraneWizard(asset, assetCriteria, inspectiontype, quickDetails, r
           ${inspectiontype === "LOADTEST" ? `
             <div class="crane-load-test-grid">
               <label>Rated Capacity<input id="craneRatedCapacity" type="text" value="${escapeAttribute(asset.wll || "")}" readonly></label>
-              <label>Intended Test Load<input id="craneIntendedTestLoad" type="number" step="0.01" min="0" placeholder="Manual capture required"></label>
-              <label>SWL / Test Load Actually Lifted<input id="craneActualTestLoad" type="number" step="0.01" min="0" placeholder="Enter load actually lifted" required></label>
+              <label>Intended Test Load<input id="craneIntendedTestLoad" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Manual capture required"></label>
+              <label>SWL / Test Load Actually Lifted<input id="craneActualTestLoad" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Enter load actually lifted" required></label>
               <label>Test Duration<input id="craneTestDuration" type="text" placeholder="e.g. 10 min"></label>
               <label class="crane-wide-field">Reason if full prescribed load could not be applied<input id="craneLoadExceptionReason" type="text"></label>
             </div>
@@ -8702,7 +8702,7 @@ function renderMeasurementCriteriaRow(row, asset, inspectiontype) {
 
         <input
           id="measured-${row.criteriaid}"
-          type="text"
+          type="text" inputmode="decimal"
           value="${escapeAttribute(measuredDefaultValue)}"
         >
       </div>
@@ -9419,7 +9419,7 @@ if (formMode !== "generic" && inspectionWizardKey === "SLING") {
       <label>Job Number <span class="optional-label">(Accelo reference)</span></label>
       <input
         id="inspectionJobNumber"
-        type="text"
+        type="text" inputmode="numeric"
         maxlength="200"
         autocomplete="off"
         placeholder="Enter Accelo job number"
@@ -9442,8 +9442,8 @@ if (formMode !== "generic" && inspectionWizardKey === "SLING") {
   ${inspectiontype === "LOADTEST" ? `
     <div class="crane-load-test-grid">
       <label>Rated Capacity / WLL<input id="craneRatedCapacity" type="text" value="${escapeAttribute(asset.wll || "")}" readonly></label>
-      <label>Required Test Load<input id="craneIntendedTestLoad" type="number" step="0.01" min="0" placeholder="Enter prescribed test load"></label>
-      <label>SWL / Test Load Actually Lifted<input id="craneActualTestLoad" type="number" step="0.01" min="0" placeholder="Enter load actually lifted" required></label>
+      <label>Required Test Load<input id="craneIntendedTestLoad" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Enter prescribed test load"></label>
+      <label>SWL / Test Load Actually Lifted<input id="craneActualTestLoad" type="number" inputmode="decimal" step="0.01" min="0" placeholder="Enter load actually lifted" required></label>
       <label>Test Duration<input id="craneTestDuration" type="text" placeholder="e.g. 10 minutes"></label>
       <label class="crane-wide-field">Reason if prescribed test could not be completed<input id="craneLoadExceptionReason" type="text"></label>
     </div>
@@ -11726,7 +11726,7 @@ function renderJobCardForm() {
       </div></section>
       <section class="filter-card"><div class="section-heading"><div><h3>Materials and Parts</h3><p class="muted-text">“Required” items can be used for follow-up quotations.</p></div><button type="button" onclick="addJobCardMaterialRow()">Add Material</button></div><div id="jcMaterials">${(card.materials || []).map(renderJobCardMaterialRow).join('')}</div></section>
       <section class="filter-card"><div class="section-heading"><div><h3>Deviations</h3><p class="muted-text">Record each defect separately. Critical deviations enforce a safe equipment decision.</p></div><button type="button" onclick="addJobCardDeviationRow()">Add Deviation</button></div><div id="jcDeviations">${(card.deviations || []).map(renderJobCardDeviationRow).join('')}</div></section>
-      <section class="filter-card"><h3>Time and Travel</h3><p class="muted-text">Hours calculate automatically from the timestamps and the assigned person's work schedule. Sunday and active public-holiday work is double time. Travel is split into normal and overtime travel and is counted once in the daily total.</p><div class="job-card-grid">${jobCardDateField('jcDeparted','Departed workshop',card.departed_at)}${jobCardDateField('jcArrived','Arrived on site',card.arrived_at)}${jobCardDateField('jcStarted','Work started',card.work_started_at)}${jobCardDateField('jcCompleted','Work completed',card.work_completed_at)}${jobCardDateField('jcTravelDone','Travel completed',card.travel_completed_at)}<label>Kilometres<input id="jcKm" type="number" min="0" step="0.1" value="${safeAttr(card.kilometres || '')}"></label><label>Normal work time<input id="jcNormalHours" type="number" readonly value="${safeAttr(card.normal_hours ?? '')}"></label><label>Overtime work<input id="jcOvertimeHours" type="number" readonly value="${safeAttr(card.overtime_hours ?? '')}"></label><label>Double-time work<input id="jcDoubleTimeHours" type="number" readonly value="${safeAttr(card.double_time_hours ?? '')}"></label><label>Normal travel<input id="jcNormalTravelHours" type="number" readonly value="${safeAttr(card.normal_travel_hours ?? '')}"></label><label>Overtime travel<input id="jcOvertimeTravelHours" type="number" readonly value="${safeAttr(card.overtime_travel_hours ?? '')}"></label><label>Total calculated hours for the day<input id="jcTotalCalculatedHours" type="number" readonly value="${safeAttr([card.normal_hours,card.overtime_hours,card.double_time_hours,card.normal_travel_hours,card.overtime_travel_hours].reduce((total,value) => total + Number(value || 0),0).toFixed(2))}"></label></div><p id="jcHoursCalculationNote" class="muted-text"></p></section>
+      <section class="filter-card"><h3>Time and Travel</h3><p class="muted-text">Hours calculate automatically from the timestamps and the assigned person's work schedule. Sunday and active public-holiday work is double time. Travel is split into normal and overtime travel and is counted once in the daily total.</p><div class="job-card-grid">${jobCardDateField('jcDeparted','Departed workshop',card.departed_at)}${jobCardDateField('jcArrived','Arrived on site',card.arrived_at)}${jobCardDateField('jcStarted','Work started',card.work_started_at)}${jobCardDateField('jcCompleted','Work completed',card.work_completed_at)}${jobCardDateField('jcTravelDone','Travel completed',card.travel_completed_at)}<label>Kilometres<input id="jcKm" type="number" inputmode="decimal" min="0" step="0.1" value="${safeAttr(card.kilometres || '')}"></label><label>Normal work time<input id="jcNormalHours" type="number" readonly value="${safeAttr(card.normal_hours ?? '')}"></label><label>Overtime work<input id="jcOvertimeHours" type="number" readonly value="${safeAttr(card.overtime_hours ?? '')}"></label><label>Double-time work<input id="jcDoubleTimeHours" type="number" readonly value="${safeAttr(card.double_time_hours ?? '')}"></label><label>Normal travel<input id="jcNormalTravelHours" type="number" readonly value="${safeAttr(card.normal_travel_hours ?? '')}"></label><label>Overtime travel<input id="jcOvertimeTravelHours" type="number" readonly value="${safeAttr(card.overtime_travel_hours ?? '')}"></label><label>Total calculated hours for the day<input id="jcTotalCalculatedHours" type="number" readonly value="${safeAttr([card.normal_hours,card.overtime_hours,card.double_time_hours,card.normal_travel_hours,card.overtime_travel_hours].reduce((total,value) => total + Number(value || 0),0).toFixed(2))}"></label></div><p id="jcHoursCalculationNote" class="muted-text"></p></section>
       <section class="filter-card"><h3>Final Equipment Status</h3><div class="job-card-grid"><label>Status *<select id="jcEquipmentStatus">${[['SAFE','Safe and returned to service'],['RESTRICTED','Temporarily operational with restrictions'],['FURTHER_WORK','Further work required'],['OUT_OF_SERVICE','Isolated / out of service'],['NOT_TESTED','Not tested']].map(row => jobCardOption(row[0],row[1],card.equipment_status)).join('')}</select></label><label class="job-card-wide">Reason / restrictions<textarea id="jcEquipmentReason">${escapeHtml(card.equipment_status_reason || '')}</textarea></label></div></section>
       <section id="jobCardCustomerSignature" class="filter-card"><h3>Customer Acknowledgement and Signature</h3><p class="muted-text">Ask the customer representative to enter their details and sign directly in the white box below using a finger, pen or mouse. If they cannot or refuse to sign, record the reason instead.</p><div class="job-card-grid"><label>Customer representative name<input id="jcSignatory" value="${safeAttr(card.customer_signatory_name || '')}"></label><label>Designation<input id="jcDesignation" value="${safeAttr(card.customer_signatory_designation || '')}"></label><label>Customer email<input id="jcCustomerEmail" type="email" value="${safeAttr(card.customer_contact_email || '')}" placeholder="customer@example.com"></label><label>Unavailable / refused reason<input id="jcSignatureReason" value="${safeAttr(card.signature_unavailable_reason || '')}"></label></div>${card.customer_signature_path ? `<p><strong>Customer signature captured.</strong></p><div class="job-card-signature-preview"><img class="job-card-signature-image" src="${uploadUrl(card.customer_signature_path)}" alt="Customer signature"></div><div class="form-actions"><button type="button" class="load-test-btn" onclick="emailSignedJobCardToCustomer(${card.jobcardid})">Email Signed Job Card to Client</button>${card.customer_email_sent_at ? `<span class="muted-text">Last sent ${escapeHtml(new Date(card.customer_email_sent_at).toLocaleString('en-ZA'))} to ${escapeHtml(card.customer_email_to || '')}</span>` : ''}</div>` : `<div class="signature-pad-wrap"><strong>Customer signature — use the full white box below</strong><canvas id="jcSignatureCanvas" width="900" height="300" aria-label="Customer signature block"></canvas><button type="button" onclick="clearJobCardSignature()">Clear Signature</button></div><p class="muted-text">Save the signature before emailing the signed Job Card to the client.</p>`}</section>
       <section class="filter-card"><h3>Photographs</h3><div class="job-card-photo-grid">${(card.photos || []).map(photo => `<figure><img src="${uploadUrl(photo.photo_path)}" alt="Job card photograph"><figcaption>${escapeHtml(photo.photo_type)}: ${escapeHtml(photo.caption || '')}</figcaption></figure>`).join('')}</div><div class="job-card-grid"><label>Attach to deviation<select id="jcPhotoDeviation" ${card.jobcardid ? '' : 'disabled'}><option value="">General job card</option>${(card.deviations || []).map(row => jobCardOption(row.deviationid,`${row.severity}: ${row.description}`,null)).join('')}</select></label><label>Photo type<select id="jcPhotoType">${['GENERAL','BEFORE','AFTER','DEFECT','NAMEPLATE','TEST'].map(value => jobCardOption(value,value,null)).join('')}</select></label><label>Caption<input id="jcPhotoCaption"></label><label>Take photo or choose from gallery<input id="jcPhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple></label></div>${card.jobcardid ? '<button type="button" onclick="uploadJobCardPhotos()">Upload Photos</button>' : '<p class="muted-text">Selected photos will upload automatically when the on-site job is submitted.</p>'}</section>
@@ -11818,7 +11818,7 @@ function renderJobCardWorkflow(card) {
   if (officeUser && ['DRAFT','ASSIGNED','IN_PROGRESS','AWAITING_SIGNATURE'].includes(status)) actions.push('<button type="button" class="danger-btn" onclick="saveJobCard(\'CANCELLED\')">Cancel Job Card</button>')
   return `<section class="filter-card job-card-submit"><div class="job-card-workflow-copy"><span>Current stage</span><strong class="job-card-status status-${safeAttr(status.toLowerCase())}">${escapeHtml(status.replaceAll('_',' '))}</strong><p>${escapeHtml(descriptions[status] || '')}</p></div><div class="form-actions"><button type="button" onclick="showJobCards()">Back to Job Cards</button><button type="button" onclick="saveJobCard()">Save for Later</button>${actions.join('')}</div></section>`
 }
-function renderJobCardMaterialRow(row = {}) { return `<div class="job-card-repeat-row jc-material"><input class="jc-mat-qty" type="number" min="0" step="0.1" value="${safeAttr(row.quantity || 1)}" aria-label="Quantity"><input class="jc-mat-desc" value="${safeAttr(row.description || '')}" placeholder="Description"><input class="jc-mat-part" value="${safeAttr(row.part_number || '')}" placeholder="Part number"><select class="jc-mat-supplier">${['FB_CRANES','CUSTOMER'].map(value => jobCardOption(value,value.replace('_',' '),row.supplied_by)).join('')}</select><select class="jc-mat-status">${['USED','RETURNED','REQUIRED'].map(value => jobCardOption(value,value,row.material_status)).join('')}</select><button type="button" onclick="this.parentElement.remove()">Remove</button></div>` }
+function renderJobCardMaterialRow(row = {}) { return `<div class="job-card-repeat-row jc-material"><input class="jc-mat-qty" type="number" inputmode="decimal" min="0" step="0.1" value="${safeAttr(row.quantity || 1)}" aria-label="Quantity"><input class="jc-mat-desc" value="${safeAttr(row.description || '')}" placeholder="Description"><input class="jc-mat-part" value="${safeAttr(row.part_number || '')}" placeholder="Part number"><select class="jc-mat-supplier">${['FB_CRANES','CUSTOMER'].map(value => jobCardOption(value,value.replace('_',' '),row.supplied_by)).join('')}</select><select class="jc-mat-status">${['USED','RETURNED','REQUIRED'].map(value => jobCardOption(value,value,row.material_status)).join('')}</select><button type="button" onclick="this.parentElement.remove()">Remove</button></div>` }
 function renderJobCardDeviationRow(row = {}) { return `<div class="job-card-deviation jc-deviation" data-id="${safeAttr(row.deviationid || '')}"><div class="job-card-grid"><label>Category<select class="jc-dev-category">${['ELECTRICAL','MECHANICAL','STRUCTURAL','CONTROLS','SAFETY','HOUSEKEEPING','OTHER'].map(value => jobCardOption(value,value,row.category)).join('')}</select></label><label>Severity<select class="jc-dev-severity">${['OBSERVATION','MINOR','MAJOR','CRITICAL'].map(value => jobCardOption(value,value,row.severity)).join('')}</select></label><label>Status<select class="jc-dev-status">${['OPEN','CLOSED'].map(value => jobCardOption(value,value,row.deviation_status)).join('')}</select></label><label>Target date<input class="jc-dev-date" type="date" value="${safeAttr(row.target_date ? String(row.target_date).slice(0,10) : '')}"></label><label class="job-card-wide">Deviation description<textarea class="jc-dev-desc">${escapeHtml(row.description || '')}</textarea></label><label>Immediate action<textarea class="jc-dev-action">${escapeHtml(row.immediate_action || '')}</textarea></label><label>Further work required<textarea class="jc-dev-further">${escapeHtml(row.further_work_required || '')}</textarea></label></div><button type="button" onclick="this.parentElement.remove()">Remove Deviation</button></div>` }
 window.addJobCardMaterialRow = () => document.querySelector('#jcMaterials').insertAdjacentHTML('beforeend', renderJobCardMaterialRow())
 window.addJobCardDeviationRow = () => document.querySelector('#jcDeviations').insertAdjacentHTML('beforeend', renderJobCardDeviationRow())
