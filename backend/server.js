@@ -16464,6 +16464,80 @@ function addJobCardPdfPageFrames(doc, card) {
   }
 }
 
+function drawJobCardPdfWorkDetails(doc, card, newPage, heading) {
+  const rows = [
+    ["Reported problem", card.reported_fault],
+    ["Inspection findings", card.findings],
+    ["Cause identified", card.root_cause],
+    ["Work carried out", card.work_performed],
+    ["Operational test", card.test_performed],
+    ["Test outcome", card.test_result],
+    ["Recommended next steps", card.recommendations, true],
+    ["Equipment condition notes", card.equipment_status_reason, true]
+  ].filter(([, value]) => String(value ?? "").trim())
+  if (!rows.length) return
+
+  const left = doc.page.margins.left
+  const width = doc.page.width - left - doc.page.margins.right
+  const labelWidth = 142
+  const textWidth = width - labelWidth - 24
+  const textOptions = { width: textWidth, lineGap: 2, characterSpacing: 0 }
+  const measure = text => doc.font("Helvetica").fontSize(10).heightOfString(text, textOptions)
+  const bottom = () => doc.page.height - doc.page.margins.bottom
+  // Keep the section title with at least the first row.
+  if (doc.y + 100 > bottom()) newPage()
+  heading("Work details")
+
+  rows.forEach(([label, value, followUp], index) => {
+    let remaining = String(value).trim()
+    let continued = false
+    while (remaining) {
+      const fullHeight = Math.max(44, measure(remaining) + 24)
+      const pageCapacity = bottom() - doc.page.margins.top - 40
+      if (doc.y + Math.min(fullHeight, pageCapacity) > bottom()) {
+        newPage()
+        heading("Work details - continued")
+      }
+      const available = bottom() - doc.y - 24
+      let end = remaining.length
+      if (measure(remaining) > available) {
+        // Split oversized notes at a word boundary; repeat the label on the next page.
+        let low = 1
+        let high = remaining.length
+        while (low < high) {
+          const mid = Math.ceil((low + high) / 2)
+          if (measure(remaining.slice(0, mid)) <= available) low = mid
+          else high = mid - 1
+        }
+        end = low
+        const boundary = remaining.slice(0, end).search(/\s+\S*$/)
+        if (boundary > 0) end = boundary
+      }
+      const text = remaining.slice(0, end)
+      const height = Math.max(44, measure(text) + 24)
+      const y = doc.y
+      doc.save()
+      doc.rect(left, y, width, height).fillAndStroke(followUp ? "#fff9e8" : (index % 2 ? "#f3f6fa" : "#ffffff"), "#d7deea")
+      if (followUp) doc.rect(left, y, 3, height).fill("#d6a500")
+      doc.font("Helvetica-Bold").fontSize(9).fillColor("#183153")
+        .text(label + (continued ? " (continued)" : ""), left + 12, y + 12, { width: labelWidth - 24, characterSpacing: 0, lineGap: 2 })
+      doc.font("Helvetica").fontSize(10).fillColor("#111827")
+        .text(text, left + labelWidth, y + 12, textOptions)
+      doc.restore()
+      doc.x = left
+      doc.y = y + height
+      remaining = remaining.slice(end).trimStart()
+      continued = true
+      if (remaining) {
+        newPage()
+        heading("Work details - continued")
+      }
+    }
+  })
+  doc.x = left
+  doc.y += 6
+}
+
 function drawJobCardPdfSummary(doc, card) {
   const x = doc.page.margins.left
   const y = doc.y
@@ -16711,15 +16785,7 @@ async function createJobCardPdfBuffer(card) {
     { label: "WLL", weight: .75, value: row => row.wll }
   ])
 
-  const workDetails = [
-    ["Fault reported", card.reported_fault], ["Findings and diagnosis", card.findings], ["Root cause", card.root_cause],
-    ["Work performed", card.work_performed], ["Operational test", card.test_performed], ["Test result", card.test_result],
-    ["Recommendations / outstanding work", card.recommendations], ["Equipment status reason", card.equipment_status_reason]
-  ].filter(([, value]) => clean(value))
-  if (workDetails.length) {
-    heading("Work details")
-    workDetails.forEach(([title, value]) => detail(title, value))
-  }
+  drawJobCardPdfWorkDetails(doc, card, newPage, heading)
 
   table("Materials used", card.materials || [], [
     { label: "Qty", weight: .55, value: row => row.quantity },
