@@ -1,3 +1,4 @@
+const { formatCertificateMeasurement } = require("./services/certificateMeasurement")
 const fs = require("fs")
 const express = require("express");
 const cors = require("cors");
@@ -10104,7 +10105,7 @@ function renderBulkCertificateHtml(certificate, imageDataUrlCache = null, option
               <tr>
                 <th>Criteria</th>
                 <th>Result</th>
-                <th>Std. Dimension</th>
+                <th>Specified Value</th>
                 <th>Measured</th>
                 <th>Remarks</th>
               </tr>
@@ -10124,8 +10125,8 @@ function renderBulkCertificateHtml(certificate, imageDataUrlCache = null, option
                       ${htmlEscape(getCertificateResultDisplay(row))}
                     </strong>
                   </td>
-                  <td>${htmlEscape(row.assetvalue || "")}</td>
-                  <td>${htmlEscape(row.measuredvalue || "")}</td>
+                  <td>${htmlEscape(formatCertificateMeasurement(row.assetvalue, row))}</td>
+                  <td>${htmlEscape(formatCertificateMeasurement(row.measuredvalue, row))}</td>
                   <td>${htmlEscape(row.remarks || "")}</td>
                 </tr>
               `).join("")}

@@ -1,3 +1,4 @@
+import { formatCertificateMeasurement } from '../utils/certificateMeasurement.js'
 import { getPaginationState, renderPaginationControls } from '../pagination.js'
 import { getTableSortState, sortTableRows } from '../tableSort.js'
 import { API_BASE, assetUrl } from '../api.js'
@@ -1468,7 +1469,7 @@ function renderCertificateDocument(certificate) {
             <tr>
               <th>Criteria</th>
               <th>Result</th>
-              <th>Std. Dimension</th>
+              <th>Specified Value</th>
               <th>Measured</th>
               <th>Remarks</th>
             </tr>
@@ -1489,8 +1490,8 @@ function renderCertificateDocument(certificate) {
                     ${escapeHtml(getCertificateResultDisplay(row))}
                   </strong>
                 </td>
-                <td>${escapeHtml(row.assetvalue || "")}</td>
-                <td>${escapeHtml(row.measuredvalue || "")}</td>
+                <td>${escapeHtml(formatCertificateMeasurement(row.assetvalue, row))}</td>
+                <td>${escapeHtml(formatCertificateMeasurement(row.measuredvalue, row))}</td>
                 <td>${escapeHtml(row.remarks || "")}</td>
               </tr>
             `).join("")}

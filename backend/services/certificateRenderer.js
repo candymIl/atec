@@ -1,3 +1,4 @@
+const { formatCertificateMeasurement } = require("./certificateMeasurement")
 const fs = require("fs")
 const os = require("os")
 const path = require("path")
@@ -526,7 +527,7 @@ function renderCertificateBodyHtml(certificate, imageDataUrlCache = null, option
             <tr>
               <th>Criteria</th>
               <th>Result</th>
-              <th>Std. Dimension</th>
+              <th>Specified Value</th>
               <th>Measured</th>
               <th>Remarks</th>
             </tr>
@@ -547,8 +548,8 @@ function renderCertificateBodyHtml(certificate, imageDataUrlCache = null, option
                           : ""
                     }">${htmlEscape(displayResult)}</strong>
                   </td>
-                  <td>${htmlEscape(row.assetvalue || "")}</td>
-                  <td>${htmlEscape(row.measuredvalue || "")}</td>
+                  <td>${htmlEscape(formatCertificateMeasurement(row.assetvalue, row))}</td>
+                  <td>${htmlEscape(formatCertificateMeasurement(row.measuredvalue, row))}</td>
                   <td>${htmlEscape(row.remarks || "")}</td>
                 </tr>
               `
