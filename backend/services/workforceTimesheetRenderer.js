@@ -91,7 +91,8 @@ function createTimesheetPdfBuffer(data, { brandRoot } = {}) {
         line.task_number, line.activity_type,
         new Date(line.started_at).toLocaleString("en-ZA", { timeZone: "Africa/Johannesburg", hour:"2-digit", minute:"2-digit" }),
         new Date(line.ended_at).toLocaleString("en-ZA", { timeZone: "Africa/Johannesburg", hour:"2-digit", minute:"2-digit" }),
-        [line.customer_name, line.job_number ? `Job ${line.job_number}` : ""].filter(Boolean).join(" / "),
+        [line.customer_name, line.job_number ? `Accelo job: ${line.job_number}` : "",
+          line.worksheet_number ? `Job card: ${line.worksheet_number}` : ""].filter(Boolean).join("\n"),
         line.brief_details, Number(line.normal_hours || 0).toFixed(2), Number(line.overtime_hours || 0).toFixed(2)
       ]
       const rowHeight = Math.max(34, ...values.map((value, index) =>

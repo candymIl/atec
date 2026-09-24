@@ -696,7 +696,9 @@ function registerWorkforceRoutes(app, {
         WHERE assignment.employee_user_id=u.userid AND assignment.manager_user_id=$${values.length})`
     }
     const result = await pool.query(`SELECT t.*,t.timesheet_date::text AS timesheet_date,
-      COALESCE(NULLIF(u.fullname,''),u.username) AS employee_name,u.employee_number
+      COALESCE(NULLIF(u.fullname,''),u.username) AS employee_name,u.employee_number,
+      COALESCE((SELECT string_agg(DISTINCT NULLIF(line.worksheet_number,''),', ' ORDER BY NULLIF(line.worksheet_number,''))
+        FROM atec.tbldailytimesheetline line WHERE line.timesheetid=t.timesheetid),'') AS job_card_numbers
       FROM atec.tbldailytimesheet t JOIN atec.tblusers u ON u.userid=t.user_id ${where}
       ORDER BY t.timesheet_date DESC,employee_name`, values)
     res.json(result.rows)
@@ -942,6 +944,8 @@ function registerWorkforceRoutes(app, {
     const result = await pool.query(`SELECT t.*,t.timesheet_date::text AS timesheet_date,
       COALESCE(NULLIF(u.fullname,''),u.username) AS employee_name,
       u.employee_number,COALESCE(NULLIF(m.fullname,''),m.username) AS manager_name,
+      COALESCE((SELECT string_agg(DISTINCT NULLIF(line.worksheet_number,''),', ' ORDER BY NULLIF(line.worksheet_number,''))
+        FROM atec.tbldailytimesheetline line WHERE line.timesheetid=t.timesheetid),'') AS job_card_numbers,
       COALESCE((SELECT string_agg(DISTINCT NULLIF(line.job_number,''),', ' ORDER BY NULLIF(line.job_number,''))
         FROM atec.tbldailytimesheetline line WHERE line.timesheetid=t.timesheetid),'') AS job_numbers,
       COALESCE((SELECT count(*)::int FROM atec.tbldailytimesheetline line WHERE line.timesheetid=t.timesheetid),0) AS line_count
@@ -980,6 +984,8 @@ function registerWorkforceRoutes(app, {
       t.final_normal_hours::float8 AS normal_hours,t.final_overtime_hours::float8 AS overtime_hours,
       t.final_travel_hours::float8 AS travel_hours,t.final_standby_hours::float8 AS standby_hours,
       u.userid AS user_id,u.employee_number,COALESCE(NULLIF(u.fullname,''),u.username) AS employee_name,
+      COALESCE((SELECT string_agg(DISTINCT NULLIF(line.worksheet_number,''),', ' ORDER BY NULLIF(line.worksheet_number,''))
+        FROM atec.tbldailytimesheetline line WHERE line.timesheetid=t.timesheetid),'') AS job_card_numbers,
       COALESCE((SELECT string_agg(DISTINCT NULLIF(line.job_number,''),', ' ORDER BY NULLIF(line.job_number,''))
         FROM atec.tbldailytimesheetline line WHERE line.timesheetid=t.timesheetid),'') AS job_numbers
       FROM atec.tbldailytimesheet t JOIN atec.tblusers u ON u.userid=t.user_id
