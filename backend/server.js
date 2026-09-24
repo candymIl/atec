@@ -11065,6 +11065,7 @@ function graphRecipients(value) {
 }
 
 const CUSTOMER_REPORT_CC = "jacques@fbcranes.co.za"
+const JOB_CARD_CC = "jacques@fbcranes.co.za"
 
 async function sendApplicationEmail(options) {
   if (!useMicrosoftGraphMail()) {
@@ -16034,6 +16035,7 @@ async function emailAssignedTechnician(card) {
   await sendApplicationEmail({
     from: process.env.MAIL_FROM,
     to: card.assigned_to_email,
+    cc: JOB_CARD_CC,
     subject: `ATEC Job Card Assigned - ${card.jobcard_reference}`,
     text: [
       `Good day ${card.assigned_to_name || "Technician"},`,
@@ -16074,6 +16076,7 @@ async function emailSubmittedJobCardToManager(card) {
   await sendApplicationEmail({
     from: process.env.MAIL_FROM,
     to: recipients,
+    cc: JOB_CARD_CC,
     subject: `ATEC Job Card Submitted - ${card.jobcard_reference}`,
     text: [
       "Good day Managers,",
@@ -16107,6 +16110,7 @@ async function emailSubmittedJobCardToAccelo(card) {
   await sendApplicationEmail({
     from: process.env.MAIL_FROM,
     to: recipient,
+    cc: JOB_CARD_CC,
     subject: `ATEC Job Card Submitted - ${card.jobcard_reference} - Job ${card.customer_reference}`,
     text: [
       `Submitted Job Card: ${card.jobcard_reference}`,
@@ -16367,6 +16371,7 @@ app.post("/job-cards/:id/email-customer", emailLimiter, asyncRoute(async (req, r
     await sendApplicationEmail({
       from: process.env.MAIL_FROM,
       to: recipient,
+      cc: JOB_CARD_CC,
       subject: `Signed ATEC Job Card - ${card.jobcard_reference}`,
       text: [`Good day ${card.customer_signatory_name || "Customer"},`, "", `Please find the signed ATEC job card ${card.jobcard_reference} attached.`, "", "Regards,", "ATEC Inspection Platform"].join("\n"),
       attachments: [{ filename: `${card.jobcard_reference}.pdf`, content: pdf, contentType: "application/pdf" }]
@@ -16898,6 +16903,7 @@ registerWorkforceRoutes(app, {
   createCertificatePdfBuffer,
   getCertificateData,
   sendApplicationEmail,
+  jobCardCc: JOB_CARD_CC,
   getMailConfigIssues,
   getMailErrorMessage,
   ExcelJS

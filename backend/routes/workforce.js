@@ -423,6 +423,7 @@ function registerWorkforceRoutes(app, {
   createCertificatePdfBuffer,
   getCertificateData,
   sendApplicationEmail,
+  jobCardCc,
   getMailConfigIssues,
   getMailErrorMessage,
   ExcelJS
@@ -1276,6 +1277,7 @@ function registerWorkforceRoutes(app, {
       await sendApplicationEmail({
         from:process.env.MAIL_FROM,
         to:readiness.recipient,
+        cc:jobCardCc,
         subject:`ATEC completed job - ${readiness.card.jobcard_reference} - Job ${readiness.card.customer_reference}`,
         text:[
           "Completed ATEC job package.",

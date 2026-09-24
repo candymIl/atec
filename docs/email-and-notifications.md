@@ -26,6 +26,10 @@ Task 16 added notification workflows on top of the customer portal, due-asset co
 - Dashboard summary cache includes notification data.
 - Standalone `/dashboard/notification-centre` endpoint for fallback loading.
 
+## Job-card email copies
+
+All outgoing job-card emails CC `jacques@fbcranes.co.za`: technician assignments, manager submissions, Accelo submissions, signed cards sent to customers, and completed Accelo job packages. Existing send triggers and primary recipients still apply; this does not resend historical job cards.
+
 ## Access Model
 
 - Internal dashboard roles use the same dashboard access as existing operational alerts.
