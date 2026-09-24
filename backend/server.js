@@ -16201,6 +16201,17 @@ async function saveJobCard(req, res) {
       return res.status(403).json({ error:"Select one of your linked employees for this job card" })
     }
     const adminSelfApproval = req.user.role === "ADMIN" && leadUserId === Number(req.user.user_id)
+    if (["SUBMITTED", "APPROVED", "INVOICED"].includes(requestedStatus)) {
+      const workPhotos = await client.query("SELECT photo_path FROM atec.tbljobcardphoto WHERE jobcardid=$1", [jobcardid])
+      const hasWorkPhoto = workPhotos.rows.some(photo => {
+        const file = resolveUploadFilePath(photo.photo_path)
+        return file && fs.existsSync(file)
+      })
+      if (!hasWorkPhoto) {
+        await client.query("ROLLBACK")
+        return res.status(400).json({ error: "Add at least one photo showing the work performed before submitting or approving this job card." })
+      }
+    }
     if (requestedStatus === "SUBMITTED" && previousStatus !== "SUBMITTED") {
       const managers = adminSelfApproval ? { rows: [] } : await client.query(`SELECT assignment.manager_user_id,
         COALESCE(NULLIF(m.fullname,''),m.username) AS manager_name,m.email AS manager_email

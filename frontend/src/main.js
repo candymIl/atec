@@ -11729,7 +11729,7 @@ function renderJobCardForm() {
       <section class="filter-card"><h3>Time and Travel</h3><p class="muted-text">Hours calculate automatically from the timestamps and the assigned person's work schedule. Sunday and active public-holiday work is double time. Travel is split into normal and overtime travel and is counted once in the daily total.</p><div class="job-card-grid">${jobCardDateField('jcDeparted','Departed workshop',card.departed_at)}${jobCardDateField('jcArrived','Arrived on site',card.arrived_at)}${jobCardDateField('jcStarted','Work started',card.work_started_at)}${jobCardDateField('jcCompleted','Work completed',card.work_completed_at)}${jobCardDateField('jcTravelDone','Travel completed',card.travel_completed_at)}<label>Kilometres<input id="jcKm" type="number" inputmode="decimal" min="0" step="0.1" value="${safeAttr(card.kilometres || '')}"></label><label>Normal work time<input id="jcNormalHours" type="number" readonly value="${safeAttr(card.normal_hours ?? '')}"></label><label>Overtime work<input id="jcOvertimeHours" type="number" readonly value="${safeAttr(card.overtime_hours ?? '')}"></label><label>Double-time work<input id="jcDoubleTimeHours" type="number" readonly value="${safeAttr(card.double_time_hours ?? '')}"></label><label>Normal travel<input id="jcNormalTravelHours" type="number" readonly value="${safeAttr(card.normal_travel_hours ?? '')}"></label><label>Overtime travel<input id="jcOvertimeTravelHours" type="number" readonly value="${safeAttr(card.overtime_travel_hours ?? '')}"></label><label>Total calculated hours for the day<input id="jcTotalCalculatedHours" type="number" readonly value="${safeAttr([card.normal_hours,card.overtime_hours,card.double_time_hours,card.normal_travel_hours,card.overtime_travel_hours].reduce((total,value) => total + Number(value || 0),0).toFixed(2))}"></label></div><p id="jcHoursCalculationNote" class="muted-text"></p></section>
       <section class="filter-card"><h3>Final Equipment Status</h3><div class="job-card-grid"><label>Status *<select id="jcEquipmentStatus">${[['SAFE','Safe and returned to service'],['RESTRICTED','Temporarily operational with restrictions'],['FURTHER_WORK','Further work required'],['OUT_OF_SERVICE','Isolated / out of service'],['NOT_TESTED','Not tested']].map(row => jobCardOption(row[0],row[1],card.equipment_status)).join('')}</select></label><label class="job-card-wide">Reason / restrictions<textarea id="jcEquipmentReason">${escapeHtml(card.equipment_status_reason || '')}</textarea></label></div></section>
       <section id="jobCardCustomerSignature" class="filter-card"><h3>Customer Acknowledgement and Signature</h3><p class="muted-text">Ask the customer representative to enter their details and sign directly in the white box below using a finger, pen or mouse. If they cannot or refuse to sign, record the reason instead.</p><div class="job-card-grid"><label>Customer representative name<input id="jcSignatory" value="${safeAttr(card.customer_signatory_name || '')}"></label><label>Designation<input id="jcDesignation" value="${safeAttr(card.customer_signatory_designation || '')}"></label><label>Customer email<input id="jcCustomerEmail" type="email" value="${safeAttr(card.customer_contact_email || '')}" placeholder="customer@example.com"></label><label>Unavailable / refused reason<input id="jcSignatureReason" value="${safeAttr(card.signature_unavailable_reason || '')}"></label></div>${card.customer_signature_path ? `<p><strong>Customer signature captured.</strong></p><div class="job-card-signature-preview"><img class="job-card-signature-image" src="${uploadUrl(card.customer_signature_path)}" alt="Customer signature"></div><div class="form-actions"><button type="button" class="load-test-btn" onclick="emailSignedJobCardToCustomer(${card.jobcardid})">Email Signed Job Card to Client</button>${card.customer_email_sent_at ? `<span class="muted-text">Last sent ${escapeHtml(new Date(card.customer_email_sent_at).toLocaleString('en-ZA'))} to ${escapeHtml(card.customer_email_to || '')}</span>` : ''}</div>` : `<div class="signature-pad-wrap"><strong>Customer signature — use the full white box below</strong><canvas id="jcSignatureCanvas" width="900" height="300" aria-label="Customer signature block"></canvas><button type="button" onclick="clearJobCardSignature()">Clear Signature</button></div><p class="muted-text">Save the signature before emailing the signed Job Card to the client.</p>`}</section>
-      <section class="filter-card"><h3>Photographs</h3><div class="job-card-photo-grid">${(card.photos || []).map(photo => `<figure><img src="${uploadUrl(photo.photo_path)}" alt="Job card photograph"><figcaption>${escapeHtml(photo.photo_type)}: ${escapeHtml(photo.caption || '')}</figcaption></figure>`).join('')}</div><div class="job-card-grid"><label>Attach to deviation<select id="jcPhotoDeviation" ${card.jobcardid ? '' : 'disabled'}><option value="">General job card</option>${(card.deviations || []).map(row => jobCardOption(row.deviationid,`${row.severity}: ${row.description}`,null)).join('')}</select></label><label>Photo type<select id="jcPhotoType">${['GENERAL','BEFORE','AFTER','DEFECT','NAMEPLATE','TEST'].map(value => jobCardOption(value,value,null)).join('')}</select></label><label>Caption<input id="jcPhotoCaption"></label><label>Take photo or choose from gallery<input id="jcPhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple></label></div>${card.jobcardid ? '<button type="button" onclick="uploadJobCardPhotos()">Upload Photos</button>' : '<p class="muted-text">Selected photos will upload automatically when the on-site job is submitted.</p>'}</section>
+      <section class="filter-card"><h3>Work photographs (at least one required)</h3><p class="muted-text">Add a photo showing the work performed. You can save a draft without photos, but submission and approval require at least one uploaded photo.</p><div class="job-card-photo-grid">${(card.photos || []).map(photo => `<figure><img src="${uploadUrl(photo.photo_path)}" alt="Job card photograph"><figcaption>${escapeHtml(photo.photo_type)}: ${escapeHtml(photo.caption || '')}</figcaption></figure>`).join('')}</div><div class="job-card-grid"><label>Attach to deviation<select id="jcPhotoDeviation" ${card.jobcardid ? '' : 'disabled'}><option value="">General job card</option>${(card.deviations || []).map(row => jobCardOption(row.deviationid,`${row.severity}: ${row.description}`,null)).join('')}</select></label><label>Photo type<select id="jcPhotoType">${['GENERAL','BEFORE','AFTER','DEFECT','NAMEPLATE','TEST'].map(value => jobCardOption(value,value,null)).join('')}</select></label><label>Caption<input id="jcPhotoCaption"></label><label>Take photo or choose from gallery<input id="jcPhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple></label></div>${card.jobcardid ? '<button type="button" onclick="uploadJobCardPhotos()">Upload Photos</button>' : '<p class="muted-text">Selected photos will upload automatically when the on-site job is submitted, before submission emails are sent.</p>'}</section>
       ${card.jobcardid && ['ADMIN','MANAGER'].includes(currentUser.role) ? `<section class="filter-card"><div class="section-heading"><div><h3>Accelo Completion Package <small>(Admin/Manager only)</small></h3><p class="muted-text">Office control used after approval to check and send the Job Card, crew timesheets and linked certificates to Accelo. Inspectors do not need this section.</p></div><button type="button" onclick="checkAcceloPackage(${card.jobcardid})">Check readiness</button></div><div id="acceloPackageStatus">${card.accelo_email_sent_at ? `<p><strong>Sent:</strong> ${escapeHtml(new Date(card.accelo_email_sent_at).toLocaleString('en-ZA'))} to ${escapeHtml(card.accelo_email_to || '')}</p>` : '<p>Run the readiness check after the Job Card and crew timesheets are approved.</p>'}</div></section>` : ''}
       ${renderJobCardWorkflow(card)}
     </form>`
@@ -11913,75 +11913,94 @@ async function uploadJobCardPhotoFiles(jobcardid, files, { caption = '', photoTy
   return { uploaded: files.length, result }
 }
 
+let jobCardSaveInProgress = false
+
 window.saveJobCard = async function (forcedStatus = null) {
-  const payload = collectJobCardPayload(forcedStatus)
-  if (!/^[0-9]+$/.test(payload.customer_reference)) {
-    alert('Enter the Accelo Job Number using numeric digits only.')
-    document.querySelector('#jcReference')?.focus()
-    return
-  }
-  if (!payload.assetids.length) {
-    alert('Select at least one asset for the job card.')
-    document.querySelector('#jcAssetSearch')?.focus()
-    return
-  }
-  const id = jobCardEditing?.jobcardid
-  const pendingFiles = !id ? [...(document.querySelector('#jcPhotos')?.files || [])] : []
-  const pendingPhotoDetails = {
-    caption: document.querySelector('#jcPhotoCaption')?.value || '',
-    photoType: document.querySelector('#jcPhotoType')?.value || 'GENERAL',
-    deviationid: ''
-  }
-  const response = await fetch(`${API_BASE}/job-cards${id ? `/${id}` : ''}`, {
-    method: id ? 'PUT' : 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  })
-  const result = await readApiResponse(response)
-  if (!response.ok) {
-    alert(result.error || 'Could not save job card')
-    return
-  }
-  jobCardEditing = result
+  if (jobCardSaveInProgress) return
+  jobCardSaveInProgress = true
   try {
-    if (pendingFiles.length) {
-      await uploadJobCardPhotoFiles(result.jobcardid, pendingFiles, pendingPhotoDetails)
-      const refreshed = await fetch(`${API_BASE}/job-cards/${result.jobcardid}`)
-      if (refreshed.ok) jobCardEditing = await refreshed.json()
+    const payload = collectJobCardPayload(forcedStatus)
+    if (!/^[0-9]+$/.test(payload.customer_reference)) {
+      alert('Enter the Accelo Job Number using numeric digits only.')
+      document.querySelector('#jcReference')?.focus()
+      return
     }
-  } catch (photoError) {
-    alert(`Job card ${result.jobcard_reference} was saved, but follow-up processing was not completed: ${photoError.message}`)
+    if (!payload.assetids.length) {
+      alert('Select at least one asset for the job card.')
+      document.querySelector('#jcAssetSearch')?.focus()
+      return
+    }
+    let id = jobCardEditing?.jobcardid
+    const pendingFiles = [...(document.querySelector('#jcPhotos')?.files || [])]
+    if (['SUBMITTED', 'APPROVED', 'INVOICED'].includes(payload.status) &&
+        !(jobCardEditing?.photos || []).length && !pendingFiles.length) {
+      alert('Add at least one photo showing the work performed before submitting or approving this job card.')
+      document.querySelector('#jcPhotos')?.focus()
+      return
+    }
+    const pendingPhotoDetails = {
+      caption: document.querySelector('#jcPhotoCaption')?.value || '',
+      photoType: document.querySelector('#jcPhotoType')?.value || 'GENERAL',
+      deviationid: document.querySelector('#jcPhotoDeviation')?.value || ''
+    }
+    const savePayload = async (value) => {
+      const response = await fetch(`${API_BASE}/job-cards${id ? `/${id}` : ''}`, {
+        method: id ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(value)
+      })
+      const saved = await readApiResponse(response)
+      if (!response.ok) throw new Error(saved.error || 'Could not save job card')
+      jobCardEditing = saved
+      id = saved.jobcardid
+      return saved
+    }
+    if (pendingFiles.length) {
+      if (!id) {
+        // Create the card first so photos have an owner, without submitting or sending assignment emails.
+        const initialStatus = ['AWAITING_SIGNATURE', 'SUBMITTED', 'APPROVED', 'INVOICED'].includes(payload.status) ? 'IN_PROGRESS' : 'DRAFT'
+        await savePayload({ ...payload, status: initialStatus, email_assigned_technician: false })
+      }
+      const uploaded = await uploadJobCardPhotoFiles(id, pendingFiles, pendingPhotoDetails)
+      jobCardEditing.photos = [...(jobCardEditing.photos || []), ...uploaded.result]
+      const photoInput = document.querySelector('#jcPhotos')
+      if (photoInput) photoInput.value = ''
+    }
+    // Only transition and trigger the server's emails once photo uploads have succeeded.
+    const result = await savePayload(payload)
+    const email = result.email_notification
+    const managerEmail = result.manager_email_notification
+    const acceloSubmission = result.accelo_submission_notification
+    const acceloSubmissionMessage = acceloSubmission?.requested
+      ? (acceloSubmission.sent ? ` The signed Job Card was also emailed to Accelo at ${acceloSubmission.to}.` : ` The Accelo email failed: ${acceloSubmission.error}`)
+      : ''
+    const assignedMessage = email?.requested
+      ? (email.sent
+        ? `Job card assigned to ${result.assigned_to_name}. Email sent to ${email.to}.`
+        : `Job card assigned and visible in ${result.assigned_to_name}'s ATEC profile, but the email was not sent: ${email.error}`)
+      : `Job card assigned to ${result.assigned_to_name || 'the technician'} and is visible in their ATEC profile. Email was not requested.`
+    const messages = {
+      ASSIGNED: assignedMessage,
+      IN_PROGRESS: id ? 'Job started.' : 'On-site job created. You can now add photographs and continue working.',
+      AWAITING_SIGNATURE: 'Job card is awaiting customer acknowledgement.',
+      SUBMITTED: managerEmail?.self_approval
+        ? `Job card submitted for your own approval${pendingFiles.length ? ` with ${pendingFiles.length} photograph(s) uploaded` : ''}. No separate Manager approval is required.`
+        : managerEmail?.requested
+        ? (managerEmail.sent
+          ? `Job card submitted and emailed to ${managerEmail.name || 'the assigned Manager'}${pendingFiles.length ? ` with ${pendingFiles.length} photograph(s) uploaded` : ''}.${acceloSubmissionMessage}`
+          : `Job card submitted, but the Manager email could not be sent: ${managerEmail.error}.${acceloSubmissionMessage}`)
+        : `${pendingFiles.length ? `On-site job submitted to the office with ${pendingFiles.length} photograph(s).` : 'Job card submitted to the office.'}${acceloSubmissionMessage}`,
+      APPROVED: 'Job card approved.',
+      INVOICED: 'Job card marked as invoiced.',
+      CANCELLED: 'Job card cancelled.'
+    }
+    alert(messages[forcedStatus] || `Job card ${result.jobcard_reference} saved for later.`)
     renderJobCardForm()
-    return
+  } catch (error) {
+    alert(`Could not complete the job-card save. ${error.message || 'Please check the card and try again.'}`)
+  } finally {
+    jobCardSaveInProgress = false
   }
-  const email = result.email_notification
-  const managerEmail = result.manager_email_notification
-  const acceloSubmission = result.accelo_submission_notification
-  const acceloSubmissionMessage = acceloSubmission?.requested
-    ? (acceloSubmission.sent ? ` The signed Job Card was also emailed to Accelo at ${acceloSubmission.to}.` : ` The Accelo email failed: ${acceloSubmission.error}`)
-    : ''
-  const assignedMessage = email?.requested
-    ? (email.sent
-      ? `Job card assigned to ${result.assigned_to_name}. Email sent to ${email.to}.`
-      : `Job card assigned and visible in ${result.assigned_to_name}'s ATEC profile, but the email was not sent: ${email.error}`)
-    : `Job card assigned to ${result.assigned_to_name || 'the technician'} and is visible in their ATEC profile. Email was not requested.`
-  const messages = {
-    ASSIGNED: assignedMessage,
-    IN_PROGRESS: id ? 'Job started.' : 'On-site job created. You can now add photographs and continue working.',
-    AWAITING_SIGNATURE: 'Job card is awaiting customer acknowledgement.',
-    SUBMITTED: managerEmail?.self_approval
-      ? `Job card submitted for your own approval${pendingFiles.length ? ` with ${pendingFiles.length} photograph(s) uploaded` : ''}. No separate Manager approval is required.`
-      : managerEmail?.requested
-      ? (managerEmail.sent
-        ? `Job card submitted and emailed to ${managerEmail.name || 'the assigned Manager'}${pendingFiles.length ? ` with ${pendingFiles.length} photograph(s) uploaded` : ''}.${acceloSubmissionMessage}`
-        : `Job card submitted, but the Manager email could not be sent: ${managerEmail.error}.${acceloSubmissionMessage}`)
-      : `${pendingFiles.length ? `On-site job submitted to the office with ${pendingFiles.length} photograph(s).` : 'Job card submitted to the office.'}${acceloSubmissionMessage}`,
-    APPROVED: 'Job card approved.',
-    INVOICED: 'Job card marked as invoiced.',
-    CANCELLED: 'Job card cancelled.'
-  }
-  alert(messages[forcedStatus] || `Job card ${result.jobcard_reference} saved for later.`)
-  renderJobCardForm()
 }
 
 window.uploadJobCardPhotos = async function () {
