@@ -15803,6 +15803,8 @@ app.get("/dashboard/visit-alerts", asyncRoute(async (req, res) => {
 }))
 
 const JOB_CARD_STATUSES = new Set(["DRAFT", "ASSIGNED", "IN_PROGRESS", "AWAITING_SIGNATURE", "SUBMITTED", "APPROVED", "INVOICED", "CANCELLED"])
+const { syncFollowups } = require('./services/jobCardFollowups')
+require('./routes/jobCardFollowups').registerJobCardFollowupRoutes(app, { pool, asyncRoute })
 const JOB_CARD_EQUIPMENT_STATUSES = new Set(["SAFE", "RESTRICTED", "FURTHER_WORK", "OUT_OF_SERVICE", "NOT_TESTED"])
 
 function nullableNumber(value) {
@@ -16302,6 +16304,7 @@ async function saveJobCard(req, res) {
     if (requestedStatus === "SUBMITTED" && previousStatus !== "SUBMITTED") {
       await copyJobCardTimeline(client, jobcardid, req.user.user_id)
     }
+    await syncFollowups(client, jobcardid, body, req.user.user_id)
     await client.query("COMMIT")
     await req.logAudit(req.params.id ? "UPDATE" : "CREATE", "job_cards", jobcardid, { status: requestedStatus, equipment_status: equipmentStatus })
     let emailNotification = { requested: false, sent: false }

@@ -57,6 +57,16 @@
       "migration": "2026-09-04-customer-compliance-documents.sql"
     },
     {
+      "table": "tbljobcardfollowup",
+      "columns": ["followupid", "jobcardid", "kind", "assetid", "description", "status", "responsible_user_id", "due_date", "history", "version"],
+      "migration": "2026-09-25-job-card-followups.sql"
+    },
+    {
+      "table": "tbljobcard",
+      "columns": ["quote_required", "return_visit_required", "return_visit_reason"],
+      "migration": "2026-09-25-job-card-followups.sql"
+    },
+    {
       "table": "tblcompliancedocumentaudience",
       "columns": ["compliancedocumentid", "clientid"],
       "migration": "2026-09-04-customer-compliance-documents.sql"
