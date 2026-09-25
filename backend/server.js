@@ -13220,7 +13220,7 @@ const ASSET_ACCURACY_ISSUES = new Set([
 ])
 
 const ASSET_ACCURACY_SORT_KEYS = new Set([
-  "clientname", "assetid", "display_serial", "sitename", "sectionname",
+  "clientname", "assetid", "display_serial", "sitename", "sectionname", "responsiblename",
   "equipmenttype", "visual_date", "load_date", "issue_labels", "recommended_action"
 ])
 const ASSET_ACCURACY_PLACEHOLDER_SERIALS = new Set(["", "NA", "NONE", "UNKNOWN", "TBC", "TBA", "NIL", "NOTAVAILABLE", "NOSERIAL"])
