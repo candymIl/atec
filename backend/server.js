@@ -16107,10 +16107,10 @@ async function emailSubmittedJobCardToManager(card) {
 async function emailSubmittedJobCardToAccelo(card) {
   const recipient = `job+${card.customer_reference}@fb-cranes.accelo.com`
   const pdf = await createJobCardPdfBuffer(card)
+  // Jacques receives the manager notification; copying this delivery sends him the same submission twice.
   await sendApplicationEmail({
     from: process.env.MAIL_FROM,
     to: recipient,
-    cc: JOB_CARD_CC,
     subject: `ATEC Job Card Submitted - ${card.jobcard_reference} - Job ${card.customer_reference}`,
     text: [
       `Submitted Job Card: ${card.jobcard_reference}`,
