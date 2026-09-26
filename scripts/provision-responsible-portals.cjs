@@ -15,6 +15,7 @@ async function main() {
   const envFile = option('--env'), planFile = option('--plan'), outputFile = option('--output')
   if (!envFile || !planFile || !outputFile || !option('--expected-host') || !option('--expected-db')) throw Error('Supply --env, --plan, --output, --expected-host and --expected-db')
   const e = dotenv.parse(fs.readFileSync(envFile))
+  e.DB_HOST = e.DB_HOST || 'localhost'
   if (e.DB_HOST !== option('--expected-host') || e.DB_NAME !== option('--expected-db')) throw Error('Database target does not match the reviewed target')
   if (apply && !args.includes('--access-code-verified')) throw Error('Verify person access code before enabling accounts')
   if (apply && String(e.NOTIFICATION_AUTO_SEND_ENABLED).toLowerCase() === 'true') throw Error('Automatic emails must be paused while provisioning accounts')
@@ -33,7 +34,7 @@ async function main() {
     const maxLength = name => columns.find(c => c.column_name === name)?.character_maximum_length || Infinity
     const people = (await db.query(`SELECT p.personid,p.name,p.clientid,c.clientname FROM atec.tblpeople p
       JOIN atec.tblclients c ON c.clientid=p.clientid WHERE NOT COALESCE(p.archived,false) AND NOT COALESCE(c.archived,false)`)).rows
-    const users = (await db.query('SELECT userid,username,email,fullname,clientid,portal_personid,role,is_active FROM atec.tblusers')).rows
+    const users = (await db.query('SELECT userid,username,email,fullname,clientid,portal_personid,role,is_active,password FROM atec.tblusers')).rows
     for (const row of rows) {
       const matches = people.filter(p => normalize(p.clientname) === normalize(row.clientname) && normalize(p.name) === normalize(row.name))
       const result = { source_personid:row.personid, name:row.name, customer:row.clientname, email:normalizeEmail(row.allocated_email) }
@@ -75,6 +76,9 @@ async function main() {
           result.userid = created.rows[0].userid; result.status = 'CREATED'
         }
       }
+      const passwordsAfter = new Map((await db.query('SELECT userid,password FROM atec.tblusers')).rows.map(u => [String(u.userid),u.password]))
+      if (users.some(u => passwordsAfter.get(String(u.userid)) !== u.password)) throw Error('An existing password changed; rolling back')
+      planned.existing_passwords_preserved = users.length
       await db.query('COMMIT')
       planned.mode = 'applied'
       fs.writeFileSync(outputFile,JSON.stringify(planned,null,2))

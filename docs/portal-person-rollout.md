@@ -22,15 +22,28 @@ The private plans, before-state archive record, database backups, provisioning r
 
 Local HTTP tests ran against the actual Express routes inside a rolled-back database transaction: portal summary/assets/options, forced report-owner tampering, certificate search/count and another person's certificate (403), MPI listing, person-specific notification preview, and empty-assignment accounts. Notifications were not sent. Unit tests cover immutable identity, cross-site ownership, wrong customer/section, inactive/archived links and unconfigured access. Existing portal, notification, report, certificate, MPI and deployment checks plus frontend build passed.
 
-## Live and South Deep pilot — pending
+## Live completion — 26 September 2026
 
-Neither environment has been changed by this rollout. An SSH connection attempt to the current ATEC DNS address timed out on port 22. Temporary access is required before preflight, target reconciliation or deployment.
+Temporary server access was established after replacing an unreadable local SSH key. Live ATEC already contained the tested portal changes at server merge `ace20855` (application source from `551fcc3b`; additional differences were frontend package metadata). The running API and public frontend were verified without replacing those server-specific changes.
 
-For each environment independently:
+- Created 74 accounts from the original contact plan and linked five existing accounts. Preserved all 56 pre-existing passwords, with an in-transaction comparison before commit.
+- A live-only responsible person at Valterra Platinum Amandelbult had an exact full-name match and a unique active email in two CSV records whose company explicitly included Amandelbult. Created that additional account; preserved all 130 accounts already present at that point.
+- Final live result: **75 new accounts, five existing accounts linked, 80 person-linked accounts in total**. Both provisioning batches subsequently reported only `ALREADY_LINKED`.
+- Archived approved customer 272 and its dependent master records after confirming the same identity, five sites, four sections, no equipment and no accounts as the local review.
+- Verified all 75 new passwords in memory; tested actual password login and the public customer portal. Three responsible-person scopes passed report-filter tampering checks, recipient/attachment-data checks and denial of another person's certificate. An account without section assignments returned no assets, reports or certificates.
+- The original contact plan still has 215 unresolved people. These were not provisioned from guesses. Live has 295 active people versus the local plan's 294; the additional matched live person accounts for that difference.
+- Automatic sending remains disabled. No notification or welcome emails were sent.
 
-1. Inspect the actual app/release, schema, customers, people, existing accounts, backup method and notification configuration. Do not use the legacy `lifttest3` connection as live ATEC. Do not assume local person/customer IDs match the target.
-2. Take and verify a target backup; keep automatic sending off during account provisioning. Apply the exact tested release and migration. Preserve pilot isolation, binding, origins, cookie path and branding overlay.
-3. Run provisioning in dry-run mode. It matches the reviewed customer/person names against that target, preserves existing accounts/passwords and skips missing/ambiguous/inactive/conflicting records. Do not copy real customer data into the pilot to satisfy missing person matches.
-4. Apply only the reconciled plan, passing the secret privately over authenticated SSH standard input. Store no plaintext password file and emit no hash/password output.
-5. Verify person access, denied cross-person downloads, correct notification recipients/attachments and account-count/idempotence results without sending mail. Archive the exact approved customer only if its target identity and dependencies match the reviewed scope.
-6. Record target-specific results, then remove the exact temporary authorized-key entry and verify revocation.
+## South Deep pilot completion and limits
+
+The actual application path is `/var/www/atec-south-deep/releases/20260924/app`. Applied only the portal/report patch to its existing source, preserving its separate `atec_southdeep_session` cookie, loopback-only port 5101, branding and environment. Applied the person-access migration and recorded its checksum; older snapshot migration history was not rewritten. Built and served `portal-person-551fcc3b-20260926` at the dedicated South Deep hostname, then restarted only the pilot service.
+
+The pilot database has one demonstration customer, three demonstration assets and **no responsible-person records**. All 79 original plan entries were therefore skipped as absent. No real customer/person records or accounts were copied into that database, and customer 272 is absent. API and public-session checks passed; pilot and live reject each other's sessions. Real pilot account provisioning remains dependent on approved customer/person data being present there.
+
+## Evidence and remaining work
+
+Private database rollback backups were created and their archives/checksums verified before mutations. Server evidence resides under `/root/portal-rollout-20260926/`; selected non-secret evidence is also retained in ignored `.local/portal-access-review/`. No environment files or plaintext passwords were duplicated for this rollout.
+
+Both temporary SSH key identities were removed after the final health checks (three entries, including a duplicate). A fresh connection using the replacement key was denied, confirming revocation. Other authorized keys were preserved.
+
+The remaining contact review is in `.local/portal-access-review/remaining-portal-contacts.csv`. Confirm missing/ambiguous email identities before provisioning those people. Accounts with no active assigned sections correctly see no equipment. Password changes remain available to users; the stored `update_pw` flag does not currently enforce a first-login password change.
