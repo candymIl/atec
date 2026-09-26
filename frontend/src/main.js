@@ -10561,6 +10561,7 @@ function dashboardNotificationFilterRows(rows) {
       row.clientname,
       row.sitename,
       ...(row.section_names || []),
+      row.responsiblename,
       ...(row.notification_recipients || []).map(recipient => `${recipient.full_name || ''} ${recipient.email || ''}`),
       row.due_assets,
       row.overdue_assets,
@@ -10631,8 +10632,8 @@ function renderDashboardNotificationCentre() {
 
   container.innerHTML = `
     <div class="dashboard-notification-summary">
-      <span><strong>${escapeHtml(displayRows.length)}</strong> actionable customer/site row(s) match the filters. Showing <strong>${firstShown}-${lastShown}</strong>.</span>
-      <span>This is the attention list, not the complete customer register. Preview before sending to customer portal users.</span>
+      <span><strong>${escapeHtml(displayRows.length)}</strong> responsible-person row(s) need attention. Showing <strong>${firstShown}-${lastShown}</strong>.</span>
+      <span>Each row covers one responsible person's assigned sections across sites. Preview before sending to customer portal users.</span>
     </div>
     <div class="dashboard-notification-filter-row">
       <input
@@ -10657,7 +10658,7 @@ function renderDashboardNotificationCentre() {
     <div id="dashboardNotificationPreview" class="dashboard-notification-preview" hidden></div>
     <div class="dashboard-notification-worklist">
       <div class="dashboard-notification-worklist-header">
-        <span>${sortHeader("Customer / Site", "dashboardNotifications", "clientname", "renderDashboardNotificationCentre")}</span>
+        <span>${sortHeader("Customer / Responsible person", "dashboardNotifications", "clientname", "renderDashboardNotificationCentre")}</span>
         <span>${sortHeader("Due", "dashboardNotifications", "due_assets", "renderDashboardNotificationCentre")}</span>
         <span>${sortHeader("Overdue", "dashboardNotifications", "overdue_assets", "renderDashboardNotificationCentre")}</span>
         <span>${sortHeader("Expiring", "dashboardNotifications", "expiring_certificates", "renderDashboardNotificationCentre")}</span>
@@ -10762,9 +10763,13 @@ function renderDashboardNotificationRow(row) {
   const recipientNames = recipients.map(recipient => recipient.full_name || recipient.email).join(', ')
   const recipientAddresses = recipients.map(recipient => `${recipient.full_name || recipient.email} <${recipient.email}>`).join(', ')
   const sectionNames = (row.section_names || []).join(', ') || 'Unassigned section'
+  const shortSections = (row.section_names || []).length > 3
+    ? `${row.section_names.slice(0, 3).join(', ')} +${row.section_names.length - 3} more`
+    : sectionNames
   const reportArgs = safeAttr(JSON.stringify({
     clientid: row.clientid,
     siteid: row.siteid || '',
+    responsibleid: row.responsibleid || '',
     autoLoad: true
   }))
   const recipientClass = Number(row.portal_recipients || 0) > 0 ? "ready" : "missing"
@@ -10773,7 +10778,7 @@ function renderDashboardNotificationRow(row) {
     : "No portal users"
   const autoClass = row.automatic_notification_ready ? "ready" : "missing"
   const autoText = row.automatic_notification_ready ? "Ready" : "Waiting"
-  const rowKey = `dashboard-notification-${String(row.clientid || 'customer').replace(/[^a-zA-Z0-9_-]/g, '-')}-${String(row.siteid || 'all').replace(/[^a-zA-Z0-9_-]/g, '-')}`
+  const rowKey = `dashboard-notification-${String(row.clientid || 'customer').replace(/[^a-zA-Z0-9_-]/g, '-')}-${String(row.responsibleid || 'unassigned').replace(/[^a-zA-Z0-9_-]/g, '-')}`
 
   return `
     <article class="dashboard-notification-worklist-row" id="${safeAttr(rowKey)}">
@@ -10786,8 +10791,9 @@ function renderDashboardNotificationRow(row) {
       >
         <span class="dashboard-notification-identity">
           <strong>${escapeHtml(row.clientname || "")}</strong>
+          <small><b>${escapeHtml(row.responsiblename || 'Unassigned responsible person')}</b></small>
           <small>${escapeHtml(row.sitename || "All Sites")}</small>
-          <small class="dashboard-notification-context">Sections (site report): ${escapeHtml(sectionNames)}</small>
+          <small class="dashboard-notification-context" title="${safeAttr(sectionNames)}">Sections: ${escapeHtml(shortSections)}</small>
           <small class="dashboard-notification-context" title="${safeAttr(recipientAddresses)}">Send to: ${escapeHtml(recipientNames || 'No active portal recipients')}</small>
         </span>
         <span class="dashboard-notification-metric" data-label="Due"><strong>${escapeHtml(row.due_assets || 0)}</strong></span>
@@ -10796,13 +10802,13 @@ function renderDashboardNotificationRow(row) {
         <span class="dashboard-notification-metric failed" data-label="Failed">${escapeHtml(row.failed_assets || 0)}</span>
       </button>
       <div class="dashboard-notification-actions">
-        <button class="small-btn" onclick="previewDashboardNotification(${safeAttr(row.clientid)}, '${safeAttr(row.siteid || '')}')">
+        <button class="small-btn" onclick="previewDashboardNotification(${safeAttr(row.clientid)}, '${safeAttr(row.siteid || '')}', '${safeAttr(row.responsibleid || '')}')">
           Preview
         </button>
-        <button class="small-btn" onclick="sendDashboardNotification(${safeAttr(row.clientid)}, '${safeAttr(row.siteid || '')}')">
+        <button class="small-btn" ${!row.responsibleid || !recipients.length ? 'disabled' : ''} onclick="sendDashboardNotification(${safeAttr(row.clientid)}, '${safeAttr(row.siteid || '')}', '${safeAttr(row.responsibleid || '')}')">
           Send
         </button>
-        <button class="small-btn" onclick="showCustomerDetailedReport(${reportArgs})">
+        <button class="small-btn" ${!row.responsibleid ? 'disabled' : ''} onclick="showCustomerDetailedReport(${reportArgs})">
           Report
         </button>
         <button class="small-btn dashboard-notification-more-btn" onclick="toggleDashboardNotificationDetails('${safeAttr(rowKey)}')" aria-expanded="false" aria-controls="${safeAttr(rowKey)}-details">
@@ -10810,6 +10816,7 @@ function renderDashboardNotificationRow(row) {
         </button>
       </div>
       <div class="dashboard-notification-row-details" id="${safeAttr(rowKey)}-details" hidden>
+        <span><small>Assigned sections in this report</small><strong>${escapeHtml(sectionNames)}</strong></span>
         <span><small>Visit Items</small><strong>${escapeHtml(row.unresolved_visit_items || 0)}</strong></span>
         <span><small>Portal Recipients</small><strong class="notification-recipient ${recipientClass}">${escapeHtml(recipientText)}</strong></span>
         <span><small>Last Sent</small><strong>${escapeHtml(formatDashboardNotificationDate(row.last_notification_sent_at))}</strong></span>
@@ -10868,7 +10875,7 @@ window.runDashboardNotificationScheduler = async function () {
   }
 }
 
-window.previewDashboardNotification = async function (clientid, siteid = '') {
+window.previewDashboardNotification = async function (clientid, siteid = '', responsibleid = '') {
   const preview = document.querySelector('#dashboardNotificationPreview')
   if (!preview) return
 
@@ -10879,6 +10886,7 @@ window.previewDashboardNotification = async function (clientid, siteid = '') {
     const params = new URLSearchParams()
     params.set('clientid', clientid)
     if (siteid) params.set('siteid', siteid)
+    if (responsibleid) params.set('responsibleid', responsibleid)
 
     const response = await fetch(`${API_BASE}/dashboard/notification-centre/preview?${params.toString()}`)
     const result = await readApiResponse(response)
@@ -10923,7 +10931,7 @@ window.closeDashboardNotificationPreview = function () {
   if (preview) preview.hidden = true
 }
 
-window.sendDashboardNotification = async function (clientid, siteid = '') {
+window.sendDashboardNotification = async function (clientid, siteid = '', responsibleid = '') {
   const proceed = window.confirm('Send this customer notification email now?')
   if (!proceed) return
 
@@ -10931,7 +10939,7 @@ window.sendDashboardNotification = async function (clientid, siteid = '') {
     const response = await fetch(`${API_BASE}/dashboard/notification-centre/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ clientid, siteid: siteid || null })
+      body: JSON.stringify({ clientid, siteid: siteid || null, responsibleid: responsibleid || null })
     })
     const result = await readApiResponse(response)
 
@@ -10958,6 +10966,8 @@ window.exportDashboardNotifications = function () {
   const headers = [
     "Customer",
     "Site",
+    "Responsible Person",
+    "Sections",
     "Active Assets",
     "Due Assets",
     "Overdue Assets",
@@ -10976,6 +10986,8 @@ window.exportDashboardNotifications = function () {
   const csvRows = rows.map(row => [
     row.clientname,
     row.sitename,
+    row.responsiblename,
+    (row.section_names || []).join('; '),
     row.active_assets,
     row.due_assets,
     row.overdue_assets,

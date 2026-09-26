@@ -1,5 +1,6 @@
 const crypto = require("crypto")
 const express = require("express")
+const { portalScopeSql } = require("../services/customerPortalAccess")
 const {
   buildCustomerReportPdf,
   buildPracticalExamPdf,
@@ -99,17 +100,17 @@ function reportHash(report) {
 
 function reportScopeSql(user, alias = "report") {
   if (user.role === "CUSTOMER") {
-    if (!user.clientid) return { sql: " AND 1 = 0", values: [] }
-    return { sql: ` AND ${alias}.clientid = $SCOPE`, values: [user.clientid] }
+    const values = []
+    const sql = portalScopeSql(user, values, alias).replace(/\$(\d+)/g, '$SCOPE$1')
+    return { sql, values }
   }
   return { sql: "", values: [] }
 }
 
 function applyScope(sql, baseValues, scope) {
-  if (!scope.values.length) return { sql: sql.replace("$SCOPE", "NULL"), values: baseValues }
   const values = [...baseValues, ...scope.values]
   return {
-    sql: sql.replace("$SCOPE", `$${values.length}`),
+    sql: sql.replace(/\$SCOPE(\d+)/g, (_, index) => `$${baseValues.length + Number(index)}`),
     values
   }
 }
@@ -766,6 +767,7 @@ function registerMpiRoutes(app, dependencies) {
       if (!req.user.clientid) return res.json([])
       values.push(req.user.clientid)
       where += ` AND report.clientid = $${values.length} AND report.status = 'ISSUED'`
+      where += portalScopeSql(req.user, values, 'report')
     }
     if (req.query.status && REPORT_STATUSES.has(cleanText(req.query.status, 50).toUpperCase())) {
       values.push(cleanText(req.query.status, 50).toUpperCase())

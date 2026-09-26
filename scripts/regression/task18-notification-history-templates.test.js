@@ -38,7 +38,7 @@ assertIncludes(main, "result.history_warning", "The dashboard must distinguish s
 assertIncludes(main, "dashboardNotificationPageSize", "The notification list must support selectable page sizes")
 assertIncludes(main, "Rows per page", "The notification list must expose its page-size control")
 assertIncludes(main, "setDashboardNotificationPage", "The notification list must support page navigation")
-assertIncludes(main, "This is the attention list, not the complete customer register.", "The notification scope must be clear to users")
+assertIncludes(main, "Each row covers one responsible person's assigned sections across sites.", "The notification scope must be clear to users")
 assertIncludes(style, ".dashboard-notification-pagination", "Notification pagination styles are missing")
 assertIncludes(main, "dashboard-notification-worklist", "The notification list must avoid a wide scrolling table")
 assertIncludes(main, "toggleDashboardNotificationDetails", "The compact notification list must expose secondary details on demand")

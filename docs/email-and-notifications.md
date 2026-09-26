@@ -6,9 +6,10 @@ Task 16 added notification workflows on top of the customer portal, due-asset co
 
 ## Current Local Scope
 
-- Dashboard Notification Centre grouped by customer and site.
-- Each row shows sections represented by active assets at that site and the actual recipient names; search also matches sections, names and email addresses. Reports still cover the whole site, not an individual section.
-- Recipient names and readiness use the same customer/site scope as Send: active customer portal users for that site plus customer-wide users. A foreman must be configured as an eligible portal user to appear here; an asset's responsible person is not automatically an email recipient.
+- Dashboard Notification Centre grouped by customer and the section's responsible person, across sites.
+- Each row shows that person's sites, sections and actual recipient. Search includes the responsible person's name, sections and email addresses.
+- Recipient readiness, preview, manual sending and scheduled sending require an active customer portal account explicitly linked to that person. Unassigned sections appear for review but cannot be emailed. Customer-wide recipients are not added to a person's report.
+- Attached reports use the same section-owner filter; delivery history/cooldown records include the responsible-person ID.
 - Counts for due assets, overdue assets, expiring certificates, failed assets, open visits, unresolved visit items, and deferred follow-ups due.
 - Customer portal recipient readiness based on active customer users with email addresses.
 - Customer notification preferences on the Customer Setup form.
@@ -17,7 +18,7 @@ Task 16 added notification workflows on top of the customer portal, due-asset co
 - CSV export of the notification rows.
 - Customer report shortcut from each notification row.
 - Manual email preview from each notification row.
-- Manual notification sending to active Customer Portal Users for the selected customer/site.
+- Manual notification sending to the active Customer Portal User for the selected responsible person.
 - Audit logging for manually sent notifications.
 - Delivery history for manual and automatic sends.
 - Last sent date and automatic readiness on each Notification Centre row.
@@ -40,7 +41,7 @@ All outgoing job-card emails CC `jacques@fbcranes.co.za`: technician assignments
 - Notification Centre rows respect the customer preference toggles before showing counts.
 - Automatic sending is off unless `NOTIFICATION_AUTO_SEND_ENABLED=true`.
 - Automatic sending uses `NOTIFICATION_AUTO_SEND_TIME`, defaulting to `07:00`.
-- The same customer/site is protected by `NOTIFICATION_AUTO_SEND_COOLDOWN_HOURS`, defaulting to 24 hours.
+- The same customer/responsible person is protected by `NOTIFICATION_AUTO_SEND_COOLDOWN_HOURS`, defaulting to 24 hours.
 
 ## Scheduled Automatic Notifications
 

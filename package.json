@@ -33,6 +33,7 @@
     "test:task10": "node scripts/regression/task10-backup-dr.test.js",
     "test:task11": "node scripts/regression/task11-performance-capacity.test.js",
     "test:responsible-ownership": "node scripts/regression/responsible-person-ownership.test.js",
+    "test:portal-person-access": "node scripts/regression/customer-portal-person-access.test.js",
     "test:customer-report-responsible": "node scripts/regression/customer-report-responsible-ownership.test.js",
     "test:customer-asset-history": "node scripts/regression/customer-asset-history.test.js",
     "test:asset-register-accuracy": "node scripts/regression/asset-register-accuracy.test.js",

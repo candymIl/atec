@@ -7,6 +7,7 @@ const cookieParser = require("cookie-parser")
 const helmet = require("helmet")
 const rateLimit = require("express-rate-limit")
 const bcrypt = require("bcryptjs")
+const { loadCustomerPortalScope, portalScopeSql, portalCanReadRecord } = require("./services/customerPortalAccess")
 const crypto = require("crypto")
 const pool = require("./db");
 require("dotenv").config({ override: true });
@@ -974,30 +975,8 @@ async function customerUserSiteBelongsToClient(client, { siteid, clientid }) {
 }
 
 async function resolveCustomerPortalScope(user) {
-  const emailName = String(user?.email || user?.username || "").split("@")[0]
-  const normalizedEmailName = emailName.replace(/[^a-z0-9]/gi, "").toLowerCase()
-
-  if (!user?.clientid || !normalizedEmailName) {
-    return { responsibleid: null, siteid: user?.siteid || null, sectionid: user?.sectionid || null }
-  }
-
-  const result = await pool.query(
-    `
-    SELECT personid
-    FROM atec.tblpeople
-    WHERE clientid = $1
-      AND COALESCE(archived, false) = false
-      AND lower(regexp_replace(name, '[^a-zA-Z0-9]', '', 'g')) = $2
-    LIMIT 2
-    `,
-    [user.clientid, normalizedEmailName]
-  )
-
-  if (result.rows.length === 1) {
-    return { responsibleid: result.rows[0].personid, siteid: null, sectionid: null }
-  }
-
-  return { responsibleid: null, siteid: user.siteid || null, sectionid: user.sectionid || null }
+  if (!user.portal_scope) user.portal_scope = await loadCustomerPortalScope(pool, user)
+  return user.portal_scope
 }
 
 async function getActiveVisitLocation(client, { clientid, siteid, sectionid = null }) {
@@ -1399,6 +1378,7 @@ app.get("/customer-portal/summary", requireAuth, trackActiveUser, asyncRoute(asy
   const effectiveClientId = req.user.clientid
   const portalScope = await resolveCustomerPortalScope(req.user)
   const effectiveResponsibleId = portalScope.responsibleid
+  const effectiveSectionIds = effectiveResponsibleId ? portalScope.sectionIds : null
   const effectiveSiteId = portalScope.siteid
   const effectiveSectionId = portalScope.sectionid
 
@@ -1430,7 +1410,7 @@ app.get("/customer-portal/summary", requireAuth, trackActiveUser, asyncRoute(asy
         AND COALESCE(archived, false) = false
         AND ($2::int IS NULL OR siteid = $2)
         AND ($3::int IS NULL OR sectionid = $3)
-        AND ($4::int IS NULL OR responsibleid = $4)
+        AND ($4::bigint[] IS NULL OR sectionid = ANY($4))
     ),
     latest_visual AS (
       SELECT DISTINCT ON (i.assetid)
@@ -1469,7 +1449,7 @@ app.get("/customer-portal/summary", requireAuth, trackActiveUser, asyncRoute(asy
     LEFT JOIN latest_visual ON latest_visual.assetid = a.assetid
     LEFT JOIN latest_load ON latest_load.assetid = a.assetid
     `,
-    [effectiveClientId, effectiveSiteId, effectiveSectionId, effectiveResponsibleId]
+    [effectiveClientId, effectiveSiteId, effectiveSectionId, effectiveSectionIds]
   )
 
   const certificateSummary = await pool.query(
@@ -1488,9 +1468,9 @@ app.get("/customer-portal/summary", requireAuth, trackActiveUser, asyncRoute(asy
     WHERE a.clientid = $1
       AND ($2::int IS NULL OR a.siteid = $2)
       AND ($3::int IS NULL OR a.sectionid = $3)
-      AND ($4::int IS NULL OR a.responsibleid = $4)
+      AND ($4::bigint[] IS NULL OR a.sectionid = ANY($4))
     `,
-    [effectiveClientId, effectiveSiteId, effectiveSectionId, effectiveResponsibleId]
+    [effectiveClientId, effectiveSiteId, effectiveSectionId, effectiveSectionIds]
   )
 
   const recentCertificates = await pool.query(
@@ -1514,11 +1494,11 @@ app.get("/customer-portal/summary", requireAuth, trackActiveUser, asyncRoute(asy
     WHERE a.clientid = $1
       AND ($2::int IS NULL OR a.siteid = $2)
       AND ($3::int IS NULL OR a.sectionid = $3)
-      AND ($4::int IS NULL OR a.responsibleid = $4)
+      AND ($4::bigint[] IS NULL OR a.sectionid = ANY($4))
     ORDER BY i.testdate DESC NULLS LAST, i.testid DESC
     LIMIT 8
     `,
-    [effectiveClientId, effectiveSiteId, effectiveSectionId, effectiveResponsibleId]
+    [effectiveClientId, effectiveSiteId, effectiveSectionId, effectiveSectionIds]
   )
 
   let visitSummary = {
@@ -1551,8 +1531,10 @@ app.get("/customer-portal/summary", requireAuth, trackActiveUser, asyncRoute(asy
       LEFT JOIN atec.tblinspectionvisitasset va ON va.visitid = v.visitid
       WHERE v.clientid = $1
         AND ($2::int IS NULL OR v.siteid = $2)
+        AND ($3::int IS NULL OR EXISTS (SELECT 1 FROM atec.tblasset va_scope WHERE va_scope.assetid = va.assetid AND va_scope.sectionid = $3))
+        AND ($4::bigint[] IS NULL OR EXISTS (SELECT 1 FROM atec.tblasset va_scope WHERE va_scope.assetid = va.assetid AND va_scope.sectionid = ANY($4)))
       `,
-      [effectiveClientId, effectiveSiteId]
+      [effectiveClientId, effectiveSiteId, effectiveSectionId, effectiveSectionIds]
     )
 
     visitSummary = visits.rows[0] || visitSummary
@@ -1706,8 +1688,8 @@ app.get("/customer-portal/assets", requireAuth, trackActiveUser, asyncRoute(asyn
   const portalScope = await resolveCustomerPortalScope(req.user)
 
   if (portalScope.responsibleid) {
-    values.push(portalScope.responsibleid)
-    filters.push(`a.responsibleid = $${values.length}`)
+    values.push(portalScope.sectionIds || [])
+    filters.push(`a.sectionid = ANY($${values.length}::bigint[])`)
   }
 
   if (portalScope.siteid) {
@@ -2190,12 +2172,16 @@ async function authorizeUploadRequest(req, res, next) {
 
   const uploadBasename = path.posix.basename(normalizedPath)
 
+  await resolveCustomerPortalScope(req.user)
+  const accessValues = [req.user.clientid, normalizedPath, uploadBasename]
+  const assetAccessSql = portalScopeSql(req.user, accessValues, 'a')
+  const reportAccessSql = assetAccessSql.replaceAll('a.', 'report.')
   const accessResult = await pool.query(
     `
     SELECT EXISTS (
       SELECT 1
       FROM atec.tblasset a
-      WHERE a.clientid = $1
+      WHERE a.clientid = $1 ${assetAccessSql}
         AND ($2 IN (a.media1, a.media2) OR $3 IN (a.media1, a.media2))
 
       UNION ALL
@@ -2204,7 +2190,7 @@ async function authorizeUploadRequest(req, res, next) {
       FROM atec.tblinspection i
       JOIN atec.tblasset a
         ON i.assetid = a.assetid
-      WHERE a.clientid = $1
+      WHERE a.clientid = $1 ${assetAccessSql}
         AND ($2 IN (i.photo1, i.photo2, i.inspector_signature_image) OR $3 IN (i.photo1, i.photo2, i.inspector_signature_image))
 
       UNION ALL
@@ -2213,7 +2199,7 @@ async function authorizeUploadRequest(req, res, next) {
       FROM atec.tblinspectionphoto p
       JOIN atec.tblasset a
         ON p.assetid = a.assetid
-      WHERE a.clientid = $1
+      WHERE a.clientid = $1 ${assetAccessSql}
         AND (p.photo_path = $2 OR p.photo_path = $3)
 
       UNION ALL
@@ -2222,12 +2208,12 @@ async function authorizeUploadRequest(req, res, next) {
       FROM atec.tblndtreportattachment attachment
       JOIN atec.tblndtreport report
         ON report.ndtreportid = attachment.ndtreportid
-      WHERE report.clientid = $1
+      WHERE report.clientid = $1 ${reportAccessSql}
         AND report.status = 'ISSUED'
         AND (attachment.file_path = $2 OR attachment.file_path = $3)
     ) AS allowed
     `,
-    [req.user.clientid, normalizedPath, uploadBasename]
+    accessValues
   )
 
   if (!accessResult.rows[0]?.allowed) {
@@ -2381,6 +2367,10 @@ app.use(requireAuth)
 app.use(trackActiveUser)
 app.use(csrfProtection)
 app.use(authorizeRequest)
+app.use(asyncRoute(async (req, res, next) => {
+  if (req.user.role === "CUSTOMER") await resolveCustomerPortalScope(req.user)
+  next()
+}))
 app.use(asyncRoute(enforceInspectorInspectionOwnership))
 
 function getDirectorySizeBytes(folderPath) {
@@ -8957,6 +8947,7 @@ app.get("/certificates/search", searchLimiter, async (req, res) => {
       where += ` AND i.testdate <= $${values.length}`
     }
 
+    where += portalScopeSql(req.user, values, 'a')
     const countResult = await pool.query(
       `
       SELECT
@@ -9121,6 +9112,7 @@ async function getBulkCertificateMatches(req, includeTestIds = false, eligibleOn
     where += ` AND i.testid = ANY($${values.length}::int[])`
   }
 
+  where += portalScopeSql(req.user, values, 'a')
   const result = await pool.query(
     `
     SELECT i.testid
@@ -9281,7 +9273,7 @@ app.get("/certificates/count", async (req, res) => {
 
       values.push(req.user.clientid)
       joinSql = "JOIN atec.tblasset a ON i.assetid = a.assetid"
-      whereSql = `WHERE a.clientid = $${values.length}`
+      whereSql = `WHERE a.clientid = $${values.length}` + portalScopeSql(req.user, values, "a")
     }
 
     const result = await pool.query(
@@ -9380,6 +9372,8 @@ async function getCertificatesData(testids = []) {
       TO_CHAR(i.validdate, 'YYYY-MM-DD') AS validdate,
       COALESCE(i.inspector_name, i.inspector) AS inspector,
       a.assetid,
+      a.siteid,
+      a.sectionid,
       a.equiptypeid,
       a.serialno,
       a.assettagno,
@@ -9744,7 +9738,7 @@ function canViewCertificate(user, certificate) {
   if (!user || !certificate) return false
   if (user.role !== "CUSTOMER") return true
 
-  return String(certificate.inspection?.clientid || "") === String(user.clientid || "")
+  return portalCanReadRecord(user, certificate.inspection)
 }
 
 function certificateEligibility(certificate) {
@@ -12407,6 +12401,18 @@ function customerScopedReportFilters(req) {
     filters.clientid = "-1"
   }
 
+  if (req.user.role === "CUSTOMER") {
+    const scope = req.user.portal_scope
+    if (!scope) filters.clientid = "-1"
+    else {
+      filters.clientid = scope.clientid
+      if (scope.responsibleid) filters.responsibleid = scope.responsibleid
+      if (scope.responsibleid) filters.portal_section_ids = scope.sectionIds || []
+      if (scope.siteid) filters.siteid = scope.siteid
+      if (scope.sectionid) filters.sectionid = scope.sectionid
+    }
+  }
+
   return filters
 }
 
@@ -12494,6 +12500,11 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
   }
 
   // The population total represents only the selected customer/location scope.
+  // Access boundaries apply before totals, independently of optional report filters.
+  if (Array.isArray(filters.portal_section_ids)) {
+    values.push(filters.portal_section_ids)
+    assetWhere += ` AND a.sectionid = ANY($${values.length}::bigint[])`
+  }
   // Report-specific responsible person, equipment, date and status filters must
   // not change the registered active-asset population displayed to the user.
   const scopeValues = [...values]
@@ -13266,6 +13277,7 @@ async function getAssetRegisterAccuracyReport(req, options = {}) {
   addFilter(filters.responsibleid, "sec.responsibleid = ?")
   addFilter(filters.equipgroupid, "et.equipgroupid = ?")
   addFilter(filters.equiptypeid, "a.equiptypeid = ?")
+  where += portalScopeSql(req.user, values, 'a')
 
   const result = await pool.query(`
     WITH latest_visual AS (
@@ -14629,7 +14641,7 @@ async function getNotificationCentreRows(req) {
       LEFT JOIN (
         SELECT
           v.clientid,
-          v.siteid,
+          sec.responsibleid,
           COUNT(DISTINCT v.visitid) FILTER (WHERE v.visit_status IN ('OPEN','PAUSED','RECONCILIATION_REQUIRED'))::int AS open_visits,
           COUNT(va.visitassetid) FILTER (
             WHERE v.visit_status IN ('OPEN','PAUSED','RECONCILIATION_REQUIRED')
@@ -14642,12 +14654,14 @@ async function getNotificationCentreRows(req) {
           )::int AS deferred_followups_due
         FROM atec.tblinspectionvisit v
         LEFT JOIN atec.tblinspectionvisitasset va ON va.visitid = v.visitid
-        GROUP BY v.clientid, v.siteid
+        LEFT JOIN atec.tblasset visit_asset ON visit_asset.assetid = va.assetid AND visit_asset.clientid = v.clientid
+        LEFT JOIN atec.tblsection sec ON sec.sectionid = visit_asset.sectionid AND sec.clientid = v.clientid
+        GROUP BY v.clientid, sec.responsibleid
       ) visit_exceptions
         ON visit_exceptions.clientid = grouped.clientid
        AND (
-          visit_exceptions.siteid = grouped.siteid
-          OR (visit_exceptions.siteid IS NULL AND grouped.siteid IS NULL)
+          visit_exceptions.responsibleid = grouped.responsibleid
+          OR (visit_exceptions.responsibleid IS NULL AND grouped.responsibleid IS NULL)
        )
     `
     : ""
@@ -14674,8 +14688,8 @@ async function getNotificationCentreRows(req) {
         FROM atec.tblnotificationdelivery d
         WHERE d.clientid = grouped.clientid
           AND (
-            d.siteid = grouped.siteid
-            OR (d.siteid IS NULL AND grouped.siteid IS NULL)
+            d.responsibleid = grouped.responsibleid
+            OR (d.responsibleid IS NULL AND grouped.responsibleid IS NULL)
           )
           AND d.status = 'SENT'
         ORDER BY d.sent_at DESC NULLS LAST, d.notificationdeliveryid DESC
@@ -14692,11 +14706,20 @@ async function getNotificationCentreRows(req) {
         a.clientid,
         a.siteid,
         a.sectionid,
+        sec.responsibleid,
+        sec.sectionname,
+        s.sitename,
         a.assettagno,
         COALESCE(NULLIF(a.serialno, ''), a.hoistserialno) AS serialno,
         ${assetSupportsLoadTestSql("a")} AS supports_load_test
       FROM atec.tblasset a
+      JOIN atec.tblclients c ON c.clientid = a.clientid AND NOT COALESCE(c.archived, false)
+      LEFT JOIN atec.tblsites s ON s.siteid = a.siteid AND s.clientid = a.clientid
+      LEFT JOIN atec.tblsection sec ON sec.sectionid = a.sectionid AND sec.clientid = a.clientid
+      LEFT JOIN atec.tblpeople p ON p.personid = sec.responsibleid AND p.clientid = a.clientid
       WHERE COALESCE(a.archived, false) = false
+        AND NOT COALESCE(s.archived, false) AND NOT COALESCE(sec.archived, false)
+        AND NOT COALESCE(p.archived, false)
       ${scopedToClient.clause}
     ),
     latest_visual AS (
@@ -14731,7 +14754,9 @@ async function getNotificationCentreRows(req) {
     grouped AS (
       SELECT
         a.clientid,
-        a.siteid,
+        a.responsibleid,
+        array_agg(DISTINCT a.sitename ORDER BY a.sitename) FILTER (WHERE a.sitename IS NOT NULL) AS site_names,
+        array_agg(DISTINCT COALESCE(a.sectionname, 'Unassigned section') ORDER BY COALESCE(a.sectionname, 'Unassigned section')) AS section_names,
         COUNT(DISTINCT a.assetid)::int AS active_assets,
         COUNT(DISTINCT a.assetid) FILTER (
           WHERE v.testdate IS NULL
@@ -14759,12 +14784,12 @@ async function getNotificationCentreRows(req) {
       FROM active_assets a
       LEFT JOIN latest_visual v ON v.assetid = a.assetid
       LEFT JOIN latest_load l ON l.assetid = a.assetid
-      GROUP BY a.clientid, a.siteid
+      GROUP BY a.clientid, a.responsibleid
     ),
     expiring AS (
       SELECT
         a.clientid,
-        a.siteid,
+        a.responsibleid,
         COUNT(i.testid)::int AS expiring_certificates,
         MIN(i.validdate) AS next_expiry_date
       FROM active_assets a
@@ -14773,12 +14798,12 @@ async function getNotificationCentreRows(req) {
       WHERE i.validdate IS NOT NULL
         AND i.validdate >= CURRENT_DATE
         AND i.validdate <= CURRENT_DATE + make_interval(days => COALESCE(c.notification_lead_days, 30))
-      GROUP BY a.clientid, a.siteid
+      GROUP BY a.clientid, a.responsibleid
     ),
     recipients AS (
       SELECT DISTINCT
         u.clientid,
-        u.siteid,
+        u.portal_personid,
         LOWER(TRIM(u.email)) AS email,
         COALESCE(NULLIF(u.fullname, ''), u.username, u.email) AS full_name
       FROM atec.tblusers u
@@ -14790,8 +14815,11 @@ async function getNotificationCentreRows(req) {
     SELECT
       grouped.clientid,
       COALESCE(c.clientname, 'Unknown Customer') AS clientname,
-      grouped.siteid,
-      COALESCE(s.sitename, 'All Sites') AS sitename,
+      NULL::bigint AS siteid,
+      grouped.responsibleid,
+      COALESCE(person.name, 'Unassigned responsible person') AS responsiblename,
+      grouped.site_names,
+      array_to_string(grouped.site_names, ', ') AS sitename,
       grouped.active_assets,
       CASE WHEN COALESCE(c.notify_overdue_assets, true) THEN grouped.due_assets ELSE 0 END::int AS due_assets,
       CASE WHEN COALESCE(c.notify_overdue_assets, true) THEN grouped.overdue_assets ELSE 0 END::int AS overdue_assets,
@@ -14800,7 +14828,7 @@ async function getNotificationCentreRows(req) {
       ${visitExceptionColumns.replaceAll("COALESCE(visit_exceptions.", "CASE WHEN COALESCE(c.notify_visit_exceptions, true) THEN COALESCE(visit_exceptions.").replaceAll(")::int AS", ") ELSE 0 END::int AS")}
       COALESCE(recipients.portal_recipients, 0)::int AS portal_recipients,
       COALESCE(recipients.notification_recipients, '[]'::jsonb) AS notification_recipients,
-      sections.section_names,
+      grouped.section_names,
       COALESCE(c.notify_expiring_certificates, true) AS notify_expiring_certificates,
       COALESCE(c.notify_overdue_assets, true) AS notify_overdue_assets,
       COALESCE(c.notify_failed_assets, true) AS notify_failed_assets,
@@ -14822,12 +14850,12 @@ async function getNotificationCentreRows(req) {
       END AS notification_status
     FROM grouped
     LEFT JOIN atec.tblclients c ON c.clientid = grouped.clientid
-    LEFT JOIN atec.tblsites s ON s.siteid = grouped.siteid
+    LEFT JOIN atec.tblpeople person ON person.personid = grouped.responsibleid AND person.clientid = grouped.clientid
     LEFT JOIN expiring
       ON expiring.clientid = grouped.clientid
      AND (
-        expiring.siteid = grouped.siteid
-        OR (expiring.siteid IS NULL AND grouped.siteid IS NULL)
+        expiring.responsibleid = grouped.responsibleid
+        OR (expiring.responsibleid IS NULL AND grouped.responsibleid IS NULL)
      )
     LEFT JOIN LATERAL (
       SELECT COUNT(*)::int AS portal_recipients,
@@ -14836,17 +14864,9 @@ async function getNotificationCentreRows(req) {
         SELECT DISTINCT r.email, r.full_name
         FROM recipients r
         WHERE r.clientid = grouped.clientid
-          AND (grouped.siteid IS NULL OR r.siteid IS NULL OR r.siteid = grouped.siteid)
+          AND r.portal_personid = grouped.responsibleid
       ) matched
     ) recipients ON true
-    LEFT JOIN LATERAL (
-      SELECT array_agg(DISTINCT COALESCE(NULLIF(TRIM(sec.sectionname), ''), 'Unassigned section')
-        ORDER BY COALESCE(NULLIF(TRIM(sec.sectionname), ''), 'Unassigned section')) AS section_names
-      FROM active_assets a
-      LEFT JOIN atec.tblsection sec ON sec.sectionid = a.sectionid
-      WHERE a.clientid = grouped.clientid
-        AND a.siteid IS NOT DISTINCT FROM grouped.siteid
-    ) sections ON true
     ${visitExceptionJoin}
     ${deliveryJoin}
     WHERE (
@@ -14861,7 +14881,7 @@ async function getNotificationCentreRows(req) {
       grouped.failed_assets DESC,
       COALESCE(expiring.expiring_certificates, 0) DESC,
       COALESCE(c.clientname, 'Unknown Customer') ASC,
-      COALESCE(s.sitename, 'All Sites') ASC
+      COALESCE(person.name, 'Unassigned responsible person') ASC
     `,
     scopedToClient.values
   )
@@ -14872,16 +14892,18 @@ async function getNotificationCentreRows(req) {
   }))
 }
 
-async function findNotificationCentreRow(req, { clientid, siteid }) {
+async function findNotificationCentreRow(req, { clientid, siteid, responsibleid }) {
   const rows = await getNotificationCentreRows(req)
 
   return rows.find(row =>
     String(row.clientid || "") === String(clientid || "") &&
-    String(row.siteid || "") === String(siteid || "")
+    String(row.siteid || "") === String(siteid || "") &&
+    String(row.responsibleid || "") === String(responsibleid || "")
   )
 }
 
-async function getNotificationRecipients({ clientid, siteid }) {
+async function getNotificationRecipients({ clientid, siteid, responsibleid }) {
+  if (!responsibleid) return []
   const result = await pool.query(
     `
     SELECT DISTINCT
@@ -14892,21 +14914,19 @@ async function getNotificationRecipients({ clientid, siteid }) {
       AND clientid = $1
       AND COALESCE(is_active, true) = true
       AND COALESCE(email, '') <> ''
-      AND (
-        $2::int IS NULL
-        OR siteid IS NULL
-        OR siteid = $2::int
-      )
+      AND portal_personid = $2::bigint
+      AND EXISTS (SELECT 1 FROM atec.tblpeople p JOIN atec.tblclients c ON c.clientid = p.clientid
+        WHERE p.personid = $2 AND p.clientid = $1 AND NOT COALESCE(p.archived, false) AND NOT COALESCE(c.archived, false))
     ORDER BY LOWER(TRIM(email))
     `,
-    [clientid, siteid || null]
+    [clientid, responsibleid]
   )
 
   return result.rows
 }
 
 function notificationEmailSubject(row) {
-  const siteLabel = row.siteid ? ` - ${row.sitename || "Site"}` : ""
+  const siteLabel = row.responsiblename ? ` - ${row.responsiblename}` : ""
   return `ATEC Asset Compliance Notice - ${row.clientname || "Customer"}${siteLabel}`
 }
 
@@ -14931,6 +14951,7 @@ function notificationEmailText(row) {
     "This is an asset compliance notice from ATEC Inspections. The items below require review or action.",
     "",
     `Customer: ${valueOrDash(row.clientname)}`,
+    `Responsible person: ${valueOrDash(row.responsiblename)}`,
     `Site: ${valueOrDash(row.sitename)}`,
     "",
     "Items needing attention:",
@@ -15028,7 +15049,7 @@ function createNotificationReportPdfBuffer(preview) {
     frame()
     doc.font("Helvetica-Bold").fontSize(16).fillColor("#183153").text("ASSET COMPLIANCE ATTENTION REPORT", { align: "center" })
     doc.moveDown(.35).font("Helvetica").fontSize(8).fillColor("#475569")
-      .text(`${preview.row.clientname} | ${preview.row.sitename || "All Sites"} | Issued ${reportDate(new Date())}`, { align: "center" })
+      .text(`${preview.row.clientname} | ${preview.row.responsiblename || "Unassigned"} | ${preview.row.sitename || "All Sites"} | Issued ${reportDate(new Date())}`, { align: "center" })
     doc.moveDown(.8)
     const metrics = notificationMetricItems(preview.row)
     const boxWidth = width / Math.max(1, Math.min(metrics.length, 6))
@@ -15084,7 +15105,8 @@ function createNotificationReportPdfBuffer(preview) {
 async function buildNotificationEmailPreview(req, body = {}) {
   const clientid = body.clientid || req.query?.clientid
   const siteid = body.siteid || req.query?.siteid || null
-  const row = await findNotificationCentreRow(req, { clientid, siteid })
+  const responsibleid = body.responsibleid || req.query?.responsibleid || null
+  const row = await findNotificationCentreRow(req, { clientid, siteid, responsibleid })
 
   if (!row) {
     return null
@@ -15092,13 +15114,17 @@ async function buildNotificationEmailPreview(req, body = {}) {
 
   const recipients = await getNotificationRecipients({
     clientid: row.clientid,
-    siteid: row.siteid
+    siteid: row.siteid,
+    responsibleid: row.responsibleid
   })
   return buildNotificationPreviewFromRow(row, recipients)
 }
 
 async function buildNotificationPreviewFromRow(row, recipients) {
-  const report = await getCustomerDetailedReport({ clientid: row.clientid, siteid: row.siteid || "" })
+  // Unassigned records have no recipient; never substitute a whole-customer report.
+  const report = row.responsibleid
+    ? await getCustomerDetailedReport({ clientid: row.clientid, responsibleid: row.responsibleid })
+    : { assets: [] }
   const attentionAssets = report.assets.map(asset => ({
     ...asset,
     attention_priority: notificationAssetPriority(asset, row.notification_lead_days)
@@ -15135,12 +15161,14 @@ async function recordNotificationDelivery(preview, recipients, options = {}) {
       deferred_followups_due,
       error_message,
       sent_by_user_id,
-      sent_at
+      sent_at,
+      responsibleid
     )
     VALUES (
       $1, $2, $3, $4, $5, $6, $7::text[],
       $8, $9, $10, $11, $12, $13, $14, $15,
-      CASE WHEN $4::varchar = 'SENT' THEN now() ELSE NULL END
+      CASE WHEN $4::varchar = 'SENT' THEN now() ELSE NULL END,
+      $16
     )
     RETURNING notificationdeliveryid, sent_at
     `,
@@ -15159,7 +15187,8 @@ async function recordNotificationDelivery(preview, recipients, options = {}) {
       counts.unresolved_visit_items,
       counts.deferred_followups_due,
       options.errorMessage || null,
-      options.sentByUserId || null
+      options.sentByUserId || null,
+      preview.row.responsibleid || null
     ]
   )
 
@@ -15312,7 +15341,7 @@ async function runScheduledNotificationDelivery(options = {}) {
     }
 
     for (const row of candidates) {
-      const notificationRecipients = await getNotificationRecipients({ clientid: row.clientid, siteid: row.siteid })
+      const notificationRecipients = await getNotificationRecipients({ clientid: row.clientid, siteid: row.siteid, responsibleid: row.responsibleid })
       const preview = await buildNotificationPreviewFromRow(row, notificationRecipients)
 
       if (!preview.recipients.length) {
@@ -16955,5 +16984,5 @@ if (require.main === module) {
   server.keepAliveTimeout = keepAliveTimeoutMs
 }
 
-module.exports = { createJobCardPdfBuffer, createNotificationReportPdfBuffer }
+module.exports = { app, createJobCardPdfBuffer, createNotificationReportPdfBuffer }
 
