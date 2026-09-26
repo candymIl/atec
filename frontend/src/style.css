@@ -2031,12 +2031,8 @@ tr:hover {
 .dashboard-notification-identity small {
   display: block;
   min-width: 0;
-}
-
-.dashboard-notification-identity strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .dashboard-notification-identity .dashboard-notification-context {
@@ -2080,6 +2076,9 @@ tr:hover {
 .dashboard-notification-row-details > span > small,
 .dashboard-notification-row-details > span > strong {
   display: block;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .dashboard-notification-empty {
