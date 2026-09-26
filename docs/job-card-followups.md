@@ -20,6 +20,8 @@ Ageing bands are 0–7, 8–14, 15–30 and over 30 calendar days, using South A
 
 The date filter selects when an item was raised; this is a current-status report for that cohort, not a historical "as at" reconstruction. Full status-change history remains available.
 
+The separate Date raised column defaults to newest first. Click Date raised, Customer / asset, Follow-up, Responsibility / dates (responsible person's name), or Status to sort; click again to reverse direction. Arrows show the selected order. Sorting includes all matching items before pagination and is retained in Excel/PDF exports. Mobile screens provide a sort selector and direction button.
+
 ## Release
 
 This change requires `database/2026-09-25-job-card-followups.sql` before the new backend is used. The migration and schema contract are registered in the deployment manifests. The migration is repeatable and imports existing restricted/out-of-service job-card records as **open items requiring review**; it does not assert the assets are still unsafe. Historic quotation/rebooking needs are not inferred from free text. Review the imported attention backlog and mark already-resolved items with evidence after deployment.

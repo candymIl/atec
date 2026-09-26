@@ -3,7 +3,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 const root = path.resolve(__dirname,'../..')
-const { enrich, filterRows, summary, validateUpdate, scopedWhere, syncFollowups } = require('../../backend/services/jobCardFollowups')
+const { enrich, filterRows, summary, sortRows, validateUpdate, scopedWhere, syncFollowups } = require('../../backend/services/jobCardFollowups')
 const { registerJobCardFollowupRoutes, workbook, pdf, reportData } = require('../../backend/routes/jobCardFollowups')
 const { Pool } = require('../../backend/node_modules/pg')
 const express = require('../../backend/node_modules/express')
@@ -29,6 +29,16 @@ async function run() {
   assert.equal(summary([row]).awaiting_handover,1)
   assert.equal(summary([{...row,kind:'ATTENTION',assetid:7},{...row,kind:'ATTENTION',assetid:7}]).attention,1)
   assert.throws(()=>scopedWhere({role:'INSPECTOR',user_id:2},[]),/Only Admins/)
+  const sortable = [
+    { followupid:1,raised_date:'2026-08-21',clientname:'Zinc',asset_label:'Crane 10',kind:'QUOTE',responsible_name:'Zoe',status:'OPEN' },
+    { followupid:2,raised_date:'2026-08-20',clientname:'Alpha',asset_label:'Crane 10',kind:'REBOOK',responsible_name:'Amy',status:'COMPLETED' },
+    { followupid:3,raised_date:'2026-08-20',clientname:'Alpha',asset_label:'Crane 2',kind:'ATTENTION',responsible_name:'Ben',status:'WAITING' }
+  ]
+  const order=(key,direction)=>sortRows([...sortable],key,direction).map(r=>r.followupid)
+  assert.deepEqual(order('date','asc'),[2,3,1]);assert.deepEqual(order('date','desc'),[1,2,3])
+  assert.deepEqual(order('customer','asc'),[3,2,1]);assert.deepEqual(order('responsible','desc'),[1,3,2])
+  assert.deepEqual(order('status','asc'),[2,1,3]);assert.deepEqual(order('followup','asc'),[3,1,2])
+  assert.equal(sortRows([{followupid:1,raised_date:null},...sortable],'date','desc').at(-1).raised_date,null)
   console.log('Follow-up ageing, validation, filters and summary tests passed')
   if (!process.argv.includes('--database')) return
 
@@ -121,6 +131,10 @@ async function run() {
       const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message))
       await page.setViewport({width:1440,height:1000});await page.goto(`http://127.0.0.1:${vite.httpServer.address().port}/followups-test`)
       await page.waitForSelector('[data-review]');await page.screenshot({path:path.join(qa,'desktop.png'),fullPage:true})
+      await page.click('[data-sort="date"]');await page.waitForFunction(()=>document.querySelector('[data-sort="date"]').closest('th').getAttribute('aria-sort')==='ascending')
+      await page.click('#jfNext');await page.click('[data-sort="customer"]');await page.waitForFunction(()=>document.querySelector('[data-sort="customer"]').closest('th').getAttribute('aria-sort')==='ascending')
+      assert.equal(await page.$eval('#jfPrevious',b=>b.disabled),true)
+      await page.click('[data-sort="customer"]');await page.waitForFunction(()=>document.querySelector('[data-sort="customer"]').closest('th').getAttribute('aria-sort')==='descending')
       await page.click('[data-tab="REBOOK"]');await page.waitForFunction(()=>document.querySelector('[data-tab="REBOOK"]')?.getAttribute('aria-pressed')==='true')
       await page.click('[data-review]');await page.waitForSelector('dialog[open]');await page.waitForSelector('[name="return_jobcardid"] option[value="2"]')
       await page.select('[name="status"]','COMPLETED');await page.type('[name="notes"]','Return work complete and tested; evidence on JC-TEST-002.');await page.click('#jfEdit [type="submit"]')

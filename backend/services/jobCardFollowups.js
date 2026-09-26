@@ -42,6 +42,28 @@ function summary(rows) {
   result.attention = attentionAssets.size
   return result
 }
+function sortRows(rows, sort, direction = 'asc') {
+  const keys = {
+    date: r => [r.raised_date],
+    customer: r => [r.clientname, r.sitename, r.asset_label || r.job_assets],
+    followup: r => [LABELS[r.kind], r.description],
+    responsible: r => [r.responsible_name],
+    status: r => [LABELS[r.status]]
+  }
+  if (!keys[sort]) return rows
+  const sign = direction === 'desc' ? -1 : 1
+  const compare = new Intl.Collator('en-ZA', { numeric: true, sensitivity: 'base' }).compare
+  return rows.sort((a, b) => {
+    const left = keys[sort](a), right = keys[sort](b)
+    for (let i = 0; i < left.length; i++) {
+      if (!left[i] && right[i]) return 1
+      if (left[i] && !right[i]) return -1
+      const order = compare(String(left[i] || ''), String(right[i] || ''))
+      if (order) return order * sign
+    }
+    return a.followupid - b.followupid
+  })
+}
 function validateUpdate(row, body) {
   if (!STATUSES[row.kind]?.includes(body.status)) throw invalid('Invalid follow-up status')
   if (Number(body.version) !== Number(row.version)) throw invalid('This item changed. Reload it before saving.', 409)
@@ -84,4 +106,4 @@ async function syncFollowups(client, jobcardid, body, userId) {
     [jobcardid,item.kind,item.assetid || 0,item.description,item.condition || '',JSON.stringify([{at:new Date().toISOString(),user_id:userId,action:'Source job card updated',note:item.description}])])
   }
 }
-module.exports = { CLOSED, STATUSES, LABELS, invalid, positiveId, scopedWhere, enrich, filterRows, summary, validateUpdate, syncFollowups }
+module.exports = { CLOSED, STATUSES, LABELS, invalid, positiveId, scopedWhere, enrich, filterRows, summary, sortRows, validateUpdate, syncFollowups }

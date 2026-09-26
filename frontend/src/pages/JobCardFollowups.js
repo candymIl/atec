@@ -5,10 +5,11 @@ const statuses = { QUOTE: ['OPEN','HANDED_OVER','CANCELLED'], ATTENTION: ['OPEN'
 const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]))
 const option = (value, label, selected) => `<option value="${escape(value)}" ${String(value) === String(selected || '') ? 'selected' : ''}>${escape(label)}</option>`
 const historyLabels = { status:'Status',responsible_user_id:'Responsible person',due_date:'Due date',accelo_reference:'Accelo reference',booked_date:'Return visit',return_jobcardid:'Return job card',notes:'Notes / resolution' }
+const sortLabels = { date:'Date raised',customer:'Customer / asset',followup:'Follow-up',responsible:'Responsible person',status:'Status' }
 
 export async function showJobCardFollowups({ apiBase, page, onBack, onOpenJob }) {
   let data, active = '', pageNumber = 1, busy = false, requestNumber = 0
-  let filters = { state: 'OPEN' }
+  let filters = { state: 'OPEN', sort: 'date', direction: 'desc' }
   const pageSize = 25
   page.innerHTML = `<div class="page-heading"><div><h2>Job Card Follow-ups</h2><p>Office actions and management review. Quoting stays in Accelo.</p></div><button id="jfBack">Back to Job Cards</button></div><div id="jfContent" aria-live="polite">Loading follow-ups…</div>`
   page.querySelector('#jfBack').onclick = onBack
@@ -21,7 +22,7 @@ export async function showJobCardFollowups({ apiBase, page, onBack, onOpenJob })
   }
   function formFilters() {
     const form = content.querySelector('#jfFilters')
-    if (form) filters = Object.fromEntries(new FormData(form).entries())
+    if (form) filters = { ...filters, ...Object.fromEntries(new FormData(form).entries()) }
   }
   async function load() {
     const requestId = ++requestNumber
@@ -38,6 +39,11 @@ export async function showJobCardFollowups({ apiBase, page, onBack, onOpenJob })
   }
   function render() {
     const { summary: s, options: o } = data
+    const heading = (key, label = sortLabels[key]) => {
+      const selected = data.filters.sort === key
+      const direction = selected && data.filters.direction === 'desc' ? 'descending' : 'ascending'
+      return `<th scope="col" aria-sort="${selected ? direction : 'none'}"><button type="button" class="jf-sort" data-sort="${key}" title="Sort by ${sortLabels[key].toLowerCase()} ${selected && direction === 'ascending' ? 'descending' : 'ascending'}">${label} <span aria-hidden="true">${selected ? direction === 'ascending' ? '▲' : '▼' : '↕'}</span></button></th>`
+    }
     const maxPage = Math.max(1,Math.ceil(data.rows.length/pageSize)); pageNumber = Math.min(pageNumber,maxPage)
     const visible = data.rows.slice((pageNumber-1)*pageSize,pageNumber*pageSize)
     content.innerHTML = `<nav class="jf-tabs" aria-label="Follow-up reports">${[['','Management Overview'],['QUOTE',labels.QUOTE],['ATTENTION',labels.ATTENTION],['REBOOK',labels.REBOOK]].map(([key,label]) => `<button type="button" data-tab="${key}" aria-pressed="${active===key}">${label}</button>`).join('')}</nav>
@@ -55,12 +61,14 @@ export async function showJobCardFollowups({ apiBase, page, onBack, onOpenJob })
       <div class="filter-card jf-review"><span><b>${s.total}</b> total · <b>${s.open}</b> open · <b>${s.closed}</b> closed / handed over · <b>${s.booked}</b> return visits booked</span><span>Open ageing: ${Object.entries(s.ageing).map(([b,n])=>`${b} days: <b>${n}</b>`).join(' · ')}</span></div>
       <p class="muted-text">Attention items reflect the condition recorded on the source job card, not a new safety assessment. Historical items require review. Closing a job card does not close its follow-ups.</p>
       <div class="jf-toolbar"><span>${data.rows.length} matching items</span><button type="button" data-export="xlsx">Export Excel</button><button type="button" data-export="pdf">Export PDF</button></div>
-      <div class="jf-table-wrap"><table class="jf-table"><thead><tr><th>Customer / asset</th><th>Follow-up</th><th>Responsibility / dates</th><th>Status</th><th>Review</th></tr></thead><tbody>${visible.map(r => `<tr>
+      <div class="jf-mobile-sort"><label>Sort by <select id="jfSortBy">${Object.entries(sortLabels).map(([key,label])=>option(key,label,data.filters.sort)).join('')}</select></label><button type="button" id="jfSortDirection">${data.filters.direction === 'desc' ? 'Descending ▼' : 'Ascending ▲'}</button></div>
+      <div class="jf-table-wrap"><table class="jf-table"><thead><tr>${heading('date')}${heading('customer')}${heading('followup')}${heading('responsible','Responsibility / dates')}${heading('status')}<th scope="col">Review</th></tr></thead><tbody>${visible.map(r => `<tr>
+        <td class="jf-raised-date">${escape(r.raised_date || 'Not set')}</td>
         <td><strong>${escape(r.clientname)}</strong><br>${escape(r.sitename)}<br>${escape(r.asset_label || r.job_assets)}<br><button type="button" data-job="${r.jobcardid}">${escape(r.jobcard_reference)}</button><small>Accelo job: ${escape(r.customer_reference)} · Job card: ${escape(r.job_status.replaceAll('_',' '))}</small></td>
         <td><strong>${labels[r.kind]}</strong><p class="jf-description">${escape(r.description)}</p>${r.reported_condition ? `<small>Reported: ${escape(r.reported_condition.replaceAll('_',' '))}</small>` : ''}${r.required_parts ? `<small>Parts required: ${escape(r.required_parts)}</small>` : ''}</td>
-        <td>${escape(r.responsible_name)}<small>Raised: ${escape(r.raised_date)}<br>Due: ${escape(r.due_date || 'Not set')}<br>${r.age_days} days ${r.closed ? 'to closure' : 'open'}</small></td>
+        <td>${escape(r.responsible_name)}<small>Due: ${escape(r.due_date || 'Not set')}<br>${r.age_days} days ${r.closed ? 'to closure' : 'open'}</small></td>
         <td><strong>${labels[r.status]}</strong>${r.overdue ? '<small class="login-error">Overdue</small>' : ''}${r.booked_date ? `<small>Return: ${escape(r.booked_date)}</small>` : ''}${r.accelo_reference ? `<small>Accelo: ${escape(r.accelo_reference)}</small>` : ''}</td>
-        <td><button type="button" data-review="${r.followupid}">Review / update</button></td></tr>`).join('') || '<tr><td colspan="5">No follow-ups match these filters.</td></tr>'}</tbody></table></div>
+        <td><button type="button" data-review="${r.followupid}">Review / update</button></td></tr>`).join('') || '<tr><td colspan="6">No follow-ups match these filters.</td></tr>'}</tbody></table></div>
       <div class="jf-toolbar"><button id="jfPrevious" ${pageNumber===1?'disabled':''}>Previous</button><span>Page ${pageNumber} of ${maxPage}</span><button id="jfNext" ${pageNumber===maxPage?'disabled':''}>Next</button></div>
       <dialog id="jfDialog" class="jf-dialog"></dialog>`
     content.querySelector('#jfFilters').onsubmit = e => { e.preventDefault(); formFilters(); pageNumber=1; load() }
@@ -68,7 +76,14 @@ export async function showJobCardFollowups({ apiBase, page, onBack, onOpenJob })
       const select = content.querySelector('[name="siteid"]')
       select.innerHTML = option('','All sites','') + o.sites.filter(x => !e.target.value || String(x.clientid)===e.target.value).map(x=>option(x.id,x.name,'')).join('')
     }
-    content.querySelector('#jfReset').onclick=()=>{filters={state:'OPEN'};pageNumber=1;load()}
+    content.querySelector('#jfReset').onclick=()=>{filters={state:'OPEN',sort:'date',direction:'desc'};pageNumber=1;load()}
+    const changeSort = key => {
+      filters = { ...data.filters, sort:key, direction:data.filters.sort===key && data.filters.direction==='asc' ? 'desc' : 'asc' }
+      pageNumber=1;load()
+    }
+    content.querySelectorAll('[data-sort]').forEach(button=>{button.onclick=()=>changeSort(button.dataset.sort)})
+    content.querySelector('#jfSortBy').onchange=e=>changeSort(e.target.value)
+    content.querySelector('#jfSortDirection').onclick=()=>changeSort(data.filters.sort)
     content.querySelectorAll('[data-tab]').forEach(button => { button.onclick=()=>{formFilters();active=button.dataset.tab;pageNumber=1;load()} })
     content.querySelectorAll('[data-job]').forEach(button => { button.onclick=()=>onOpenJob(Number(button.dataset.job)) })
     content.querySelectorAll('[data-review]').forEach(button => { button.onclick=()=>edit(data.rows.find(r=>String(r.followupid)===button.dataset.review)) })

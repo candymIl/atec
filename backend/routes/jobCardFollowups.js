@@ -1,4 +1,4 @@
-const { CLOSED, LABELS, invalid, positiveId, scopedWhere, enrich, filterRows, summary, validateUpdate } = require('../services/jobCardFollowups')
+const { CLOSED, LABELS, invalid, positiveId, scopedWhere, enrich, filterRows, summary, sortRows, validateUpdate } = require('../services/jobCardFollowups')
 const ExcelJS = require('exceljs')
 const PDFDocument = require('pdfkit')
 
@@ -21,6 +21,7 @@ async function reportData(pool, user, filters) {
   const all = rows.map(r => enrich(r))
   const filtered = filterRows(all, filters)
   filtered.sort((a, b) => Number(a.closed) - Number(b.closed) || Number(b.overdue) - Number(a.overdue) || a.followupid - b.followupid)
+  sortRows(filtered, filters.sort, filters.direction)
   const users = await pool.query(`SELECT userid AS user_id,COALESCE(NULLIF(fullname,''),username) AS name FROM atec.tblusers
     WHERE COALESCE(is_active,true)=true AND role IN ('ADMIN','MANAGER','INSPECTOR') ORDER BY name`)
   return { rows: filtered, summary: summary(filtered), generated_at: new Date().toISOString(), filters,
