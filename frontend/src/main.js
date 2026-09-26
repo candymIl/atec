@@ -10560,6 +10560,8 @@ function dashboardNotificationFilterRows(rows) {
     const text = [
       row.clientname,
       row.sitename,
+      ...(row.section_names || []),
+      ...(row.notification_recipients || []).map(recipient => `${recipient.full_name || ''} ${recipient.email || ''}`),
       row.due_assets,
       row.overdue_assets,
       row.expiring_certificates,
@@ -10636,7 +10638,7 @@ function renderDashboardNotificationCentre() {
       <input
         id="dashboardNotificationSearch"
         type="text"
-        placeholder="Filter customer, site or numbers..."
+        placeholder="Filter customer, site, section, recipient or numbers..."
         value="${escapeHtml(document.querySelector("#dashboardNotificationSearch")?.value || "")}"
         oninput="dashboardNotificationSearchChanged(this)"
       >
@@ -10756,6 +10758,10 @@ window.scrollDashboardNotificationTable = function (direction) {
 }
 
 function renderDashboardNotificationRow(row) {
+  const recipients = row.notification_recipients || []
+  const recipientNames = recipients.map(recipient => recipient.full_name || recipient.email).join(', ')
+  const recipientAddresses = recipients.map(recipient => `${recipient.full_name || recipient.email} <${recipient.email}>`).join(', ')
+  const sectionNames = (row.section_names || []).join(', ') || 'Unassigned section'
   const reportArgs = safeAttr(JSON.stringify({
     clientid: row.clientid,
     siteid: row.siteid || '',
@@ -10781,6 +10787,8 @@ function renderDashboardNotificationRow(row) {
         <span class="dashboard-notification-identity">
           <strong>${escapeHtml(row.clientname || "")}</strong>
           <small>${escapeHtml(row.sitename || "All Sites")}</small>
+          <small class="dashboard-notification-context">Sections (site report): ${escapeHtml(sectionNames)}</small>
+          <small class="dashboard-notification-context" title="${safeAttr(recipientAddresses)}">Send to: ${escapeHtml(recipientNames || 'No active portal recipients')}</small>
         </span>
         <span class="dashboard-notification-metric" data-label="Due"><strong>${escapeHtml(row.due_assets || 0)}</strong></span>
         <span class="dashboard-notification-metric overdue" data-label="Overdue"><strong>${escapeHtml(row.overdue_assets || 0)}</strong></span>
@@ -10887,7 +10895,7 @@ window.previewDashboardNotification = async function (clientid, siteid = '') {
       <div class="notification-preview-grid">
         <div>
           <span>To</span>
-          <strong>${escapeHtml(recipients.length ? recipients.map(item => item.email).join(', ') : 'No active customer portal users')}</strong>
+          <strong>${escapeHtml(recipients.length ? recipients.map(item => `${item.full_name || item.email} <${item.email}>`).join(', ') : 'No active customer portal users')}</strong>
         </div>
         <div>
           <span>Subject</span>

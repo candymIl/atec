@@ -7,6 +7,8 @@ Task 16 added notification workflows on top of the customer portal, due-asset co
 ## Current Local Scope
 
 - Dashboard Notification Centre grouped by customer and site.
+- Each row shows sections represented by active assets at that site and the actual recipient names; search also matches sections, names and email addresses. Reports still cover the whole site, not an individual section.
+- Recipient names and readiness use the same customer/site scope as Send: active customer portal users for that site plus customer-wide users. A foreman must be configured as an eligible portal user to appear here; an asset's responsible person is not automatically an email recipient.
 - Counts for due assets, overdue assets, expiring certificates, failed assets, open visits, unresolved visit items, and deferred follow-ups due.
 - Customer portal recipient readiness based on active customer users with email addresses.
 - Customer notification preferences on the Customer Setup form.

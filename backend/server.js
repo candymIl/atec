@@ -14691,6 +14691,7 @@ async function getNotificationCentreRows(req) {
         a.assetid,
         a.clientid,
         a.siteid,
+        a.sectionid,
         a.assettagno,
         COALESCE(NULLIF(a.serialno, ''), a.hoistserialno) AS serialno,
         ${assetSupportsLoadTestSql("a")} AS supports_load_test
@@ -14775,16 +14776,16 @@ async function getNotificationCentreRows(req) {
       GROUP BY a.clientid, a.siteid
     ),
     recipients AS (
-      SELECT
+      SELECT DISTINCT
         u.clientid,
-        COUNT(*) FILTER (
-          WHERE COALESCE(u.is_active, true) = true
-            AND COALESCE(u.email, '') <> ''
-        )::int AS portal_recipients
+        u.siteid,
+        LOWER(TRIM(u.email)) AS email,
+        COALESCE(NULLIF(u.fullname, ''), u.username, u.email) AS full_name
       FROM atec.tblusers u
       WHERE u.role = 'CUSTOMER'
         AND u.clientid IS NOT NULL
-      GROUP BY u.clientid
+        AND COALESCE(u.is_active, true) = true
+        AND COALESCE(u.email, '') <> ''
     )
     SELECT
       grouped.clientid,
@@ -14798,6 +14799,8 @@ async function getNotificationCentreRows(req) {
       CASE WHEN COALESCE(c.notify_expiring_certificates, true) THEN COALESCE(expiring.expiring_certificates, 0) ELSE 0 END::int AS expiring_certificates,
       ${visitExceptionColumns.replaceAll("COALESCE(visit_exceptions.", "CASE WHEN COALESCE(c.notify_visit_exceptions, true) THEN COALESCE(visit_exceptions.").replaceAll(")::int AS", ") ELSE 0 END::int AS")}
       COALESCE(recipients.portal_recipients, 0)::int AS portal_recipients,
+      COALESCE(recipients.notification_recipients, '[]'::jsonb) AS notification_recipients,
+      sections.section_names,
       COALESCE(c.notify_expiring_certificates, true) AS notify_expiring_certificates,
       COALESCE(c.notify_overdue_assets, true) AS notify_overdue_assets,
       COALESCE(c.notify_failed_assets, true) AS notify_failed_assets,
@@ -14826,7 +14829,24 @@ async function getNotificationCentreRows(req) {
         expiring.siteid = grouped.siteid
         OR (expiring.siteid IS NULL AND grouped.siteid IS NULL)
      )
-    LEFT JOIN recipients ON recipients.clientid = grouped.clientid
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*)::int AS portal_recipients,
+        jsonb_agg(to_jsonb(matched) ORDER BY matched.email, matched.full_name) AS notification_recipients
+      FROM (
+        SELECT DISTINCT r.email, r.full_name
+        FROM recipients r
+        WHERE r.clientid = grouped.clientid
+          AND (grouped.siteid IS NULL OR r.siteid IS NULL OR r.siteid = grouped.siteid)
+      ) matched
+    ) recipients ON true
+    LEFT JOIN LATERAL (
+      SELECT array_agg(DISTINCT COALESCE(NULLIF(TRIM(sec.sectionname), ''), 'Unassigned section')
+        ORDER BY COALESCE(NULLIF(TRIM(sec.sectionname), ''), 'Unassigned section')) AS section_names
+      FROM active_assets a
+      LEFT JOIN atec.tblsection sec ON sec.sectionid = a.sectionid
+      WHERE a.clientid = grouped.clientid
+        AND a.siteid IS NOT DISTINCT FROM grouped.siteid
+    ) sections ON true
     ${visitExceptionJoin}
     ${deliveryJoin}
     WHERE (

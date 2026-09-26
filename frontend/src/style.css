@@ -2039,6 +2039,12 @@ tr:hover {
   white-space: nowrap;
 }
 
+.dashboard-notification-identity .dashboard-notification-context {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+
 .dashboard-notification-identity small,
 .dashboard-notification-row-details small {
   color: #64748b;
