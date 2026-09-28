@@ -2855,8 +2855,8 @@ window.filterResponsiblePersons = function (resetPage = false) {
       <tr>
         <td>${escapeHtml(person.personid)}</td>
         <td>${escapeHtml(person.clientname || '')}</td>
-        <td>${escapeHtml(person.sitename || 'Not assigned')}</td>
-        <td>${escapeHtml(person.sectionname || 'Not assigned')}</td>
+        <td>${escapeHtml(person.sitename || 'No active site linked')}</td>
+        <td>${escapeHtml(person.sectionname || 'No active section linked')}</td>
         <td>${escapeHtml(person.name || '')}</td>
         <td>${person.archived ? 'Archived' : 'Active'}</td>
         <td>

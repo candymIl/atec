@@ -7151,6 +7151,19 @@ app.get("/inspection-visits/:id/report", asyncRoute(async (req, res) => {
 app.get("/responsible-persons", async (req, res) => {
   try {
     const result = await pool.query(`
+      WITH section_owners AS (
+        SELECT sec.*, COALESCE(sec.responsibleid, asset_person.responsibleid) AS effective_responsibleid
+        FROM atec.tblsection sec
+        LEFT JOIN LATERAL (
+          SELECT MIN(a.responsibleid) AS responsibleid
+          FROM atec.tblasset a
+          WHERE a.sectionid = sec.sectionid
+            AND COALESCE(a.archived, false) = false
+            AND a.responsibleid IS NOT NULL
+          HAVING COUNT(DISTINCT a.responsibleid) = 1
+        ) asset_person ON sec.responsibleid IS NULL
+        WHERE COALESCE(sec.archived, false) = false
+      )
       SELECT
         p.personid,
         p.clientid,
@@ -7167,9 +7180,8 @@ app.get("/responsible-persons", async (req, res) => {
       FROM atec.tblpeople p
       LEFT JOIN atec.tblclients c
         ON p.clientid = c.clientid
-      LEFT JOIN atec.tblsection sec
-        ON sec.responsibleid = p.personid
-       AND COALESCE(sec.archived, false) = false
+      LEFT JOIN section_owners sec
+        ON sec.effective_responsibleid = p.personid
       LEFT JOIN atec.tblsites s
         ON sec.siteid = s.siteid
        AND sec.clientid = s.clientid

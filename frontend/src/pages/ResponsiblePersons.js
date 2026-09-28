@@ -88,8 +88,8 @@ export function renderResponsiblePersons(responsiblePersons, responsibleArchiveM
           <tr class="mobile-card-row">
             <td data-label="Person ID">${escapeHtml(person.personid)}</td>
             <td data-label="Customer">${escapeHtml(person.clientname || '-')}</td>
-            <td data-label="Linked Sites">${escapeHtml(person.sitename || 'Not assigned')}</td>
-            <td data-label="Linked Sections">${escapeHtml(person.sectionname || 'Not assigned')}</td>
+            <td data-label="Linked Sites">${escapeHtml(person.sitename || 'No active site linked')}</td>
+            <td data-label="Linked Sections">${escapeHtml(person.sectionname || 'No active section linked')}</td>
             <td data-label="Responsible Person">${escapeHtml(person.name || '-')}</td>
             <td data-label="Status">${person.archived ? 'Archived' : 'Active'}</td>
             <td data-label="Actions" class="mobile-card-actions">

@@ -5,7 +5,7 @@ const path = require("path")
 const root = path.resolve(__dirname, "../..")
 
 function read(relativePath) {
-  return fs.readFileSync(path.join(root, relativePath), "utf8")
+  return fs.readFileSync(path.join(root, relativePath), "utf8").replace(/\r\n/g, "\n")
 }
 
 function assertIncludes(source, needle, message) {
