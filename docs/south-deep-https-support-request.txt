@@ -1,0 +1,7 @@
+Historical support request — resolved 26 September 2026. Retained for context; do not resend as a current outage. See south-deep-pilot-status.md for the subsequent HTTPS activation evidence.
+
+Please allow inbound TCP port 80 from the public internet to our server at 154.66.199.64 for atecinspections.co.za and www.atecinspections.co.za.
+
+Nginx is listening on ports 80 and 443. HTTPS is reachable, but external port 80 connections time out. Let's Encrypt automatic renewal is failing with HTTP-01 connection timeouts for both names. The current certificate expires on 28 September 2026.
+
+Once port 80 is reachable, please retry and verify renewal of the existing atecinspections.co.za certificate, and confirm that automatic renewal succeeds. Keep the current ATEC and /southdeep/ application routes operating.

@@ -22,8 +22,10 @@ The Compliance Documents page displays activation status and read-only mail prev
 2. Deploy the reviewed backend and frontend changes. Verify the new preview on the
    Compliance Documents page while reminders remain disabled.
 3. Confirm mail configuration, then set `COMPLIANCE_EXPIRY_REMINDERS_ENABLED=true`
-   on the intended production instance and restart its backend. Do not enable on
-   demonstration, South Deep pilot, or local instances.
+   on the intended production instance and restart its backend. Local and
+   demonstration instances stay disabled. South Deep has its own requested setup
+   and separate activation procedure in
+   `deployment/south-deep/certificate-reminder-upgrade.md`.
 4. Check the first delivery ledger rows and mailbox evidence. Setting the variable
    to `false` and restarting stops the rule. The existing customer notification
    switch is independent and must not be changed to enable this rule.

@@ -1,5 +1,6 @@
 import './style.css'
 import { renderRequiredPasswordChange } from './requiredPasswordChange.js'
+import './workspaceNotice.js'
 import { showJobCardFollowups } from './pages/JobCardFollowups.js'
 import { showDashboard as renderDashboard } from './pages/Dashboard'
 import { renderCustomerSetup } from './pages/CustomerSetup.js'
