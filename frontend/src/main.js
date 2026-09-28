@@ -11553,6 +11553,7 @@ let jobCardListRows = []
 let jobCardListView = 'ACTIVE'
 let jobCardListPage = 1
 let jobCardListSearchTimer = null
+let jobCardListSearchActive = false
 const JOB_CARD_LIST_PAGE_SIZE = 15
 
 function jobCardOption(value, label, selected) {
@@ -11561,6 +11562,8 @@ function jobCardOption(value, label, selected) {
 
 window.showJobCards = async function () {
   if (!ensurePageAccess('job-cards')) return
+  clearTimeout(jobCardListSearchTimer)
+  jobCardListSearchActive = false
   setCurrentPage('job-cards')
   const page = document.querySelector('#page')
   page.innerHTML = `<div class="page-heading job-card-page-heading"><div><h2>Technician Job Cards</h2><p>Find, track and manage field work without losing sight of what needs attention.</p></div><button class="load-test-btn" onclick="openJobCard()">+ New Job Card</button></div><div id="jobCardList"><div class="job-card-loading">Loading job cards...</div></div>`
@@ -11597,7 +11600,8 @@ function jobCardDateLabel(value) {
 function renderJobCardList() {
   const box = document.querySelector('#jobCardList')
   if (!box) return
-  const search = String(document.querySelector('#jobCardSearch')?.value || '').trim().toLowerCase()
+  const searchText = String(document.querySelector('#jobCardSearch')?.value || '')
+  const search = searchText.trim().toLowerCase()
   const status = String(document.querySelector('#jobCardStatusFilter')?.value || '')
   const technician = String(document.querySelector('#jobCardTechnicianFilter')?.value || '')
   const sort = String(document.querySelector('#jobCardSort')?.value || 'UPDATED_DESC')
@@ -11637,7 +11641,7 @@ function renderJobCardList() {
     <section class="filter-card job-card-workspace">
       <div class="job-card-view-tabs" role="tablist" aria-label="Job card views">${views.map(([value, label, count]) => `<button type="button" role="tab" aria-selected="${jobCardListView === value}" class="${jobCardListView === value ? 'active' : ''}" onclick="setJobCardListView('${value}')"><span>${label}</span><b>${count}</b></button>`).join('')}</div>
       <div class="job-card-toolbar">
-        <label class="job-card-search"><span>Search job cards</span><input id="jobCardSearch" type="search" placeholder="Job card, Accelo job, customer, site or inspector" value="${safeAttr(search)}" oninput="jobCardListSearchChanged()"></label>
+        <label class="job-card-search"><span>Search job cards — start typing to search all</span><input id="jobCardSearch" type="search" placeholder="Job card, Accelo job, customer, site or inspector" value="${safeAttr(searchText)}" oninput="jobCardListSearchChanged()"></label>
         <label><span>Status</span><select id="jobCardStatusFilter" onchange="jobCardListFiltersChanged()"><option value="">All statuses</option>${['DRAFT','ASSIGNED','IN_PROGRESS','SUBMITTED','APPROVED','INVOICED','CANCELLED'].map(value => `<option value="${value}" ${status === value ? 'selected' : ''}>${value.replaceAll('_',' ')}</option>`).join('')}</select></label>
         <label><span>Inspector</span><select id="jobCardTechnicianFilter" onchange="jobCardListFiltersChanged()"><option value="">All inspectors</option>${technicians.map(value => `<option value="${safeAttr(value)}" ${technician === value ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('')}</select></label>
         <label><span>Sort by</span><select id="jobCardSort" onchange="jobCardListFiltersChanged()"><option value="UPDATED_DESC" ${sort === 'UPDATED_DESC' ? 'selected' : ''}>Recently updated</option><option value="REFERENCE_DESC" ${sort === 'REFERENCE_DESC' ? 'selected' : ''}>Newest job card</option><option value="PLANNED_ASC" ${sort === 'PLANNED_ASC' ? 'selected' : ''}>Planned date</option><option value="CUSTOMER_ASC" ${sort === 'CUSTOMER_ASC' ? 'selected' : ''}>Customer A–Z</option></select></label>
@@ -11652,14 +11656,27 @@ window.setJobCardListView = function (view) { jobCardListView = view; jobCardLis
 window.jobCardListFiltersChanged = function () { jobCardListPage = 1; renderJobCardList() }
 window.jobCardListSearchChanged = function () {
   clearTimeout(jobCardListSearchTimer)
+  const hasSearch = Boolean(document.querySelector('#jobCardSearch')?.value.trim())
+  if (hasSearch && !jobCardListSearchActive) {
+    jobCardListView = 'ALL'
+    document.querySelector('#jobCardStatusFilter').value = ''
+    document.querySelector('#jobCardTechnicianFilter').value = ''
+  }
+  jobCardListSearchActive = hasSearch
   jobCardListSearchTimer = setTimeout(() => {
+    const previousInput = document.querySelector('#jobCardSearch')
+    if (!previousInput) return
+    const focused = document.activeElement === previousInput
+    const { selectionStart, selectionEnd, selectionDirection } = previousInput
     jobCardListPage = 1
     renderJobCardList()
     const input = document.querySelector('#jobCardSearch')
-    if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length) }
+    if (input && focused) { input.focus(); input.setSelectionRange(selectionStart, selectionEnd, selectionDirection) }
   }, 180)
 }
 window.clearJobCardListFilters = function () {
+  clearTimeout(jobCardListSearchTimer)
+  jobCardListSearchActive = false
   const search = document.querySelector('#jobCardSearch'); const status = document.querySelector('#jobCardStatusFilter'); const technician = document.querySelector('#jobCardTechnicianFilter')
   if (search) search.value = ''; if (status) status.value = ''; if (technician) technician.value = ''
   jobCardListPage = 1; renderJobCardList()

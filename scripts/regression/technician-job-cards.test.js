@@ -1,4 +1,5 @@
 const assert = require("assert")
+require('./job-card-search.test.js')
 const fs = require("fs")
 const path = require("path")
 

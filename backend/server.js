@@ -15949,7 +15949,7 @@ app.get("/job-cards", asyncRoute(async (req, res) => {
     FROM atec.tbljobcard j JOIN atec.tblclients c ON c.clientid = j.clientid
     JOIN atec.tblsites s ON s.siteid = j.siteid LEFT JOIN atec.tblusers u ON u.userid = j.assigned_to_user_id
     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-    ORDER BY j.updated_at DESC LIMIT 250
+    ORDER BY j.updated_at DESC
   `, values)
   res.json(result.rows)
 }))
