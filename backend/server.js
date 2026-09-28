@@ -59,12 +59,13 @@ const {
   isSafeUpload,
   logSafeError,
   publicUser,
-  requireAuth,
   sanitizeFilename,
   signAuthToken,
   validatePassword,
   validateUploadedImages
 } = require("./middleware/security")
+const { createCurrentAuth, createChangePasswordHandler } = require("./middleware/passwordChange")
+const requireAuth = createCurrentAuth(pool)
 const { registerMpiRoutes } = require("./routes/mpi")
 const { registerWorkforceRoutes, copyJobCardTimeline } = require("./routes/workforce")
 const { calculateTimeEntries, roundHours, splitIntervalBySchedule, standardFallbackSchedule } = require("./services/workforceTime")
@@ -1260,6 +1261,8 @@ app.post("/auth/login", csrfProtection, loginLimiter, asyncRoute(async (req, res
       username,
       email,
       password AS password_hash,
+      must_change_password,
+      auth_version,
       COALESCE(NULLIF(fullname, ''), username) AS full_name,
       COALESCE(
         role,
@@ -2643,53 +2646,13 @@ app.put("/users/me", asyncRoute(async (req, res) => {
     return res.status(404).json({ error: "User profile not found" })
   }
 
-  res.cookie("atec_session", signAuthToken(result.rows[0]), authCookieOptions())
+  res.cookie("atec_session", signAuthToken({ ...req.user, ...result.rows[0] }), authCookieOptions())
 
   await req.logAudit("UPDATE_PROFILE", "users", req.user.user_id)
   res.json({ user: result.rows[0] })
 }))
 
-app.post("/users/me/password", passwordChangeLimiter, asyncRoute(async (req, res) => {
-  const currentPassword = String(req.body?.current_password || "")
-  const newPassword = String(req.body?.new_password || "")
-
-  if (!currentPassword) {
-    return res.status(400).json({ error: "Enter your current password" })
-  }
-
-  const passwordValidation = validatePassword(newPassword)
-  if (!passwordValidation.valid) {
-    return res.status(400).json({ error: passwordValidation.message })
-  }
-
-  const result = await pool.query(
-    "SELECT password AS password_hash FROM atec.tblusers WHERE userid = $1 AND is_active = TRUE",
-    [req.user.user_id]
-  )
-
-  if (result.rows.length === 0) {
-    return res.status(404).json({ error: "User profile not found" })
-  }
-
-  const currentPasswordMatches = await bcrypt.compare(currentPassword, result.rows[0].password_hash)
-  if (!currentPasswordMatches) {
-    return res.status(400).json({ error: "Current password is incorrect" })
-  }
-
-  const passwordIsUnchanged = await bcrypt.compare(newPassword, result.rows[0].password_hash)
-  if (passwordIsUnchanged) {
-    return res.status(400).json({ error: "New password must be different from your current password" })
-  }
-
-  const passwordHash = await bcrypt.hash(newPassword, 12)
-  await pool.query(
-    "UPDATE atec.tblusers SET password = $1, updated_at = now() WHERE userid = $2",
-    [passwordHash, req.user.user_id]
-  )
-
-  await req.logAudit("PASSWORD_CHANGE", "users", req.user.user_id)
-  res.json({ success: true })
-}))
+app.post("/users/me/password", passwordChangeLimiter, asyncRoute(createChangePasswordHandler(pool)))
 
 const COMPLIANCE_DOCUMENT_TYPES = new Set([
   "TAX_CLEARANCE",
@@ -3302,7 +3265,7 @@ app.post("/users/me/signature",
     )
 
     await req.logAudit("SIGNATURE_CHANGE", "users", req.user.user_id)
-    res.cookie("atec_session", signAuthToken(result.rows[0]), authCookieOptions())
+    res.cookie("atec_session", signAuthToken({ ...req.user, ...result.rows[0] }), authCookieOptions())
     res.json({ user: result.rows[0] })
   })
 )

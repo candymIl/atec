@@ -37,7 +37,9 @@ function publicUser(user) {
     clientid: user.clientid,
     siteid: user.siteid,
     sectionid: user.sectionid,
-    is_active: user.is_active
+    is_active: user.is_active,
+    must_change_password: user.must_change_password === true,
+    auth_version: Number(user.auth_version || 0)
   }
 }
 

@@ -9032,3 +9032,11 @@ tr:hover {
 @media (max-width: 520px) {
   .asset-match-history-grid { grid-template-columns: 1fr; }
 }
+/* Mandatory password update: no application navigation until the server unlocks access. */
+.required-password-card { max-width: 480px; text-align: left; gap: 16px; }
+.required-password-card p { margin: 0; line-height: 1.45; }
+.required-password-card label { display: block; margin: 0; font-weight: 600; }
+.required-password-card input { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; }
+.required-password-card button { width: 100%; margin-top: 10px; }
+.required-password-error { color: #b42318; min-height: 1.4em; }
+.required-password-error:empty { display: none; }

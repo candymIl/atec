@@ -1,4 +1,5 @@
 import './style.css'
+import { renderRequiredPasswordChange } from './requiredPasswordChange.js'
 import { showJobCardFollowups } from './pages/JobCardFollowups.js'
 import { showDashboard as renderDashboard } from './pages/Dashboard'
 import { renderCustomerSetup } from './pages/CustomerSetup.js'
@@ -90,6 +91,14 @@ window.fetch = async function (input, options = {}) {
     ...options,
     credentials: isApiRequest ? 'include' : options.credentials
   })
+
+  if (isApiRequest && response.status === 403 && currentUser && !sessionExpiryReloadStarted) {
+    const body = await response.clone().json().catch(() => ({}))
+    if (body.code === 'PASSWORD_CHANGE_REQUIRED') {
+      sessionExpiryReloadStarted = true
+      window.location.reload()
+    }
+  }
 
   if (
     isApiRequest &&
@@ -349,7 +358,14 @@ async function checkSession() {
   if (!currentUser || sessionExpiryReloadStarted) return
 
   try {
-    await fetch(`${API_BASE}/auth/me`, { cache: 'no-store' })
+    const response = await fetch(`${API_BASE}/auth/me`, { cache: 'no-store' })
+    if (response.ok) {
+      const session = await response.json()
+      if (session.user?.must_change_password && !currentUser.must_change_password) {
+        sessionExpiryReloadStarted = true
+        window.location.reload()
+      }
+    }
   } catch (err) {
     // A connection failure is not an expired session. Try again on the next check.
   }
@@ -1719,6 +1735,22 @@ async function loadData() {
   currentUser = session.user
   window.currentUser = currentUser
   startSessionChecks()
+
+  if (currentUser.must_change_password && currentUser.role !== 'CUSTOMER') {
+    renderRequiredPasswordChange({
+      root: document.querySelector('#app'),
+      logout: () => window.logoutUser(),
+      changePassword: async values => {
+        const response = await fetch(`${API_BASE}/users/me/password`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values)
+        })
+        const result = await readApiResponse(response)
+        if (!response.ok) throw new Error(result.error || 'Unable to change your password.')
+      },
+      complete: () => loadData()
+    })
+    return
+  }
 
   assets = []
 

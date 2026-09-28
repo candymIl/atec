@@ -44,6 +44,7 @@
     "2026-08-20-expand-asset-text-fields.sql",
     "2026-09-04-customer-compliance-documents.sql",
     "2026-09-25-job-card-followups.sql",
-    "2026-09-26-customer-portal-person-access.sql"
+    "2026-09-26-customer-portal-person-access.sql",
+    "2026-09-28-required-password-change.sql"
   ]
 }
