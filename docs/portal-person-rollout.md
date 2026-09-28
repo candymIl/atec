@@ -47,3 +47,15 @@ Private database rollback backups were created and their archives/checksums veri
 Both temporary SSH key identities were removed after the final health checks (three entries, including a duplicate). A fresh connection using the replacement key was denied, confirming revocation. Other authorized keys were preserved.
 
 The remaining contact review is in `.local/portal-access-review/remaining-portal-contacts.csv`. Confirm missing/ambiguous email identities before provisioning those people. Accounts with no active assigned sections correctly see no equipment. Password changes remain available to users; the stored `update_pw` flag does not currently enforce a first-login password change.
+
+## Confirmed contact follow-up — 28 September 2026
+
+The user marked 124 of the 215 review rows as confirmed. Each confirmed row identifies one email; 17 rows share emails with other confirmed rows. The user selected one customer per login, but the individual customer choices and the two-person shared-mailbox decision remain pending. The original edited spreadsheet was preserved; 91 rows remain unconfirmed.
+
+Created the 107 unambiguous accounts locally and on live ATEC using the previously supplied password. Local person-linked account total is now 186; live total is **187**, including the additional live-only person from the first batch. In-transaction checks preserved all 131 pre-existing live passwords. Live verification checked every new password and stored person scope, representative actual login and public portal access, person-filter tampering, certificate denial, report recipient/data scope, and empty-assignment behavior. A repeated dry run returned 107 `ALREADY_LINKED` results. No emails were sent; automatic sending remains off.
+
+The pilot still has no matching real responsible-person records, so its 107 proposed account rows were skipped. Its existing accounts and demonstration data were preserved.
+
+Deployed the text-wrapping change from `63651f1b` to both frontends. Live source commit is `75ee865b` (the CSS-only cherry-pick on the existing server branch); the pilot received the same rules adapted to its older CSS context. Public build ID is `wrap-63651f1b-20260928`. Browser layout checks using each publicly served stylesheet confirmed that long site lists wrap within the identity cell at viewport widths 1280 and 760. Backend services were not restarted. Public session isolation and disabled automatic sending were reverified.
+
+A verified private live database backup and frontend rollback archives were retained before changes. Evidence is under `/root/portal-rollout-20260928/`, with selected non-secret results under ignored `.local/portal-access-review/rollout-20260928/`. Temporary SSH access was removed after the final health checks, and a fresh connection was denied. Remaining onboarding work: **17 confirmed rows awaiting customer/mailbox choices and 91 unconfirmed rows**.
