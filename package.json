@@ -1,5 +1,6 @@
 {
   "scripts": {
+    "test:compliance-expiry-reminders": "node --test scripts/regression/compliance-expiry-reminders.test.js",
     "test:required-password-change": "node scripts/regression/required-password-change.test.js",
     "media:scan": "node scripts/cleanup-orphaned-asset-images.js",
     "media:archive": "node scripts/cleanup-orphaned-asset-images.js --archive",

@@ -1,5 +1,6 @@
 const { formatCertificateMeasurement } = require("./services/certificateMeasurement")
 const { attachCustomerReportReasons } = require("./services/customerReportReasons")
+const complianceExpiryReminders = require("./services/complianceExpiryReminders")
 const fs = require("fs")
 const express = require("express");
 const cors = require("cors");
@@ -2695,6 +2696,11 @@ function complianceDocumentSelect(whereSql = "") {
     GROUP BY d.compliancedocumentid, u.fullname, u.username
   `
 }
+
+app.get("/compliance-documents/expiry-reminders", asyncRoute(async (req, res) => {
+  if (!canManageComplianceDocuments(req.user)) return res.status(403).json({ error: "Access denied" })
+  res.json(await complianceExpiryReminders.preview(pool))
+}))
 
 app.get("/compliance-documents/customers", asyncRoute(async (req, res) => {
   const result = await pool.query(
@@ -16971,6 +16977,11 @@ app.use(errorHandler)
 
 if (require.main === module) {
   startNotificationScheduler()
+  complianceExpiryReminders.startReminders({
+    pool,
+    sendEmail: sendApplicationEmail,
+    onError: error => logSafeError("Company compliance expiry reminder", error)
+  })
   const server = app.listen(PORT, () => {
     console.log(`ATEC server running on port ${PORT}`)
   })

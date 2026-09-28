@@ -102,6 +102,7 @@ export async function renderComplianceDocuments() {
 
     page.innerHTML = `
       <div class="page-heading"><div><h1>Compliance Documents</h1><p>Upload once, control customer access, and keep current company certificates available in the portal.</p></div></div>
+      <section class="filter-card" id="complianceExpiryRule"><h2>Certificate Expiry Reminders</h2><p>Loading reminder rule...</p></section>
       <section class="filter-card compliance-upload-card">
         <div class="section-heading"><div><h2>Upload Document</h2><p>PDF only. Publish immediately or save as a draft for review.</p></div></div>
         <div class="compliance-form-grid">
@@ -128,8 +129,27 @@ export async function renderComplianceDocuments() {
         <div class="section-heading"><div><h2>Document Library</h2><p>${documents.length} document${documents.length === 1 ? "" : "s"}, including drafts and archived versions.</p></div></div>
         <div class="table-scroll"><table class="mobile-card-table compliance-table"><thead><tr><th>${sortHeading("Document", "title")}</th><th>${sortHeading("Reference", "reference_number")}</th><th>${sortHeading("Issuer", "issuing_authority")}</th><th>${sortHeading("Valid Until", "expiry_date")}</th><th>${sortHeading("Customer Access", "audience")}</th><th>${sortHeading("Status", "status")}</th><th>${sortHeading("Uploaded", "created_at")}</th><th>Actions</th></tr></thead><tbody>${renderRows(sortedDocuments(documents))}</tbody></table></div>
       </section>`
+    await renderExpiryRule()
   } catch (error) {
     page.innerHTML = `<h1>Compliance Documents</h1><div class="filter-card"><p class="login-error">${escapeHtml(error.message)}</p></div>`
+  }
+}
+
+async function renderExpiryRule() {
+  const panel = document.querySelector("#complianceExpiryRule")
+  if (!panel) return
+  try {
+    const response = await fetch(`${API_BASE}/compliance-documents/expiry-reminders`)
+    if (!response.ok) throw new Error("Reminder rule is unavailable. Contact your administrator.")
+    const rule = await response.json()
+    panel.innerHTML = `<h2>Certificate Expiry Reminders</h2>
+      <p><strong>${rule.enabled ? "Active" : "Not activated"}</strong> · Recipient: ${escapeHtml(rule.recipient)}</p>
+      <p>Checks daily from ${escapeHtml(rule.time)} South African time. Reminds at ${rule.reminderDays.map(days => escapeHtml(String(days))).join(", ")} days before expiry, with one further alert after expiry.</p>
+      <p>Only published documents with expiry dates are included. Archive superseded documents after publishing their replacements.</p>
+      <details><summary>Preview ${rule.documents.length} eligible reminder(s)</summary>
+      ${rule.documents.length ? rule.documents.map(doc => `<h3>${escapeHtml(doc.subject)}</h3><pre style="white-space:pre-wrap">${escapeHtml(doc.text)}</pre>`).join("") : "<p>No reminders are currently due. Recent or pending delivery attempts are excluded.</p>"}</details>`
+  } catch (error) {
+    panel.innerHTML = `<h2>Certificate Expiry Reminders</h2><p>${escapeHtml(error.message)}</p>`
   }
 }
 
