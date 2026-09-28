@@ -1,4 +1,5 @@
 const { formatCertificateMeasurement } = require("./services/certificateMeasurement")
+const { attachCustomerReportReasons } = require("./services/customerReportReasons")
 const fs = require("fs")
 const express = require("express");
 const cors = require("cors");
@@ -12820,6 +12821,7 @@ async function getCustomerDetailedReport(filters = {}, options = {}) {
   )
 
   const assets = assetResult.rows
+  await attachCustomerReportReasons(pool, assets)
   const activeAssets = paged ? [] : assets.filter(row => row.archived !== true)
   const statusCounts = paged
     ? {
@@ -13024,6 +13026,21 @@ function drawCustomerReportPdf(doc, report) {
 
     y += rowHeight
   })
+
+  const unsafeAssets = report.assets.filter(row => row.notsafereason)
+  if (unsafeAssets.length) {
+    doc.addPage()
+    doc.font("Helvetica-Bold").fontSize(14).fillColor("#1f2937")
+      .text("Not Safe Reasons", marginX, 28, { width })
+    doc.moveDown()
+    unsafeAssets.forEach(row => {
+      doc.font("Helvetica-Bold").fontSize(9).fillColor("#111827")
+        .text(`Asset ${row.assetid} | Serial: ${row.serialno || "-"}`, { width })
+      doc.font("Helvetica").fontSize(9)
+        .text(row.notsafereason, { width })
+      doc.moveDown()
+    })
+  }
 }
 
 async function buildCustomerReportWorkbook(report, options = {}) {
@@ -13093,6 +13110,7 @@ async function buildCustomerReportWorkbook(report, options = {}) {
     { header: "Load Certificate Eligible", key: "loadcertificateeligible", width: 24 },
     { header: "Next Load Due", key: "nextloaddue", width: 16 },
     { header: "Report Status", key: "reportstatus", width: 22 },
+    { header: "Not Safe Reason", key: "notsafereason", width: 80 },
     { header: "Archived", key: "archived", width: 12 }
   ]
 
@@ -13111,6 +13129,8 @@ async function buildCustomerReportWorkbook(report, options = {}) {
       archived: row.archived ? "Yes" : "No"
     })
   })
+
+  assetSheet.getColumn("notsafereason").alignment = { wrapText: true, vertical: "top" }
 
   ;[summarySheet, assetSheet].forEach(sheet => {
     sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } }

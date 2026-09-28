@@ -1074,7 +1074,7 @@ function customerReportIssueSummary(row) {
   const status = String(row.reportstatus || '').trim()
   if (status === 'MISSING CERTIFICATE METADATA') return 'Certificate information needs attention'
   if (status === 'INCOMPLETE INSPECTION') return 'Latest inspection is incomplete'
-  if (status === 'NOT SAFE') return 'Latest inspection recorded NOT SAFE'
+  if (status === 'NOT SAFE') return row.notsafereason || 'No reason recorded'
   if (status === 'VISUAL OVERDUE') return 'Visual inspection is overdue'
   if (status === 'LOAD TEST OVERDUE') return 'Load test is overdue'
   if (status === 'NO VISUAL') return 'No visual inspection recorded'
@@ -1085,6 +1085,8 @@ function customerReportIssueSummary(row) {
 
 function customerReportIssueDetail(row) {
   const issues = []
+
+  if (row.notsafereason) issues.push(row.notsafereason)
 
   if (row.visualmissinglmi) issues.push(`Visual inspection ${row.visualtestid}: inspector LMI number missing`)
   if (row.visualmissingsignature) issues.push(`Visual inspection ${row.visualtestid}: signature missing`)
