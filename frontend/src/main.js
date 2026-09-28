@@ -256,6 +256,7 @@ function renderRoleMenu() {
   ])
   return [
     menuButton('dashboard','Dashboard','showDashboard()'),
+    menuButton('compliance-documents','Compliance Documents','showComplianceDocuments()'),
     menuGroup('inspections','Inspections',[
       menuButton('quick-inspection','Quick Inspection/Testing','showQuickInspection()'),
       menuButton('mpi','MPI / NDT Reports','showMpiReports()'),
@@ -273,8 +274,7 @@ function renderRoleMenu() {
     menuGroup('customers-assets','Customers & Assets',[
       menuButton('customers','Customer Setup','showCustomerSetup()'),menuButton('sites','Sites','showSites()'),
       menuButton('responsible','Responsible Persons','showResponsiblePersons()'),menuButton('sections','Sections','showSections()'),
-      menuButton('assets','Assets','showAssetSetup()'),
-      menuButton('compliance-documents','Compliance Documents','showComplianceDocuments()')
+      menuButton('assets','Assets','showAssetSetup()')
     ]),
     menuGroup('people','People & Access',[
       canManageInternalUsers() ? menuButton('users', 'ATEC Users', 'showInternalUserManagement()') : '',
