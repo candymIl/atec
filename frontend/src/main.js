@@ -29,6 +29,7 @@ import {
   addWorkforceTime,
   approveCorrectedTimesheet,
   closeTimesheetAsInvalid,
+  submitAllAwaitingTimesheets,
   closeEmployeeTimeEditor,
   deleteEmployeeTimeEntry,
   deleteMyTimeEntry,
@@ -1932,6 +1933,7 @@ window.recalculateAwaitingTimesheets = recalculateAwaitingTimesheets
 window.workforceAction = workforceAction
 window.approveCorrectedTimesheet = approveCorrectedTimesheet
 window.closeTimesheetAsInvalid = closeTimesheetAsInvalid
+window.submitAllAwaitingTimesheets = submitAllAwaitingTimesheets
 window.editEmployeeTimes = editEmployeeTimes
 window.saveEmployeeTimeEdit = saveEmployeeTimeEdit
 window.deleteEmployeeTimeEntry = deleteEmployeeTimeEntry

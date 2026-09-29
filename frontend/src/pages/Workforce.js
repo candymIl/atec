@@ -400,6 +400,8 @@ export function selectTimesheetApprovalSort(value) {
   approvalSort = value
   filterTimesheetApprovals()
 }
+let visibleAwaitingTimesheetIds = []
+let bulkSubmitPending = false
 const approvalStages = [
   { status:'RETURNED', label:'Needs fixing', tone:'fix', hint:'Correct the returned entries before sending them for approval.' },
   { status:'EMPLOYEE_SUBMITTED', label:'Manager approval', tone:'approve', hint:'Check the submitted hours, then approve or return with a reason.' },
@@ -477,6 +479,7 @@ export function filterTimesheetApprovals(stage) {
   const stages = [{status:'ALL',label:'All outstanding',tone:'all'},...approvalStages]
   document.querySelector('#approvalStages').innerHTML = stages.map(item => `<button type="button" class="approval-stage approval-${item.tone}" aria-pressed="${approvalStage === item.status}" onclick="filterTimesheetApprovals('${item.status}')"><span>${item.label}</span><strong>${item.status === 'ALL' ? rows.length : rows.filter(row => row.status === item.status).length}</strong></button>`).join('')
   const visible = rows.filter(row => approvalStage === 'ALL' || row.status === approvalStage)
+  visibleAwaitingTimesheetIds = visible.filter(row => row.status === 'AWAITING_EMPLOYEE').map(row => Number(row.timesheetid))
   const [sortKey, sortDirection] = approvalSort.split('_')
   const sortLabel = approvalSortColumns.find(column => column[0] === sortKey)[1]
   const sortOrder = sortKey === 'DATE' ? (sortDirection === 'ASC' ? 'oldest first' : 'newest first') : (sortDirection === 'ASC' ? 'A–Z' : 'Z–A')
@@ -486,9 +489,28 @@ export function filterTimesheetApprovals(stage) {
   document.querySelector('#approvalGroups').innerHTML = approvalStages.map(item => {
     const group = visible.filter(row => row.status === item.status)
     if (!group.length) return ''
-    return `<section class="approval-group approval-${item.tone}"><div class="approval-group-heading"><h3>${item.label} <span>${group.length}</span></h3><p>${item.hint}</p></div><div class="table-scroll"><table class="approval-table"><thead><tr>${approvalSortColumns.map(([key,label]) => approvalSortHeading(key,label,item.status)).join('')}<th scope="col">Hours</th><th scope="col">Next step</th><th scope="col">Actions</th></tr></thead><tbody>${group.map(row => approvalRow(row,item)).join('')}</tbody></table></div></section>`
+    const bulkButton = item.status === 'AWAITING_EMPLOYEE' && window.currentUser?.role === 'ADMIN'
+      ? `<button type="button" id="submitAllAwaiting" onclick="submitAllAwaitingTimesheets()" ${bulkSubmitPending ? 'disabled' : ''}>${bulkSubmitPending ? 'Submitting…' : `Submit all shown (${group.length})`}</button>` : ''
+    return `<section class="approval-group approval-${item.tone}"><div class="approval-group-heading"><h3>${item.label} <span>${group.length}</span></h3><p>${item.hint}</p>${bulkButton}</div><div class="table-scroll"><table class="approval-table"><thead><tr>${approvalSortColumns.map(([key,label]) => approvalSortHeading(key,label,item.status)).join('')}<th scope="col">Hours</th><th scope="col">Next step</th><th scope="col">Actions</th></tr></thead><tbody>${group.map(row => approvalRow(row,item)).join('')}</tbody></table></div></section>`
   }).join('') || `<div class="filter-card approval-empty">${approvalRows.length ? 'No timesheets match these filters.' : 'You are up to date. No timesheets need attention.'}</div>`
 }
+export async function submitAllAwaitingTimesheets() {
+  if (window.currentUser?.role !== 'ADMIN' || bulkSubmitPending || !visibleAwaitingTimesheetIds.length) return
+  const ids = [...visibleAwaitingTimesheetIds]
+  const reason = window.prompt(`Reason for submitting these ${ids.length} timesheets on behalf of employees (5–1000 characters):`)?.trim()
+  if (!reason) return
+  if (reason.length < 5 || reason.length > 1000) return alert('Enter a reason between 5 and 1000 characters.')
+  if (!window.confirm(`Submit all ${ids.length} Awaiting employee timesheets shown by your current filters?\n\nConfirm you have reviewed their time. They will move to Manager approval. This does not approve time or accept it for payroll.\n\nReason: ${reason}`)) return
+  bulkSubmitPending = true
+  filterTimesheetApprovals()
+  try {
+    const result = await api('/workforce/timesheets/submit-awaiting', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({timesheet_ids:ids,reason})})
+    alert(`${result.submitted} timesheet(s) submitted for manager approval.`)
+    await renderTimesheetApprovals()
+  } catch (error) { alert(error.message) }
+  finally { bulkSubmitPending = false; if (document.querySelector('#approvalGroups')) filterTimesheetApprovals() }
+}
+
 export async function recalculateAwaitingTimesheets() {
   const reason = window.prompt('Reason for recalculating all Awaiting Employee timesheets:','Correct normal and overtime allocation using assigned work schedules')
   if (!reason || reason.trim().length < 5) return

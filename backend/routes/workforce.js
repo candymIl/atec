@@ -1,5 +1,6 @@
 const express = require("express")
 const { closeInvalidTimesheet } = require("../services/closeInvalidTimesheet")
+const { submitAwaitingTimesheets } = require("../services/submitAwaitingTimesheets")
 const { calculateTimeEntries, standardFallbackSchedule } = require("../services/workforceTime")
 const { createTimesheetPdfBuffer } = require("../services/workforceTimesheetRenderer")
 
@@ -1075,6 +1076,10 @@ function registerWorkforceRoutes(app, {
     res.setHeader("Content-Type","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     res.setHeader("Content-Disposition",`attachment; filename="${filename}"`)
     res.send(Buffer.from(buffer))
+  }))
+
+  router.post("/timesheets/submit-awaiting", asyncRoute(async (req, res) => {
+    res.json(await submitAwaitingTimesheets(pool, req.user, req.body.timesheet_ids, req.body.reason))
   }))
 
   router.post("/timesheets/:id/action", asyncRoute(async (req, res) => {
