@@ -39,6 +39,7 @@ import {
   filterTimesheetApprovals,
   resetTimesheetApprovalFilters,
   filterDailySubmissionStatus,
+  sortDailySubmissionStatus,
   loadDailySubmissionStatus,
   loadTimesheetHistory,
   loadWorkSchedule,
@@ -1940,6 +1941,7 @@ window.filterTimesheetApprovals = filterTimesheetApprovals
 window.resetTimesheetApprovalFilters = resetTimesheetApprovalFilters
 window.loadDailySubmissionStatus = loadDailySubmissionStatus
 window.filterDailySubmissionStatus = filterDailySubmissionStatus
+window.sortDailySubmissionStatus = sortDailySubmissionStatus
 window.setAllPayrollEmployees = setAllPayrollEmployees
 window.setPayrollPeriod = setPayrollPeriod
 window.showHrTimesheets = function () { setCurrentPage('hr-timesheets'); return renderHrTimesheets() }

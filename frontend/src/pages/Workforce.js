@@ -1,6 +1,7 @@
 import { API_BASE } from '../api.js'
 import { escapeHtml, safeAttr } from '../utils/security.js'
 import './timesheetApprovals.css'
+import { getTableSortState, sortTableRows } from '../tableSort.js'
 
 async function api(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, options)
@@ -246,13 +247,44 @@ export async function loadDailySubmissionStatus() {
   } catch (error) { box.innerHTML = `<p class="login-error">${escapeHtml(error.message)}</p>` }
 }
 
+const dailyStatusColumns = [
+  ['employee', 'Employee', row => row.employee_name || ''],
+  ['role', 'Role', row => row.role || ''],
+  ['submission', 'Submission', row => row.submission_state === 'SUBMITTED' ? 'Submitted' : row.submission_state === 'MISSING' ? 'No timesheet' : 'Needs action'],
+  ['stage', 'Current stage', row => row.status ? row.status.replaceAll('_',' ') : ''],
+  ['normal', 'Normal', row => Number(row.final_normal_hours || 0), true],
+  ['overtime', 'Overtime', row => Number(row.final_overtime_hours || 0), true],
+  ['travel', 'Travel', row => Number(row.final_travel_hours || 0), true],
+  ['standby', 'Standby', row => Number(row.final_standby_hours || 0), true]
+]
+
+export function sortDailySubmissionStatus(key) {
+  if (!dailyStatusColumns.some(column => column[0] === key)) return
+  const sort = getTableSortState('dailySubmission', 'employee')
+  sort.direction = sort.key === key && sort.direction === 'asc' ? 'desc' : 'asc'
+  sort.key = key
+  filterDailySubmissionStatus()
+  document.querySelector(`[data-daily-sort="${key}"]`)?.focus({ preventScroll:true })
+}
+
+function dailyStatusHeadings() {
+  const sort = getTableSortState('dailySubmission', 'employee')
+  return dailyStatusColumns.map(([key,label,,numeric]) => {
+    const active = sort.key === key
+    const descending = active && sort.direction === 'desc'
+    const next = active && !descending ? (numeric ? 'highest first' : 'Z to A') : (numeric ? 'lowest first' : 'A to Z')
+    return `<th scope="col" aria-sort="${active ? (descending ? 'descending' : 'ascending') : 'none'}"><button type="button" class="daily-status-sort" data-daily-sort="${key}" onclick="sortDailySubmissionStatus('${key}')" aria-label="Sort ${label}: ${next}"><span>${label}</span><small aria-hidden="true">${active ? (descending ? '↓' : '↑') : (numeric ? '↕' : 'A–Z ↕')}</small></button></th>`
+  }).join('')
+}
+
 export function filterDailySubmissionStatus() {
   const box = document.querySelector('#submissionStatusResults')
   if (!box) return
   const state = document.querySelector('#submissionStatusFilter')?.value || 'ALL'
   const query = document.querySelector('#submissionStatusSearch')?.value.trim().toLowerCase() || ''
-  const rows = submissionStatusRows.filter(row => (state === 'ALL' || row.submission_state === state) &&
+  const filtered = submissionStatusRows.filter(row => (state === 'ALL' || row.submission_state === state) &&
     [row.employee_name,row.employee_number,row.role].some(value => String(value || '').toLowerCase().includes(query)))
+  const rows = sortTableRows(filtered, 'dailySubmission', Object.fromEntries(dailyStatusColumns.map(([key,,value]) => [key,value])), 'employee')
   const totals = submissionStatusRows.reduce((summary,row) => {
     summary.total += 1
     summary[row.submission_state.toLowerCase()] += 1
@@ -260,7 +292,7 @@ export function filterDailySubmissionStatus() {
   }, {total:0,submitted:0,outstanding:0,missing:0})
   box.innerHTML = `<div class="timesheet-summary-grid submission-status-summary"><div><span>Active members</span><strong>${totals.total}</strong></div><div><span>Submitted</span><strong>${totals.submitted}</strong></div><div><span>Needs action</span><strong>${totals.outstanding}</strong></div><div><span>No timesheet</span><strong>${totals.missing}</strong></div></div>
     <p class="submission-status-progress"><strong>${totals.submitted} of ${totals.total}</strong> active members have submitted their timesheet.</p>
-    <div class="table-scroll"><table><thead><tr><th>Employee</th><th>Role</th><th>Submission</th><th>Current stage</th><th>Normal</th><th>Overtime</th><th>Travel</th><th>Standby</th><th>Action</th></tr></thead><tbody>${rows.map(row => `<tr><td>${escapeHtml(row.employee_name)}</td><td>${escapeHtml(row.role)}</td><td><span class="submission-state submission-state-${String(row.submission_state).toLowerCase()}">${row.submission_state === 'SUBMITTED' ? 'Submitted' : row.submission_state === 'MISSING' ? 'No timesheet' : 'Needs action'}</span></td><td>${escapeHtml(row.status ? row.status.replaceAll('_',' ') : '-')}</td><td>${hours(row.final_normal_hours)}</td><td>${hours(row.final_overtime_hours)}</td><td>${hours(row.final_travel_hours)}</td><td>${hours(row.final_standby_hours)}</td><td>${row.timesheetid ? `<button onclick="window.open('${API_BASE}/workforce/timesheets/${row.timesheetid}/pdf','_blank','noopener')">View PDF</button>${row.submission_state === 'OUTSTANDING' ? '<button onclick="showTimesheetApprovals()">Open approvals</button>' : ''}` : '<span class="muted-text">Follow up with member</span>'}</td></tr>`).join('') || '<tr><td colspan="9">No members match this filter.</td></tr>'}</tbody></table></div>`
+    <div class="table-scroll"><table class="daily-status-table"><thead><tr>${dailyStatusHeadings()}<th scope="col">Action</th></tr></thead><tbody>${rows.map(row => `<tr><td>${escapeHtml(row.employee_name)}</td><td>${escapeHtml(row.role)}</td><td><span class="submission-state submission-state-${String(row.submission_state).toLowerCase()}">${row.submission_state === 'SUBMITTED' ? 'Submitted' : row.submission_state === 'MISSING' ? 'No timesheet' : 'Needs action'}</span></td><td>${escapeHtml(row.status ? row.status.replaceAll('_',' ') : '-')}</td><td>${hours(row.final_normal_hours)}</td><td>${hours(row.final_overtime_hours)}</td><td>${hours(row.final_travel_hours)}</td><td>${hours(row.final_standby_hours)}</td><td>${row.timesheetid ? `<button onclick="window.open('${API_BASE}/workforce/timesheets/${row.timesheetid}/pdf','_blank','noopener')">View PDF</button>${row.submission_state === 'OUTSTANDING' ? '<button onclick="showTimesheetApprovals()">Open approvals</button>' : ''}` : '<span class="muted-text">Follow up with member</span>'}</td></tr>`).join('') || '<tr><td colspan="9">No members match this filter.</td></tr>'}</tbody></table></div>`
 }
 
 export async function loadTimesheetHistory() {

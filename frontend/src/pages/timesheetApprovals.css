@@ -71,3 +71,8 @@
   .approval-table td::before { content: attr(data-label); display: block; color: #64748b; font-size: 10px; text-transform: uppercase; margin-bottom: 6px; }
   .approval-hours { max-width: 360px; }
 }
+.daily-status-table th:has(.daily-status-sort) { padding: 0; }
+.daily-status-table .daily-status-sort { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; margin: 0; padding: 12px; border: 0; border-radius: 0; background: transparent; color: inherit; text-align: left; font: inherit; white-space: nowrap; box-shadow: none; }
+.daily-status-table .daily-status-sort small { font-size: 10px; opacity: .85; }
+.daily-status-table .daily-status-sort:hover { background: #ffffff20; }
+.daily-status-table .daily-status-sort:focus-visible { outline: 2px solid #fff; outline-offset: -4px; }
