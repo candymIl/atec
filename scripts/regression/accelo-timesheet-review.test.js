@@ -82,3 +82,50 @@ test('permission lookup failure keeps PDF links but hides approvals', async () =
   assert.match(html,/View timesheet/)
   assert.doesNotMatch(html,/>Approve timesheet</)
 })
+
+test('returned timesheet links its exact editor and exposes the reason and corrected approval to Admin', async () => {
+  const {scope,calls} = setup()
+  const returned = [{...sheets[0],timesheetid:27,status:'RETURNED',returned_reason:'Correct the <travel> overlap'}]
+  scope.fetch = async (url,options) => {
+    calls.push({url,options})
+    return {ok:true,json:async () => options ? {} : returned}
+  }
+  const html = await scope.renderAcceloTimesheetReview(10,returned,'ADMIN')
+  assert.match(html,/onclick="editEmployeeTimes\(27\)"/)
+  assert.match(html,/Return reason:/)
+  assert.match(html,/&lt;travel>/)
+  assert.match(html,/Approve corrected timesheet/)
+  assert.match(html,/data-jobcard-id="10"/)
+  await scope.approveAcceloTimesheet(10,27,{},async () => {})
+  assert.equal(calls[1].url,'/api/workforce/timesheets/27/action')
+})
+
+test('Manager sees returned reason but cannot edit or directly approve a returned timesheet', async () => {
+  const {scope,calls} = setup()
+  const html = await scope.renderAcceloTimesheetReview(10,[{...sheets[0],status:'RETURNED',returned_reason:'Wrong end time'}],'MANAGER')
+  assert.match(html,/Wrong end time/)
+  assert.doesNotMatch(html,/onclick="editEmployeeTimes|onclick="approveAcceloTimesheet/)
+  await scope.approveAcceloTimesheet(10,1,{},async () => {})
+  assert.equal(calls.length,0)
+})
+
+test('correction refresh stays on the originating job card and reopens the exact employee editor', async () => {
+  const workforce = fs.readFileSync(path.join(__dirname,'../../frontend/src/pages/Workforce.js'),'utf8')
+  const start = workforce.indexOf('async function refreshEmployeeTimeReview(')
+  const end = workforce.indexOf('export async function saveEmployeeTimeEdit',start)
+  const calls = []
+  let editor = {dataset:{jobcardId:'10'}}
+  const context = vm.createContext({
+    document:{querySelector:() => editor},
+    window:{checkAcceloPackage:async id => calls.push(['job',id])},
+    renderTimesheetApprovals:async () => calls.push(['queue']),
+    editEmployeeTimes:async id => calls.push(['edit',id])
+  })
+  vm.runInContext(workforce.slice(start,end),context)
+  await context.refreshEmployeeTimeReview(27)
+  assert.deepEqual(calls,[['job',10],['edit',27]])
+  calls.length=0
+  editor={dataset:{}}
+  await context.refreshEmployeeTimeReview(28)
+  assert.deepEqual(calls,[['queue'],['edit',28]])
+})

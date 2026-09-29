@@ -356,7 +356,7 @@ async function loadAcceloReadiness(pool, jobcardid) {
     FROM atec.tbljobcardcrew crew JOIN atec.tblusers u ON u.userid=crew.user_id
     WHERE crew.jobcardid=$1 AND crew.included_in_time=true
     ORDER BY employee_name`, [jobcardid])
-  const timesheets = await pool.query(`SELECT DISTINCT t.timesheetid,t.user_id,t.timesheet_date,t.status,
+  const timesheets = await pool.query(`SELECT DISTINCT t.timesheetid,t.user_id,t.timesheet_date,t.status,t.returned_reason,
     COALESCE(NULLIF(u.fullname,''),u.username) AS employee_name
     FROM atec.tbltimeentry entry
     JOIN atec.tbldailytimesheet t ON t.user_id=entry.user_id AND t.timesheet_date=entry.activity_date

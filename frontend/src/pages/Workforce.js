@@ -523,6 +523,7 @@ export async function editEmployeeTimes(timesheetId) {
   try {
     const data = await api(`/workforce/timesheets/${encodeURIComponent(timesheetId)}/manager-edit`)
     editor.innerHTML = `<div class="section-heading"><div><h3>Correct employee time</h3><p><strong>${escapeHtml(data.timesheet.employee_name)}</strong> · ${escapeHtml(String(data.timesheet.timesheet_date).slice(0,10))} · ${escapeHtml(data.timesheet.status.replaceAll('_',' '))}</p><p class="muted-text">Change a start/end time or delete an incorrect duplicate. A reason is compulsory and every correction is retained in the audit history. HR-accepted and exported timesheets remain locked.</p></div><button type="button" onclick="closeEmployeeTimeEditor()">Close</button></div>
+      ${data.timesheet.status === 'RETURNED' ? `<p class="login-error"><strong>Return reason:</strong> ${escapeHtml(data.timesheet.returned_reason || 'No reason recorded. Check with the employee or reviewer.')}</p>` : ''}
       <div class="table-scroll"><table class="manager-time-edit-table"><thead><tr><th>Activity</th><th>Customer / Job</th><th>Started</th><th>Ended</th><th>Reason for change</th><th>Action</th></tr></thead><tbody>
         ${data.entries.map(entry => `<tr><td>${escapeHtml(entry.activity_type)}</td><td>${escapeHtml([entry.customer_name_snapshot,entry.job_number_snapshot ? `Accelo job: ${entry.job_number_snapshot}` : '',entry.jobcard_reference_snapshot ? `Job card: ${entry.jobcard_reference_snapshot}` : ''].filter(Boolean).join(' / ') || entry.brief_details || '-')}</td><td><input id="managerStarted-${safeAttr(entry.timeentryid)}" type="datetime-local" value="${safeAttr(datetimeLocalValue(entry.started_at))}"></td><td><input id="managerEnded-${safeAttr(entry.timeentryid)}" type="datetime-local" value="${safeAttr(datetimeLocalValue(entry.ended_at))}"></td><td><input id="managerReason-${safeAttr(entry.timeentryid)}" minlength="5" placeholder="Required audit reason"></td><td><button type="button" class="load-test-btn" onclick="saveEmployeeTimeEdit(${safeAttr(timesheetId)},${safeAttr(entry.timeentryid)})">Save change</button><button type="button" class="danger-btn" onclick="deleteEmployeeTimeEntry(${safeAttr(timesheetId)},${safeAttr(entry.timeentryid)})">Delete duplicate</button></td></tr>`).join('') || '<tr><td colspan="6">No editable time entries were found.</td></tr>'}
       </tbody></table></div>
@@ -540,6 +541,16 @@ export function closeEmployeeTimeEditor() {
   editor.innerHTML = ''
 }
 
+async function refreshEmployeeTimeReview(timesheetId) {
+  const jobcardId = Number(document.querySelector('#managerTimeEditor')?.dataset.jobcardId)
+  if (jobcardId > 0 && typeof window.checkAcceloPackage === 'function') {
+    await window.checkAcceloPackage(jobcardId)
+  } else {
+    await renderTimesheetApprovals()
+  }
+  await editEmployeeTimes(timesheetId)
+}
+
 export async function saveEmployeeTimeEdit(timesheetId, timeentryId) {
   const started = document.querySelector(`#managerStarted-${timeentryId}`)?.value
   const ended = document.querySelector(`#managerEnded-${timeentryId}`)?.value
@@ -553,8 +564,7 @@ export async function saveEmployeeTimeEdit(timesheetId, timeentryId) {
         started_at:new Date(started).toISOString(),ended_at:new Date(ended).toISOString(),reason
       })
     })
-    await renderTimesheetApprovals()
-    await editEmployeeTimes(timesheetId)
+    await refreshEmployeeTimeReview(timesheetId)
   } catch (error) { alert(error.message) }
 }
 
@@ -566,8 +576,7 @@ export async function deleteEmployeeTimeEntry(timesheetId, timeentryId) {
     await api(`/workforce/timesheets/${encodeURIComponent(timesheetId)}/time-entries/${encodeURIComponent(timeentryId)}`, {
       method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({ reason })
     })
-    await renderTimesheetApprovals()
-    await editEmployeeTimes(timesheetId)
+    await refreshEmployeeTimeReview(timesheetId)
   } catch (error) { alert(error.message) }
 }
 
