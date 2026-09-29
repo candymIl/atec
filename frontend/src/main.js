@@ -11630,6 +11630,46 @@ function jobCardDateLabel(value) {
   return Number.isNaN(date.getTime()) ? 'No date set' : date.toLocaleDateString('en-ZA', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
+const JOB_CARD_SORT_COLUMNS = [
+  ['REFERENCE', 'Job card', 'jobcard_reference'], ['ACCELO', 'Accelo job', 'customer_reference'],
+  ['CUSTOMER', 'Customer', 'clientname'], ['SITE', 'Site', 'sitename'],
+  ['INSPECTOR', 'Inspector', 'assigned_to_name'], ['PLANNED', 'Planned', 'planned_at', 'date'],
+  ['UPDATED', 'Updated', 'updated_at', 'date'], ['STATUS', 'Status', 'status']
+]
+
+function compareJobCardRows(a, b, sort) {
+  const [key, direction] = sort.split('_')
+  const [, , field, type] = JOB_CARD_SORT_COLUMNS.find(column => column[0] === key) || JOB_CARD_SORT_COLUMNS[6]
+  const value = card => type === 'date'
+    ? (card[field] ? Date.parse(card[field]) : NaN)
+    : String(card[field] || (key === 'INSPECTOR' ? 'Unassigned' : '')).trim()
+  const left = value(a), right = value(b)
+  const missing = v => type === 'date' ? !Number.isFinite(v) : !v
+  // Keep missing values at the bottom in either direction.
+  if (missing(left) !== missing(right)) return missing(left) ? 1 : -1
+  const comparison = missing(left) ? 0 : type === 'date' ? left - right
+    : left.localeCompare(right, 'en', { numeric: true, sensitivity: 'base' })
+  return comparison * (direction === 'DESC' ? -1 : 1)
+    || String(a.jobcard_reference).localeCompare(String(b.jobcard_reference), 'en', { numeric: true })
+    || Number(a.jobcardid) - Number(b.jobcardid)
+}
+
+function jobCardSortHeading(key, label, type, sort) {
+  const active = sort.startsWith(`${key}_`)
+  const descending = active && sort.endsWith('_DESC')
+  const next = active && !descending ? 'DESC' : 'ASC'
+  const order = type === 'date' ? (next === 'ASC' ? 'oldest first' : 'newest first') : (next === 'ASC' ? 'A to Z' : 'Z to A')
+  return `<th scope="col" aria-sort="${active ? (descending ? 'descending' : 'ascending') : 'none'}"><button type="button" class="job-card-sort-button" data-job-card-sort="${key}" onclick="sortJobCardColumn('${key}')" aria-label="Sort ${label}: ${order}"><span>${label}</span><small aria-hidden="true">${active ? (descending ? '↓' : '↑') : (type === 'date' ? '↕' : 'A–Z ↕')}</small></button></th>`
+}
+
+window.sortJobCardColumn = function (key) {
+  const select = document.querySelector('#jobCardSort')
+  select.value = `${key}_${select.value === `${key}_ASC` ? 'DESC' : 'ASC'}`
+  jobCardListPage = 1
+  renderJobCardList()
+  document.querySelector(`[data-job-card-sort="${key}"]`)?.focus({ preventScroll: true })
+}
+
 function renderJobCardList() {
   const box = document.querySelector('#jobCardList')
   if (!box) return
@@ -11650,12 +11690,7 @@ function renderJobCardList() {
     const haystack = [card.jobcard_reference, card.customer_reference, card.clientname, card.sitename, card.assigned_to_name, card.job_type].join(' ').toLowerCase()
     return groupMatch && statusMatch && technicianMatch && (!search || haystack.includes(search))
   })
-  filtered.sort((a, b) => {
-    if (sort === 'REFERENCE_DESC') return String(b.jobcard_reference).localeCompare(String(a.jobcard_reference), undefined, { numeric: true })
-    if (sort === 'CUSTOMER_ASC') return String(a.clientname).localeCompare(String(b.clientname))
-    if (sort === 'PLANNED_ASC') return new Date(a.planned_at || '9999-12-31') - new Date(b.planned_at || '9999-12-31')
-    return new Date(b.updated_at || 0) - new Date(a.updated_at || 0)
-  })
+  filtered.sort((a, b) => compareJobCardRows(a, b, sort))
   const totalPages = Math.max(1, Math.ceil(filtered.length / JOB_CARD_LIST_PAGE_SIZE))
   jobCardListPage = Math.min(jobCardListPage, totalPages)
   const start = (jobCardListPage - 1) * JOB_CARD_LIST_PAGE_SIZE
@@ -11677,10 +11712,26 @@ function renderJobCardList() {
         <label class="job-card-search"><span>Search job cards — start typing to search all</span><input id="jobCardSearch" type="search" placeholder="Job card, Accelo job, customer, site or inspector" value="${safeAttr(searchText)}" oninput="jobCardListSearchChanged()"></label>
         <label><span>Status</span><select id="jobCardStatusFilter" onchange="jobCardListFiltersChanged()"><option value="">All statuses</option>${['DRAFT','ASSIGNED','IN_PROGRESS','SUBMITTED','APPROVED','INVOICED','CANCELLED'].map(value => `<option value="${value}" ${status === value ? 'selected' : ''}>${value.replaceAll('_',' ')}</option>`).join('')}</select></label>
         <label><span>Inspector</span><select id="jobCardTechnicianFilter" onchange="jobCardListFiltersChanged()"><option value="">All inspectors</option>${technicians.map(value => `<option value="${safeAttr(value)}" ${technician === value ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('')}</select></label>
-        <label><span>Sort by</span><select id="jobCardSort" onchange="jobCardListFiltersChanged()"><option value="UPDATED_DESC" ${sort === 'UPDATED_DESC' ? 'selected' : ''}>Recently updated</option><option value="REFERENCE_DESC" ${sort === 'REFERENCE_DESC' ? 'selected' : ''}>Newest job card</option><option value="PLANNED_ASC" ${sort === 'PLANNED_ASC' ? 'selected' : ''}>Planned date</option><option value="CUSTOMER_ASC" ${sort === 'CUSTOMER_ASC' ? 'selected' : ''}>Customer A–Z</option></select></label>
+        <label><span>Sort by</span><select id="jobCardSort" onchange="jobCardListFiltersChanged()">${JOB_CARD_SORT_COLUMNS.map(([key, label, , type]) => ['ASC', 'DESC'].map(direction => `<option value="${key}_${direction}" ${sort === `${key}_${direction}` ? 'selected' : ''}>${label}: ${type === 'date' ? (direction === 'ASC' ? 'oldest first' : 'newest first') : (direction === 'ASC' ? 'A–Z' : 'Z–A')}</option>`).join('')).join('')}</select></label>
       </div>
       <div class="job-card-results-heading"><p><strong>${filtered.length}</strong> job card${filtered.length === 1 ? '' : 's'} found</p>${(search || status || technician) ? '<button type="button" class="job-card-clear-filters" onclick="clearJobCardListFilters()">Clear filters</button>' : ''}</div>
-      <div class="job-card-list">${visible.map(card => `<article class="job-card-list-row"><button type="button" class="job-card-list-item" onclick="openJobCard(${card.jobcardid})"><span class="job-card-primary"><strong>${escapeHtml(card.jobcard_reference)}</strong><span class="job-card-accelo-number"><small>Accelo Job</small><b>${escapeHtml(card.customer_reference || 'Not set')}</b></span><small>${escapeHtml(card.clientname)}</small><span>${escapeHtml(card.sitename)}</span></span><span class="job-card-assignee"><small>Inspector</small><strong>${escapeHtml(card.assigned_to_name || 'Unassigned')}</strong></span><span class="job-card-date"><small>${card.planned_at ? 'Planned' : 'Updated'}</small><strong>${jobCardDateLabel(card.planned_at || card.updated_at)}</strong></span><span class="job-card-state"><b class="job-card-status status-${safeAttr(String(card.status).toLowerCase())}">${escapeHtml(String(card.status).replaceAll('_',' '))}</b>${Number(card.open_deviations) > 0 ? `<small class="job-card-deviation-count">${escapeHtml(card.open_deviations)} open deviation${Number(card.open_deviations) === 1 ? '' : 's'}</small>` : '<small>No open deviations</small>'}</span></button><button type="button" class="job-card-list-pdf" aria-label="Open PDF for ${safeAttr(card.jobcard_reference)}" title="Open PDF" onclick="window.open('${API_BASE}/job-cards/${card.jobcardid}/pdf','_blank','noopener')"><span aria-hidden="true">PDF</span></button></article>`).join('') || `<div class="job-card-empty"><strong>No job cards match this view</strong><p>Try another status or clear the search filters.</p></div>`}</div>
+      <div class="job-card-table-scroll" role="region" aria-label="Job cards — scroll horizontally for all columns" tabindex="0">
+        <table class="job-card-review-table">
+          <caption>Job cards — select a heading to sort, or a job card number to open.</caption>
+          <thead><tr>${JOB_CARD_SORT_COLUMNS.map(([key, label, , type]) => jobCardSortHeading(key, label, type, sort)).join('')}<th scope="col">PDF</th></tr></thead>
+          <tbody>${visible.map(card => `<tr>
+            <td><button type="button" class="job-card-open" onclick="openJobCard(${card.jobcardid})">${escapeHtml(card.jobcard_reference)}</button></td>
+            <td class="job-card-accelo-number">${escapeHtml(card.customer_reference || 'Not set')}</td>
+            <td>${escapeHtml(card.clientname || 'Not set')}</td>
+            <td>${escapeHtml(card.sitename || 'Not set')}</td>
+            <td>${escapeHtml(card.assigned_to_name || 'Unassigned')}</td>
+            <td class="job-card-review-date">${jobCardDateLabel(card.planned_at)}</td>
+            <td class="job-card-review-date">${jobCardDateLabel(card.updated_at)}</td>
+            <td><span class="job-card-status status-${safeAttr(String(card.status).toLowerCase())}">${escapeHtml(String(card.status).replaceAll('_',' '))}</span>${Number(card.open_deviations) > 0 ? `<small class="job-card-deviation-count">${escapeHtml(card.open_deviations)} open deviation${Number(card.open_deviations) === 1 ? '' : 's'}</small>` : '<small>No open deviations</small>'}</td>
+            <td><button type="button" class="job-card-list-pdf" aria-label="Open PDF for ${safeAttr(card.jobcard_reference)}" title="Open PDF" onclick="window.open('${API_BASE}/job-cards/${card.jobcardid}/pdf','_blank','noopener')">PDF</button></td>
+          </tr>`).join('') || '<tr><td colspan="9" class="job-card-empty"><strong>No job cards match this view</strong><p>Try another status or clear the search filters.</p></td></tr>'}</tbody>
+        </table>
+      </div>
       ${filtered.length > JOB_CARD_LIST_PAGE_SIZE ? `<div class="job-card-pagination"><span>Showing ${start + 1}–${Math.min(start + JOB_CARD_LIST_PAGE_SIZE, filtered.length)} of ${filtered.length}</span><div><button type="button" onclick="changeJobCardListPage(-1)" ${jobCardListPage === 1 ? 'disabled' : ''}>Previous</button><b>Page ${jobCardListPage} of ${totalPages}</b><button type="button" onclick="changeJobCardListPage(1)" ${jobCardListPage === totalPages ? 'disabled' : ''}>Next</button></div></div>` : ''}
     </section>`
 }
