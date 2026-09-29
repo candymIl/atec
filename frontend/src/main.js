@@ -61,6 +61,7 @@ import {
   workforceAction
 } from './pages/Workforce.js'
 import { getPaginationState, renderPaginationControls } from './pagination.js'
+import { renderAcceloTimesheetReview, approveAcceloTimesheet } from './pages/acceloTimesheetReview.js'
 import { getTableSortState, sortHeader, sortTableRows } from './tableSort.js'
 import { API_BASE, assetUrl, uploadUrl } from './api.js'
 import { FRONTEND_BUILD_ID } from './buildInfo.js'
@@ -12180,12 +12181,14 @@ window.emailSignedJobCardToCustomer = async function (jobcardid) {
 window.checkAcceloPackage = async function (jobcardid) {
   const box = document.querySelector('#acceloPackageStatus')
   if (box) box.innerHTML = '<p>Checking package readiness...</p>'
+  try {
   const response = await fetch(`${API_BASE}/workforce/job-cards/${jobcardid}/accelo-readiness`)
   const result = await readApiResponse(response)
   if (!response.ok) {
     if (box) box.innerHTML = `<p class="login-error">${escapeHtml(result.error || 'Could not check the Accelo package')}</p>`
     return
   }
+  const crewTimesheets = await renderAcceloTimesheetReview(jobcardid, result.timesheets || [], currentUser.role)
   if (box) box.innerHTML = `
     <div class="job-card-grid">
       <p><strong>Recipient</strong><br>${escapeHtml(result.recipient || '-')}</p>
@@ -12193,8 +12196,14 @@ window.checkAcceloPackage = async function (jobcardid) {
       <p><strong>Timesheets</strong><br>${result.timesheets.length}</p>
       <p><strong>Certificates</strong><br>${result.certificates.length}</p>
     </div>
+    ${crewTimesheets}
     ${result.issues.length ? `<div class="login-error"><strong>Not ready:</strong><ul>${result.issues.map(issue => `<li>${escapeHtml(issue)}</li>`).join('')}</ul></div>` : `<p><strong>Ready to send.</strong> All workflow checks passed.</p><button type="button" class="load-test-btn" onclick="sendAcceloPackage(${jobcardid},${result.card.accelo_email_sent_at ? 'true' : 'false'})">${result.card.accelo_email_sent_at ? 'Resend package' : 'Send package to Accelo'}</button>`}`
+  } catch (error) {
+    if (box) box.innerHTML = `<p class="login-error">Could not refresh package readiness. Use Check readiness to retry. ${escapeHtml(error.message)}</p>`
+  }
 }
+
+window.approveAcceloTimesheet = (jobcardid, timesheetid, button) => approveAcceloTimesheet(jobcardid, timesheetid, button, window.checkAcceloPackage)
 
 window.sendAcceloPackage = async function (jobcardid, resend = false) {
   const destination = document.querySelector('#acceloPackageStatus strong')?.textContent || 'the derived Accelo job address'

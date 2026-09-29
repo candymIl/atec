@@ -85,3 +85,9 @@
 .daily-status-table .daily-status-sort small { font-size: 10px; opacity: .85; }
 .daily-status-table .daily-status-sort:hover { background: #ffffff20; }
 .daily-status-table .daily-status-sort:focus-visible { outline: 2px solid #fff; outline-offset: -4px; }
+.accelo-timesheet-review { margin: 12px 0 20px; }
+.accelo-timesheet-review h4 { margin-bottom: 6px; }
+.accelo-timesheet-review .form-actions { margin: 0; gap: 8px; align-items: center; }
+.accelo-timesheet-link { display: inline-block; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; font-weight: 600; color: #244a83; background: white; text-decoration: none; }
+.accelo-timesheet-link:hover { background: #eef3ff; text-decoration: underline; }
+.accelo-timesheet-link:focus-visible { outline: 3px solid #4264ac; outline-offset: 2px; }
