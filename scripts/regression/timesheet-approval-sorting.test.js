@@ -47,4 +47,8 @@ context.filterTimesheetApprovals()
 assert.ok(html().includes('No timesheets match'))
 context.resetTimesheetApprovalFilters()
 assert.equal((html().match(/<section /g) || []).length, 4)
+assert.ok(!html().includes('Close as invalid'), 'Managers cannot close invalid records')
+context.window.currentUser.role = 'ADMIN'
+context.filterTimesheetApprovals()
+assert.equal((html().match(/>Close as invalid</g) || []).length, 12, 'Admin can close records in every outstanding section')
 console.log('Timesheet approval sorting checks passed')

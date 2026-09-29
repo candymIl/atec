@@ -1,4 +1,5 @@
 const express = require("express")
+const { closeInvalidTimesheet } = require("../services/closeInvalidTimesheet")
 const { calculateTimeEntries, standardFallbackSchedule } = require("../services/workforceTime")
 const { createTimesheetPdfBuffer } = require("../services/workforceTimesheetRenderer")
 
@@ -193,7 +194,7 @@ async function calculateDay(client, userId, date) {
 async function rebuildTimesheet(client, userId, date, options = {}) {
   const existing = await client.query(`SELECT * FROM atec.tbldailytimesheet
     WHERE user_id=$1 AND timesheet_date=$2::date`, [userId,date])
-  if (!options.force && existing.rows[0] && ["EMPLOYEE_SUBMITTED","MANAGER_APPROVED","HR_ACCEPTED","EXPORTED"].includes(existing.rows[0].status)) {
+  if (existing.rows[0]?.status === 'CLOSED_INVALID' || (!options.force && existing.rows[0] && ["EMPLOYEE_SUBMITTED","MANAGER_APPROVED","HR_ACCEPTED","EXPORTED"].includes(existing.rows[0].status))) {
     const lines = await client.query(`SELECT line.*,
       COALESCE(entry.customer_name_snapshot,line.customer_name) AS customer_name_snapshot,
       COALESCE(entry.job_number_snapshot,line.job_number) AS job_number_snapshot,
@@ -465,6 +466,7 @@ function registerWorkforceRoutes(app, {
       t.timesheetid,t.status,t.final_normal_hours,t.final_overtime_hours,t.final_travel_hours,t.final_standby_hours,
       CASE
         WHEN t.timesheetid IS NULL THEN 'MISSING'
+        WHEN t.status = 'CLOSED_INVALID' THEN 'CLOSED'
         WHEN t.status IN ('EMPLOYEE_SUBMITTED','MANAGER_APPROVED','HR_ACCEPTED','EXPORTED') THEN 'SUBMITTED'
         ELSE 'OUTSTANDING'
       END AS submission_state
@@ -477,7 +479,7 @@ function registerWorkforceRoutes(app, {
       totals.total += 1
       totals[String(row.submission_state).toLowerCase()] += 1
       return totals
-    }, {total:0,submitted:0,outstanding:0,missing:0})
+    }, {total:0,submitted:0,outstanding:0,missing:0,closed:0})
     res.json({ date,summary,rows:result.rows })
   }))
 
@@ -555,9 +557,10 @@ function registerWorkforceRoutes(app, {
     }
     const locked = await pool.query(`SELECT status FROM atec.tbldailytimesheet
       WHERE user_id=$1 AND timesheet_date=$2::date
-        AND status IN ('EMPLOYEE_SUBMITTED','MANAGER_APPROVED','HR_ACCEPTED','EXPORTED')`, [
+        AND status IN ('EMPLOYEE_SUBMITTED','MANAGER_APPROVED','HR_ACCEPTED','EXPORTED','CLOSED_INVALID')`, [
       userId,req.body.activity_date || isoDate(req.body.started_at)
     ])
+    if (locked.rows[0]?.status === 'CLOSED_INVALID') throw badRequest('This employee date is closed as invalid and is read-only.')
     if (locked.rows[0] && !["ADMIN","MANAGER","HR"].includes(req.user.role)) {
       throw badRequest("This timesheet has already been submitted. Ask your manager to return it before changing time.")
     }
@@ -671,6 +674,7 @@ function registerWorkforceRoutes(app, {
     try {
       await client.query("BEGIN")
       const data = await rebuildTimesheet(client,req.user.user_id,req.params.date)
+      if (data.timesheet?.status === 'CLOSED_INVALID') throw badRequest('This timesheet is closed as invalid and cannot be submitted.')
       if (!data.lines.length) throw badRequest("Add at least one time entry before submitting.")
       const result = await client.query(`UPDATE atec.tbldailytimesheet SET status='EMPLOYEE_SUBMITTED',
         employee_submitted_at=now(),returned_reason='',updated_at=now() WHERE timesheetid=$1 RETURNING *`, [data.timesheet.timesheetid])
@@ -942,6 +946,7 @@ function registerWorkforceRoutes(app, {
     values.push(Math.min(500,Math.max(1,Number(req.query.limit || 100))))
     const limitParam = `$${values.length}`
     const result = await pool.query(`SELECT t.*,t.timesheet_date::text AS timesheet_date,
+      (SELECT COALESCE(NULLIF(closer.fullname,''),closer.username) FROM atec.tblusers closer WHERE closer.userid=t.closed_by_user_id) AS closed_by_name,
       COALESCE(NULLIF(u.fullname,''),u.username) AS employee_name,
       u.employee_number,COALESCE(NULLIF(m.fullname,''),m.username) AS manager_name,
       COALESCE((SELECT string_agg(DISTINCT NULLIF(line.worksheet_number,''),', ' ORDER BY NULLIF(line.worksheet_number,''))
@@ -1074,6 +1079,9 @@ function registerWorkforceRoutes(app, {
 
   router.post("/timesheets/:id/action", asyncRoute(async (req, res) => {
     const action = String(req.body.action || "")
+    if (action === 'CLOSE_INVALID') {
+      return res.json(await closeInvalidTimesheet(pool, req.user, req.params.id, req.body.reason))
+    }
     const reason = String(req.body.reason || "").trim()
     const allowed = req.user.role === "ADMIN"
       ? new Set(["SUBMIT_EMPLOYEE","APPROVE","ACCEPT","RETURN","EXPORT"])

@@ -32,7 +32,7 @@ export async function renderMyDay() {
     const data = await api(`/workforce/my-day?date=${encodeURIComponent(date)}`)
     const lines = data.lines || []
     const status = data.timesheet?.status || 'DRAFT'
-    const locked = ['EMPLOYEE_SUBMITTED','MANAGER_APPROVED','HR_ACCEPTED','EXPORTED'].includes(status)
+    const locked = ['EMPLOYEE_SUBMITTED','MANAGER_APPROVED','HR_ACCEPTED','EXPORTED','CLOSED_INVALID'].includes(status)
     document.querySelector('#workforceDay').innerHTML = `
       <div class="section-heading"><div><h3>${escapeHtml(date)}</h3><p class="muted-text">${escapeHtml(data.schedule?.schedule_name || 'No assigned schedule')} · Status: <strong>${escapeHtml(status.replaceAll('_',' '))}</strong></p></div>
         <div><strong>Normal ${hours(data.normal_hours)}</strong> &nbsp; <strong>Overtime ${hours(data.overtime_hours)}</strong></div></div>
@@ -40,7 +40,7 @@ export async function renderMyDay() {
       <div class="table-scroll my-day-table-wrap"><table class="my-day-entry-table"><thead><tr><th>Activity</th><th>From</th><th>To</th><th>Customer / Job</th><th>Normal</th><th>Overtime</th>${locked ? '' : '<th>Correction</th>'}</tr></thead><tbody>
         ${lines.map(line => `<tr><td data-label="Activity">${escapeHtml(line.activity_type)}</td><td data-label="From">${escapeHtml(new Date(line.started_at).toLocaleTimeString('en-ZA',{hour:'2-digit',minute:'2-digit'}))}</td><td data-label="To">${escapeHtml(new Date(line.ended_at).toLocaleTimeString('en-ZA',{hour:'2-digit',minute:'2-digit'}))}</td><td data-label="Customer / Job">${escapeHtml([line.customer_name_snapshot,line.job_number_snapshot ? `Accelo job: ${line.job_number_snapshot}` : '',line.jobcard_reference_snapshot ? `Job card: ${line.jobcard_reference_snapshot}` : ''].filter(Boolean).join(' / ') || line.brief_details || '-')}</td><td data-label="Normal">${hours(line.normal_hours)}</td><td data-label="Overtime">${hours(line.overtime_hours)}</td>${locked ? '' : `<td data-label="Correction" class="mobile-row-actions"><button type="button" onclick="editMyTimeEntry(${safeAttr(line.timeentryid)},'${safeAttr(datetimeLocalValue(line.started_at))}','${safeAttr(datetimeLocalValue(line.ended_at))}')">Edit</button><button type="button" class="danger-btn" onclick="deleteMyTimeEntry(${safeAttr(line.timeentryid)})">Delete</button></td>`}</tr>`).join('') || `<tr class="mobile-empty-row"><td colspan="${locked ? 6 : 7}">No time recorded for this date.</td></tr>`}
       </tbody></table></div>
-      ${locked ? '<p class="muted-text">This timesheet has been submitted and is read-only. It remains available here and in your history below.</p>' : `<details class="workforce-entry-disclosure"><summary><span class="workforce-entry-summary-copy"><strong>Add an exception or non-job activity</strong><small class="workforce-entry-closed-copy">Click here to display the time-entry form</small><small class="workforce-entry-open-copy">Time-entry form is open</small></span><span class="workforce-entry-chevron" aria-hidden="true">›</span></summary><div class="job-card-grid workforce-entry-form">
+      ${status === 'CLOSED_INVALID' ? `<p class="muted-text"><strong>Closed as invalid — excluded from payroll.</strong> ${escapeHtml(data.timesheet.closed_reason || '')}</p>` : locked ? '<p class="muted-text">This timesheet has been submitted and is read-only. It remains available here and in your history below.</p>' : `<details class="workforce-entry-disclosure"><summary><span class="workforce-entry-summary-copy"><strong>Add an exception or non-job activity</strong><small class="workforce-entry-closed-copy">Click here to display the time-entry form</small><small class="workforce-entry-open-copy">Time-entry form is open</small></span><span class="workforce-entry-chevron" aria-hidden="true">›</span></summary><div class="job-card-grid workforce-entry-form">
         <label>Activity<select id="timeActivity">${['WORK','TRAVEL','STANDBY','BREAK','WORKSHOP','TRAINING','MEETING','ADMIN','WAITING','LEAVE','SICK_LEAVE','UNPAID','OTHER'].map(value => `<option>${value}</option>`).join('')}</select></label>
         <label>Accelo Job Number<input id="timeJobNumber" inputmode="numeric" pattern="[0-9]+" placeholder="Required for job-related time"></label>
         <label>Started<input id="timeStarted" type="datetime-local"></label><label>Ended<input id="timeEnded" type="datetime-local"></label>
@@ -103,7 +103,7 @@ export async function deleteMyTimeEntry(timeentryId) {
 
 function renderHistoryTable(rows, showEmployee = true) {
   return `<div class="table-scroll ${showEmployee ? '' : 'my-day-history-wrap'}"><table class="${showEmployee ? '' : 'my-day-history-table'}"><thead><tr><th>Date</th>${showEmployee ? '<th>Employee</th>' : ''}<th>Accelo Job Number</th><th>Job Card Number</th><th>Status</th><th>Normal</th><th>Overtime</th><th>Travel</th><th>Standby</th><th>Report</th></tr></thead><tbody>
-    ${rows.map(row => `<tr><td data-label="Date">${escapeHtml(String(row.timesheet_date).slice(0,10))}</td>${showEmployee ? `<td data-label="Employee">${escapeHtml(row.employee_name || '')}</td>` : ''}<td data-label="Accelo Job Number">${escapeHtml(row.job_numbers || '-')}</td><td data-label="Job Card Number">${escapeHtml(row.job_card_numbers || '-')}</td><td data-label="Status">${escapeHtml(String(row.status || '').replaceAll('_',' '))}</td><td data-label="Normal">${hours(row.final_normal_hours)}</td><td data-label="Overtime">${hours(row.final_overtime_hours)}</td><td data-label="Travel">${hours(row.final_travel_hours)}</td><td data-label="Standby">${hours(row.final_standby_hours)}</td><td data-label="Report"><button onclick="window.open('${API_BASE}/workforce/timesheets/${row.timesheetid}/pdf','_blank','noopener')">PDF</button></td></tr>`).join('') || `<tr class="mobile-empty-row"><td colspan="${showEmployee ? 10 : 9}">No timesheets found.</td></tr>`}
+    ${rows.map(row => `<tr><td data-label="Date">${escapeHtml(String(row.timesheet_date).slice(0,10))}</td>${showEmployee ? `<td data-label="Employee">${escapeHtml(row.employee_name || '')}</td>` : ''}<td data-label="Accelo Job Number">${escapeHtml(row.job_numbers || '-')}</td><td data-label="Job Card Number">${escapeHtml(row.job_card_numbers || '-')}</td><td data-label="Status">${escapeHtml(String(row.status || '').replaceAll('_',' '))}${row.status === 'CLOSED_INVALID' ? `<small class="approval-subtext">${escapeHtml(row.closed_reason || '')}<br>Closed ${escapeHtml(String(row.closed_at || '').slice(0,10))} by ${escapeHtml(row.closed_by_name || `Admin #${row.closed_by_user_id}`)}. Excluded from payroll.</small>` : ''}</td><td data-label="Normal">${hours(row.final_normal_hours)}</td><td data-label="Overtime">${hours(row.final_overtime_hours)}</td><td data-label="Travel">${hours(row.final_travel_hours)}</td><td data-label="Standby">${hours(row.final_standby_hours)}</td><td data-label="Report"><button onclick="window.open('${API_BASE}/workforce/timesheets/${row.timesheetid}/pdf','_blank','noopener')">PDF</button></td></tr>`).join('') || `<tr class="mobile-empty-row"><td colspan="${showEmployee ? 10 : 9}">No timesheets found.</td></tr>`}
   </tbody></table></div>`
 }
 
@@ -201,11 +201,11 @@ export async function renderTimesheetHistory() {
     <section class="filter-card"><div class="job-card-grid">
       <label>Date from<input id="historyFrom" type="date" value="${defaultFrom.toISOString().slice(0,10)}"></label>
       <label>Date to<input id="historyTo" type="date" value="${today()}"></label>
-      <label>Status<select id="historyStatus"><option value="">All statuses</option>${['DRAFT','AWAITING_EMPLOYEE','EMPLOYEE_SUBMITTED','MANAGER_APPROVED','HR_ACCEPTED','EXPORTED','RETURNED'].map(value => `<option value="${value}">${value.replaceAll('_',' ')}</option>`).join('')}</select></label>
+      <label>Status<select id="historyStatus"><option value="">All statuses</option>${['DRAFT','AWAITING_EMPLOYEE','EMPLOYEE_SUBMITTED','MANAGER_APPROVED','HR_ACCEPTED','EXPORTED','RETURNED','CLOSED_INVALID'].map(value => `<option value="${value}">${value.replaceAll('_',' ')}</option>`).join('')}</select></label>
       <label>Accelo Job Number<input id="historyJobNumber" inputmode="numeric"></label>
     </div><div class="form-actions"><button class="load-test-btn" onclick="loadTimesheetHistory()">Search</button><button onclick="exportTimesheetHistoryCsv()">Export CSV</button></div></section>
     <section class="filter-card"><div class="section-heading"><div><h3>Daily submission status</h3><p class="muted-text">Confirm who submitted, who still needs action, and who has no timesheet for a specific day.</p></div></div>
-      <div class="timesheet-results-toolbar"><label>Date<input id="submissionStatusDate" type="date" value="${today()}"></label><label>Show<select id="submissionStatusFilter" onchange="filterDailySubmissionStatus()"><option value="ALL">All active members</option><option value="SUBMITTED">Submitted</option><option value="OUTSTANDING">Needs action</option><option value="MISSING">No timesheet</option></select></label><label>Find member<input id="submissionStatusSearch" type="search" placeholder="Name, employee number or role" oninput="filterDailySubmissionStatus()"></label></div>
+      <div class="timesheet-results-toolbar"><label>Date<input id="submissionStatusDate" type="date" value="${today()}"></label><label>Show<select id="submissionStatusFilter" onchange="filterDailySubmissionStatus()"><option value="ALL">All active members</option><option value="SUBMITTED">Submitted</option><option value="OUTSTANDING">Needs action</option><option value="MISSING">No timesheet</option><option value="CLOSED">Closed as invalid</option></select></label><label>Find member<input id="submissionStatusSearch" type="search" placeholder="Name, employee number or role" oninput="filterDailySubmissionStatus()"></label></div>
       <div class="form-actions"><button type="button" class="load-test-btn" onclick="loadDailySubmissionStatus()">View daily status</button></div>
       <div id="submissionStatusResults"><p class="muted-text">Select a date to check all active workforce members.</p></div>
     </section>
@@ -250,7 +250,7 @@ export async function loadDailySubmissionStatus() {
 const dailyStatusColumns = [
   ['employee', 'Employee', row => row.employee_name || ''],
   ['role', 'Role', row => row.role || ''],
-  ['submission', 'Submission', row => row.submission_state === 'SUBMITTED' ? 'Submitted' : row.submission_state === 'MISSING' ? 'No timesheet' : 'Needs action'],
+  ['submission', 'Submission', row => row.submission_state === 'SUBMITTED' ? 'Submitted' : row.submission_state === 'MISSING' ? 'No timesheet' : row.submission_state === 'CLOSED' ? 'Closed as invalid' : 'Needs action'],
   ['stage', 'Current stage', row => row.status ? row.status.replaceAll('_',' ') : ''],
   ['normal', 'Normal', row => Number(row.final_normal_hours || 0), true],
   ['overtime', 'Overtime', row => Number(row.final_overtime_hours || 0), true],
@@ -289,10 +289,10 @@ export function filterDailySubmissionStatus() {
     summary.total += 1
     summary[row.submission_state.toLowerCase()] += 1
     return summary
-  }, {total:0,submitted:0,outstanding:0,missing:0})
+  }, {total:0,submitted:0,outstanding:0,missing:0,closed:0})
   box.innerHTML = `<div class="timesheet-summary-grid submission-status-summary"><div><span>Active members</span><strong>${totals.total}</strong></div><div><span>Submitted</span><strong>${totals.submitted}</strong></div><div><span>Needs action</span><strong>${totals.outstanding}</strong></div><div><span>No timesheet</span><strong>${totals.missing}</strong></div></div>
-    <p class="submission-status-progress"><strong>${totals.submitted} of ${totals.total}</strong> active members have submitted their timesheet.</p>
-    <div class="table-scroll"><table class="daily-status-table"><thead><tr>${dailyStatusHeadings()}<th scope="col">Action</th></tr></thead><tbody>${rows.map(row => `<tr><td>${escapeHtml(row.employee_name)}</td><td>${escapeHtml(row.role)}</td><td><span class="submission-state submission-state-${String(row.submission_state).toLowerCase()}">${row.submission_state === 'SUBMITTED' ? 'Submitted' : row.submission_state === 'MISSING' ? 'No timesheet' : 'Needs action'}</span></td><td>${escapeHtml(row.status ? row.status.replaceAll('_',' ') : '-')}</td><td>${hours(row.final_normal_hours)}</td><td>${hours(row.final_overtime_hours)}</td><td>${hours(row.final_travel_hours)}</td><td>${hours(row.final_standby_hours)}</td><td>${row.timesheetid ? `<button onclick="window.open('${API_BASE}/workforce/timesheets/${row.timesheetid}/pdf','_blank','noopener')">View PDF</button>${row.submission_state === 'OUTSTANDING' ? '<button onclick="showTimesheetApprovals()">Open approvals</button>' : ''}` : '<span class="muted-text">Follow up with member</span>'}</td></tr>`).join('') || '<tr><td colspan="9">No members match this filter.</td></tr>'}</tbody></table></div>`
+    <p class="submission-status-progress"><strong>${totals.submitted} of ${totals.total}</strong> active members have submitted their timesheet. ${totals.closed} closed as invalid.</p>
+    <div class="table-scroll"><table class="daily-status-table"><thead><tr>${dailyStatusHeadings()}<th scope="col">Action</th></tr></thead><tbody>${rows.map(row => `<tr><td>${escapeHtml(row.employee_name)}</td><td>${escapeHtml(row.role)}</td><td><span class="submission-state submission-state-${String(row.submission_state).toLowerCase()}">${row.submission_state === 'SUBMITTED' ? 'Submitted' : row.submission_state === 'MISSING' ? 'No timesheet' : row.submission_state === 'CLOSED' ? 'Closed as invalid' : 'Needs action'}</span></td><td>${escapeHtml(row.status ? row.status.replaceAll('_',' ') : '-')}</td><td>${hours(row.final_normal_hours)}</td><td>${hours(row.final_overtime_hours)}</td><td>${hours(row.final_travel_hours)}</td><td>${hours(row.final_standby_hours)}</td><td>${row.timesheetid ? `<button onclick="window.open('${API_BASE}/workforce/timesheets/${row.timesheetid}/pdf','_blank','noopener')">View PDF</button>${row.submission_state === 'OUTSTANDING' ? '<button onclick="showTimesheetApprovals()">Open approvals</button>' : ''}` : '<span class="muted-text">Follow up with member</span>'}</td></tr>`).join('') || '<tr><td colspan="9">No members match this filter.</td></tr>'}</tbody></table></div>`
 }
 
 export async function loadTimesheetHistory() {
@@ -449,6 +449,7 @@ function approvalRow(row, stage) {
   if (row.status === 'RETURNED' && canEdit) primary = `<button type="button" onclick="editEmployeeTimes(${id})">Review / correct entries</button>`
   if (row.status === 'AWAITING_EMPLOYEE' && role === 'ADMIN') primary = `<button type="button" class="approval-secondary" onclick="editEmployeeTimes(${id})">Review / correct entries</button>`
   const secondary = [
+    role === 'ADMIN' ? `<button type="button" class="approval-return" onclick="closeTimesheetAsInvalid(${id})">Close as invalid</button>` : '',
     canEdit && !['RETURNED','AWAITING_EMPLOYEE'].includes(row.status) ? `<button type="button" onclick="editEmployeeTimes(${id})">Review / correct entries</button>` : '',
     `<button type="button" onclick="window.open('${API_BASE}/workforce/timesheets/${id}/pdf','_blank','noopener')">View PDF</button>`,
     row.status === 'AWAITING_EMPLOYEE' && role === 'ADMIN' ? `<button type="button" onclick="workforceAction(${id},'SUBMIT_EMPLOYEE')">Submit for employee</button>` : '',
@@ -588,6 +589,20 @@ export async function workforceAction(id, action) {
 export async function approveCorrectedTimesheet(id) {
   if (!window.confirm('Approve this corrected returned timesheet and move it to Manager Approved?')) return
   await workforceAction(id, 'APPROVE')
+}
+
+export async function closeTimesheetAsInvalid(id) {
+  const row = approvalRows.find(item => Number(item.timesheetid) === Number(id))
+  if (!row || window.currentUser?.role !== 'ADMIN') return
+  const label = `${row.employee_name} — ${String(row.timesheet_date).slice(0,10)}`
+  const reason = window.prompt(`Close as invalid: ${label}\nReason (5–1000 characters). For duplicates or wrong dates, identify the verified correct record:`)?.trim()
+  if (!reason) return
+  if (reason.length < 5 || reason.length > 1000) return alert('Enter a reason between 5 and 1000 characters.')
+  if (!window.confirm(`Close ${label} as invalid?\n\nIt will leave approvals and be excluded from payroll. Original entries and hours will remain in history, read-only. This employee/date cannot be resubmitted.\n\nReason: ${reason}`)) return
+  try {
+    await api(`/workforce/timesheets/${id}/action`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'CLOSE_INVALID',reason})})
+    await renderTimesheetApprovals()
+  } catch (error) { alert(error.message) }
 }
 
 export async function renderHrTimesheets() {

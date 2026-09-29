@@ -28,6 +28,7 @@ import { renderMpiReportsPage } from './pages/MpiReports.js'
 import {
   addWorkforceTime,
   approveCorrectedTimesheet,
+  closeTimesheetAsInvalid,
   closeEmployeeTimeEditor,
   deleteEmployeeTimeEntry,
   deleteMyTimeEntry,
@@ -1930,6 +1931,7 @@ window.showTimesheetApprovals = function () { setCurrentPage('timesheet-approval
 window.recalculateAwaitingTimesheets = recalculateAwaitingTimesheets
 window.workforceAction = workforceAction
 window.approveCorrectedTimesheet = approveCorrectedTimesheet
+window.closeTimesheetAsInvalid = closeTimesheetAsInvalid
 window.editEmployeeTimes = editEmployeeTimes
 window.saveEmployeeTimeEdit = saveEmployeeTimeEdit
 window.deleteEmployeeTimeEntry = deleteEmployeeTimeEntry
