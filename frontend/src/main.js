@@ -11647,13 +11647,30 @@ const JOB_CARD_SORT_COLUMNS = [
   ['REFERENCE', 'Job card', 'jobcard_reference'], ['ACCELO', 'Accelo job', 'customer_reference'],
   ['CUSTOMER', 'Customer', 'clientname'], ['SITE', 'Site', 'sitename'],
   ['INSPECTOR', 'Inspector', 'assigned_to_name'], ['PLANNED', 'Planned', 'planned_at', 'date'],
-  ['UPDATED', 'Updated', 'updated_at', 'date'], ['STATUS', 'Status', 'status']
+  ['UPDATED', 'Updated', 'updated_at', 'date'], ['STATUS', 'Status', 'status'],
+  ['DELIVERY', 'Accelo status', 'accelo_email_sent_at']
 ]
+
+function jobCardAcceloStatus(card) {
+  if (card.accelo_email_sent_at) return 'Sent'
+  if (card.accelo_email_sent_at === undefined) return 'Unknown'
+  return card.accelo_send_failed ? 'Send failed' : 'Not sent'
+}
+
+function jobCardNotSentToAccelo(card) {
+  return ['Not sent', 'Send failed'].includes(jobCardAcceloStatus(card))
+}
+
+function jobCardAcceloCell(card) {
+  const status = jobCardAcceloStatus(card)
+  const tone = status === 'Sent' ? 'sent' : status === 'Send failed' ? 'failed' : 'pending'
+  return `<span class="job-card-accelo-status ${tone}">${status}</span>${status === 'Sent' ? `<small>${jobCardDateLabel(card.accelo_email_sent_at)}</small>${card.accelo_send_failed ? '<small>Latest resend failed</small>' : ''}` : status === 'Unknown' ? '<small>Refresh after the server update</small>' : ''}`
+}
 
 function compareJobCardRows(a, b, sort) {
   const [key, direction] = sort.split('_')
   const [, , field, type] = JOB_CARD_SORT_COLUMNS.find(column => column[0] === key) || JOB_CARD_SORT_COLUMNS[6]
-  const value = card => type === 'date'
+  const value = card => key === 'DELIVERY' ? jobCardAcceloStatus(card) : type === 'date'
     ? (card[field] ? Date.parse(card[field]) : NaN)
     : String(card[field] || (key === 'INSPECTOR' ? 'Unassigned' : '')).trim()
   const left = value(a), right = value(b)
@@ -11693,11 +11710,12 @@ function renderJobCardList() {
   const sort = String(document.querySelector('#jobCardSort')?.value || 'UPDATED_DESC')
   const counts = jobCardListRows.reduce((result, card) => {
     result[jobCardListStatusGroup(card.status)]++
+    if (jobCardNotSentToAccelo(card)) result.NOT_SENT++
     return result
-  }, { ACTIVE: 0, REVIEW: 0, COMPLETED: 0, CANCELLED: 0 })
+  }, { ACTIVE: 0, REVIEW: 0, COMPLETED: 0, CANCELLED: 0, NOT_SENT: 0 })
   const technicians = [...new Set(jobCardListRows.map(card => card.assigned_to_name || 'Unassigned'))].sort((a, b) => a.localeCompare(b))
   let filtered = jobCardListRows.filter(card => {
-    const groupMatch = jobCardListView === 'ALL' || jobCardListStatusGroup(card.status) === jobCardListView
+    const groupMatch = jobCardListView === 'NOT_SENT' ? jobCardNotSentToAccelo(card) : jobCardListView === 'ALL' || jobCardListStatusGroup(card.status) === jobCardListView
     const statusMatch = !status || String(card.status) === status
     const technicianMatch = !technician || String(card.assigned_to_name || 'Unassigned') === technician
     const haystack = [card.jobcard_reference, card.customer_reference, card.clientname, card.sitename, card.assigned_to_name, card.job_type].join(' ').toLowerCase()
@@ -11711,6 +11729,7 @@ function renderJobCardList() {
   const views = [
     ['ACTIVE', 'Active', counts.ACTIVE], ['REVIEW', 'Awaiting review', counts.REVIEW],
     ['COMPLETED', 'Completed', counts.COMPLETED], ['CANCELLED', 'Cancelled', counts.CANCELLED],
+    ['NOT_SENT', 'Not sent to Accelo', counts.NOT_SENT],
     ['ALL', 'All job cards', jobCardListRows.length]
   ]
   box.innerHTML = `<section class="job-card-overview" aria-label="Job card workload">
@@ -11728,6 +11747,7 @@ function renderJobCardList() {
         <label><span>Sort by</span><select id="jobCardSort" onchange="jobCardListFiltersChanged()">${JOB_CARD_SORT_COLUMNS.map(([key, label, , type]) => ['ASC', 'DESC'].map(direction => `<option value="${key}_${direction}" ${sort === `${key}_${direction}` ? 'selected' : ''}>${label}: ${type === 'date' ? (direction === 'ASC' ? 'oldest first' : 'newest first') : (direction === 'ASC' ? 'A–Z' : 'Z–A')}</option>`).join('')).join('')}</select></label>
       </div>
       <div class="job-card-results-heading"><p><strong>${filtered.length}</strong> job card${filtered.length === 1 ? '' : 's'} found</p>${(search || status || technician) ? '<button type="button" class="job-card-clear-filters" onclick="clearJobCardListFilters()">Clear filters</button>' : ''}</div>
+      ${jobCardListView === 'NOT_SENT' ? '<p class="job-card-accelo-note">No successful Accelo send recorded in ATEC. Includes all stages, including cancelled cards and failed sends. Open a job card to check readiness and send its package. Sending outside ATEC is not tracked here.</p>' : ''}
       <div class="job-card-table-scroll" role="region" aria-label="Job cards — scroll horizontally for all columns" tabindex="0">
         <table class="job-card-review-table">
           <caption>Job cards — select a heading to sort, or a job card number to open.</caption>
@@ -11741,20 +11761,26 @@ function renderJobCardList() {
             <td class="job-card-review-date">${jobCardDateLabel(card.planned_at)}</td>
             <td class="job-card-review-date">${jobCardDateLabel(card.updated_at)}</td>
             <td><span class="job-card-status status-${safeAttr(String(card.status).toLowerCase())}">${escapeHtml(String(card.status).replaceAll('_',' '))}</span>${Number(card.open_deviations) > 0 ? `<small class="job-card-deviation-count">${escapeHtml(card.open_deviations)} open deviation${Number(card.open_deviations) === 1 ? '' : 's'}</small>` : '<small>No open deviations</small>'}</td>
+            <td>${jobCardAcceloCell(card)}</td>
             <td><button type="button" class="job-card-list-pdf" aria-label="Open PDF for ${safeAttr(card.jobcard_reference)}" title="Open PDF" onclick="window.open('${API_BASE}/job-cards/${card.jobcardid}/pdf','_blank','noopener')">PDF</button></td>
-          </tr>`).join('') || '<tr><td colspan="9" class="job-card-empty"><strong>No job cards match this view</strong><p>Try another status or clear the search filters.</p></td></tr>'}</tbody>
+          </tr>`).join('') || '<tr><td colspan="10" class="job-card-empty"><strong>No job cards match this view</strong><p>Try another status or clear the search filters.</p></td></tr>'}</tbody>
         </table>
       </div>
       ${filtered.length > JOB_CARD_LIST_PAGE_SIZE ? `<div class="job-card-pagination"><span>Showing ${start + 1}–${Math.min(start + JOB_CARD_LIST_PAGE_SIZE, filtered.length)} of ${filtered.length}</span><div><button type="button" onclick="changeJobCardListPage(-1)" ${jobCardListPage === 1 ? 'disabled' : ''}>Previous</button><b>Page ${jobCardListPage} of ${totalPages}</b><button type="button" onclick="changeJobCardListPage(1)" ${jobCardListPage === totalPages ? 'disabled' : ''}>Next</button></div></div>` : ''}
     </section>`
 }
 
-window.setJobCardListView = function (view) { jobCardListView = view; jobCardListPage = 1; renderJobCardList() }
+window.setJobCardListView = function (view) {
+  jobCardListView = view
+  jobCardListPage = 1
+  if (view === 'NOT_SENT') { window.clearJobCardListFilters(); return }
+  renderJobCardList()
+}
 window.jobCardListFiltersChanged = function () { jobCardListPage = 1; renderJobCardList() }
 window.jobCardListSearchChanged = function () {
   clearTimeout(jobCardListSearchTimer)
   const hasSearch = Boolean(document.querySelector('#jobCardSearch')?.value.trim())
-  if (hasSearch && !jobCardListSearchActive) {
+  if (hasSearch && !jobCardListSearchActive && jobCardListView !== 'NOT_SENT') {
     jobCardListView = 'ALL'
     document.querySelector('#jobCardStatusFilter').value = ''
     document.querySelector('#jobCardTechnicianFilter').value = ''

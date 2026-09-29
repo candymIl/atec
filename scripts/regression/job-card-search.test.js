@@ -96,6 +96,32 @@ assert.ok(html().indexOf('>Customer 20<') < html().indexOf('>Customer 19<'))
 for (const view of ['ACTIVE', 'REVIEW', 'COMPLETED', 'CANCELLED', 'ALL']) {
   context.window.setJobCardListView(view)
   assert.equal(elements['#jobCardSort'].value, 'CUSTOMER_DESC', 'Changing tabs preserves sorting')
-  assert.equal((html().match(/data-job-card-sort=/g) || []).length, 8, `${view} exposes every sortable heading, including empty views`)
+  assert.equal((html().match(/data-job-card-sort=/g) || []).length, 9, `${view} exposes every sortable heading, including empty views`)
 }
+
+context.cards = [
+  { ...cards[0], jobcardid:1, jobcard_reference:'JC-UNSENT', accelo_email_sent_at:null },
+  { ...cards[1], jobcardid:2, jobcard_reference:'JC-SENT', accelo_email_sent_at:'2026-09-29T10:00:00Z' },
+  { ...cards[1], jobcardid:3, jobcard_reference:'JC-FAILED', accelo_email_sent_at:null, accelo_send_failed:true },
+  { ...cards[1], jobcardid:4, jobcard_reference:'JC-RESEND', accelo_email_sent_at:'2026-09-28T10:00:00Z', accelo_send_failed:true },
+  { ...cards[0], jobcardid:5, jobcard_reference:'JC-CANCELLED', status:'CANCELLED', accelo_email_sent_at:null },
+  { ...cards[0], jobcardid:6, jobcard_reference:'JC-UNKNOWN' }
+]
+vm.runInContext('jobCardListRows = cards',context)
+elements['#jobCardStatusFilter'].value = 'APPROVED'
+elements['#jobCardSearch'].value = 'does not match'
+context.window.setJobCardListView('NOT_SENT')
+assert.ok(html().includes('JC-UNSENT') && html().includes('JC-FAILED') && html().includes('JC-CANCELLED'), 'Unsent tab includes every unsent stage and failed sends')
+assert.ok(!html().includes('JC-SENT') && !html().includes('JC-RESEND') && !html().includes('JC-UNKNOWN'), 'A failed resend does not erase a successful send, and missing API fields are not assumed unsent')
+assert.ok(html().includes('Not sent to Accelo</span><b>3</b>'), 'Tab count is based on successful send history')
+elements['#jobCardSearch'].value = 'failed'
+context.window.jobCardListSearchChanged()
+pending()
+assert.equal(vm.runInContext('jobCardListView',context),'NOT_SENT','Searching unsent cards preserves that scope')
+assert.ok(html().includes('JC-FAILED') && !html().includes('JC-UNSENT'))
+context.window.clearJobCardListFilters()
+context.window.setJobCardListView('ALL')
+assert.ok(html().includes('Latest resend failed') && html().includes('>Unknown</span>'))
+assert.equal(vm.runInContext("[...cards].sort((a,b)=>compareJobCardRows(a,b,'DELIVERY_ASC')).map(card=>card.jobcardid).join(',')",context),'5,1,3,4,2,6','Accelo status sorting uses displayed text and stable job references')
+assert.ok(route.includes('j.accelo_email_sent_at') && route.includes('AS accelo_send_failed'),'List API supplies recorded delivery evidence')
 console.log('Job-card search regression checks passed')
