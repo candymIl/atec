@@ -361,6 +361,45 @@ export async function submitMyDay(date) {
 
 let approvalRows = []
 let approvalStage = 'ALL'
+let approvalSort = 'DATE_ASC'
+const approvalSortColumns = [
+  ['EMPLOYEE', 'Employee', 'employee_name'],
+  ['DATE', 'Date', 'timesheet_date'],
+  ['JOBS', 'Job cards', 'job_card_numbers']
+]
+
+function compareApprovalRows(a, b) {
+  const [key, direction] = approvalSort.split('_')
+  const field = approvalSortColumns.find(column => column[0] === key)[2]
+  const value = row => key === 'DATE' ? String(row[field] || '').slice(0,10) : String(row[field] || '').trim()
+  const left = value(a), right = value(b)
+  if (!left !== !right) return left ? -1 : 1
+  return left.localeCompare(right, 'en', { numeric:true, sensitivity:'base' }) * (direction === 'DESC' ? -1 : 1)
+    || String(a.timesheet_date || '').localeCompare(String(b.timesheet_date || ''))
+    || String(a.employee_name || '').localeCompare(String(b.employee_name || ''))
+    || Number(a.timesheetid) - Number(b.timesheetid)
+}
+
+function approvalSortHeading(key, label, stage) {
+  const active = approvalSort.startsWith(`${key}_`)
+  const descending = active && approvalSort.endsWith('_DESC')
+  const next = active && !descending ? 'DESC' : 'ASC'
+  const order = key === 'DATE' ? (next === 'ASC' ? 'oldest first' : 'newest first') : (next === 'ASC' ? 'A to Z' : 'Z to A')
+  return `<th scope="col" aria-sort="${active ? (descending ? 'descending' : 'ascending') : 'none'}"><button type="button" class="approval-sort-heading" data-approval-sort="${stage}-${key}" onclick="sortTimesheetApprovals('${key}','${stage}')" aria-label="Sort ${label}: ${order}">${label}<small aria-hidden="true">${active ? (descending ? '↓' : '↑') : (key === 'DATE' ? '↕' : 'A–Z ↕')}</small></button></th>`
+}
+
+export function sortTimesheetApprovals(key, stage) {
+  if (!approvalSortColumns.some(column => column[0] === key)) return
+  approvalSort = `${key}_${approvalSort === `${key}_ASC` ? 'DESC' : 'ASC'}`
+  filterTimesheetApprovals()
+  document.querySelector(`[data-approval-sort="${stage}-${key}"]`)?.focus({preventScroll:true})
+}
+
+export function selectTimesheetApprovalSort(value) {
+  if (!approvalSortColumns.some(column => ['ASC','DESC'].some(direction => value === `${column[0]}_${direction}`))) return
+  approvalSort = value
+  filterTimesheetApprovals()
+}
 const approvalStages = [
   { status:'RETURNED', label:'Needs fixing', tone:'fix', hint:'Correct the returned entries before sending them for approval.' },
   { status:'EMPLOYEE_SUBMITTED', label:'Manager approval', tone:'approve', hint:'Check the submitted hours, then approve or return with a reason.' },
@@ -386,6 +425,7 @@ export async function renderTimesheetApprovals() {
       <label>From date<input id="approvalFrom" type="date" value="${safeAttr(previous.from)}" onchange="filterTimesheetApprovals()"></label>
       <label>To date<input id="approvalTo" type="date" value="${safeAttr(previous.to)}" onchange="filterTimesheetApprovals()"></label>
       <button type="button" class="approval-secondary" onclick="resetTimesheetApprovalFilters()">Clear filters</button></div>
+      <label class="approval-mobile-sort">Sort within each section<select id="approvalSort" onchange="selectTimesheetApprovalSort(this.value)">${approvalSortColumns.map(([key,label]) => ['ASC','DESC'].map(direction => `<option value="${key}_${direction}" ${approvalSort === `${key}_${direction}` ? 'selected' : ''}>${label}: ${key === 'DATE' ? (direction === 'ASC' ? 'oldest first' : 'newest first') : (direction === 'ASC' ? 'A–Z' : 'Z–A')}</option>`).join('')).join('')}</select></label>
       <p id="approvalCount" class="approval-count" role="status"></p><div id="approvalGroups"></div>`
     filterTimesheetApprovals()
   } catch (error) { document.querySelector('#approvalList').innerHTML = `<p class="login-error">${escapeHtml(error.message)}</p>` }
@@ -416,7 +456,8 @@ function approvalRow(row, stage) {
     ['EMPLOYEE_SUBMITTED','MANAGER_APPROVED'].includes(row.status) && ['ADMIN','MANAGER','HR'].includes(role) ? `<button type="button" class="approval-return" onclick="workforceAction(${id},'RETURN')">Return for correction</button>` : ''
   ].join('')
   const date = String(row.timesheet_date).slice(0,10)
-  return `<tr><td data-label="Employee / date"><strong>${escapeHtml(row.employee_name)}</strong><span class="approval-subtext">${escapeHtml(date)}${row.employee_number ? ` · ${escapeHtml(row.employee_number)}` : ''}</span></td>
+  return `<tr><td data-label="Employee"><strong>${escapeHtml(row.employee_name)}</strong>${row.employee_number ? `<span class="approval-subtext">${escapeHtml(row.employee_number)}</span>` : ''}</td>
+    <td data-label="Date" class="approval-date">${escapeHtml(date)}</td>
     <td data-label="Job cards" class="approval-jobs">${String(row.job_card_numbers || '').split(',').filter(value => value.trim()).map(value => `<span>${escapeHtml(value.trim())}</span>`).join('') || '—'}</td>
     <td data-label="Hours"><div class="approval-hours">${[['Normal',row.final_normal_hours],['Overtime',row.final_overtime_hours],['Travel',row.final_travel_hours],['Standby',row.final_standby_hours]].map(([label,value]) => `<span class="${Number(value) > 0 ? '' : 'approval-zero'}"><small>${label}</small><strong>${hours(value)}</strong></span>`).join('')}</div></td>
     <td data-label="Next step"><span class="approval-badge approval-${stage.tone}">${escapeHtml(stage.label)}</span>${row.status === 'RETURNED' ? `<p class="approval-reason"><strong>Reason:</strong> ${escapeHtml(row.returned_reason || 'No return reason recorded. Review the entries with the employee.')}</p>` : ''}</td>
@@ -431,15 +472,20 @@ export function filterTimesheetApprovals(stage) {
   const rows = approvalRows.filter(row => {
     const date = String(row.timesheet_date).slice(0,10)
     return (!from || date >= from) && (!to || date <= to) && [row.employee_name,row.employee_number,row.job_card_numbers].some(value => String(value || '').toLowerCase().includes(query))
-  }).sort((a,b) => String(a.timesheet_date).localeCompare(String(b.timesheet_date)) || String(a.employee_name).localeCompare(String(b.employee_name)))
+  }).sort(compareApprovalRows)
   const stages = [{status:'ALL',label:'All outstanding',tone:'all'},...approvalStages]
   document.querySelector('#approvalStages').innerHTML = stages.map(item => `<button type="button" class="approval-stage approval-${item.tone}" aria-pressed="${approvalStage === item.status}" onclick="filterTimesheetApprovals('${item.status}')"><span>${item.label}</span><strong>${item.status === 'ALL' ? rows.length : rows.filter(row => row.status === item.status).length}</strong></button>`).join('')
   const visible = rows.filter(row => approvalStage === 'ALL' || row.status === approvalStage)
-  document.querySelector('#approvalCount').textContent = from && to && from > to ? 'Choose a To date on or after the From date.' : `Showing ${visible.length} of ${approvalRows.length} outstanding timesheets · Oldest first within each stage · Hours shown as decimals`
+  const [sortKey, sortDirection] = approvalSort.split('_')
+  const sortLabel = approvalSortColumns.find(column => column[0] === sortKey)[1]
+  const sortOrder = sortKey === 'DATE' ? (sortDirection === 'ASC' ? 'oldest first' : 'newest first') : (sortDirection === 'ASC' ? 'A–Z' : 'Z–A')
+  const sortSelect = document.querySelector('#approvalSort')
+  if (sortSelect) sortSelect.value = approvalSort
+  document.querySelector('#approvalCount').textContent = from && to && from > to ? 'Choose a To date on or after the From date.' : `Showing ${visible.length} of ${approvalRows.length} outstanding timesheets · ${sortLabel}: ${sortOrder} within each stage · Hours shown as decimals`
   document.querySelector('#approvalGroups').innerHTML = approvalStages.map(item => {
     const group = visible.filter(row => row.status === item.status)
     if (!group.length) return ''
-    return `<section class="approval-group approval-${item.tone}"><div class="approval-group-heading"><h3>${item.label} <span>${group.length}</span></h3><p>${item.hint}</p></div><div class="table-scroll"><table class="approval-table"><thead><tr><th>Employee / date</th><th>Job cards</th><th>Hours</th><th>Next step</th><th>Actions</th></tr></thead><tbody>${group.map(row => approvalRow(row,item)).join('')}</tbody></table></div></section>`
+    return `<section class="approval-group approval-${item.tone}"><div class="approval-group-heading"><h3>${item.label} <span>${group.length}</span></h3><p>${item.hint}</p></div><div class="table-scroll"><table class="approval-table"><thead><tr>${approvalSortColumns.map(([key,label]) => approvalSortHeading(key,label,item.status)).join('')}<th scope="col">Hours</th><th scope="col">Next step</th><th scope="col">Actions</th></tr></thead><tbody>${group.map(row => approvalRow(row,item)).join('')}</tbody></table></div></section>`
   }).join('') || `<div class="filter-card approval-empty">${approvalRows.length ? 'No timesheets match these filters.' : 'You are up to date. No timesheets need attention.'}</div>`
 }
 export async function recalculateAwaitingTimesheets() {

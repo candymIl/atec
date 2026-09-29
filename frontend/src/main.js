@@ -37,6 +37,8 @@ import {
   exportPayrollExcel,
   filterTimesheetHistoryResults,
   filterTimesheetApprovals,
+  sortTimesheetApprovals,
+  selectTimesheetApprovalSort,
   resetTimesheetApprovalFilters,
   filterDailySubmissionStatus,
   sortDailySubmissionStatus,
@@ -1938,6 +1940,8 @@ window.exportPayrollExcel = exportPayrollExcel
 window.viewPayrollPreview = viewPayrollPreview
 window.filterTimesheetHistoryResults = filterTimesheetHistoryResults
 window.filterTimesheetApprovals = filterTimesheetApprovals
+window.sortTimesheetApprovals = sortTimesheetApprovals
+window.selectTimesheetApprovalSort = selectTimesheetApprovalSort
 window.resetTimesheetApprovalFilters = resetTimesheetApprovalFilters
 window.loadDailySubmissionStatus = loadDailySubmissionStatus
 window.filterDailySubmissionStatus = filterDailySubmissionStatus

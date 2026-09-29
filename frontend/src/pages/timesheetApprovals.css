@@ -26,11 +26,19 @@
 .timesheet-approvals .approval-table th { background: #f5f7fa; color: #52627a; font-size: 11px; text-transform: uppercase; letter-spacing: .035em; text-align: left; padding: 10px 16px; border: 0; border-bottom: 1px solid #e2e8f0; }
 .timesheet-approvals .approval-table td { padding: 16px; border: 0; border-bottom: 1px solid #e6ebf2; vertical-align: top; text-align: left; font-size: 13px; overflow-wrap: anywhere; color: #213653; background: white; }
 .timesheet-approvals .approval-table tbody tr:last-child td { border-bottom: 0; }
-.approval-table th:nth-child(1) { width: 18%; }
-.approval-table th:nth-child(2) { width: 18%; }
-.approval-table th:nth-child(3) { width: 26%; }
-.approval-table th:nth-child(4) { width: 20%; }
+.approval-table th:nth-child(1) { width: 16%; }
+.approval-table th:nth-child(2) { width: 12%; }
+.approval-table th:nth-child(3) { width: 14%; }
+.approval-table th:nth-child(4) { width: 24%; }
 .approval-table th:nth-child(5) { width: 18%; }
+.approval-table th:nth-child(6) { width: 16%; }
+.timesheet-approvals .approval-table th:has(.approval-sort-heading) { padding: 0; }
+.timesheet-approvals .approval-sort-heading { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; min-height: 44px; margin: 0; padding: 10px 12px; border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; text-align: left; box-shadow: none; }
+.approval-sort-heading small { font-size: 10px; white-space: nowrap; }
+.timesheet-approvals .approval-sort-heading:hover, .timesheet-approvals .approval-table th[aria-sort="ascending"], .timesheet-approvals .approval-table th[aria-sort="descending"] { background: #e7edfc; color: #24477e; }
+.timesheet-approvals .approval-sort-heading:focus-visible { outline-offset: -3px; }
+.approval-date { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.approval-mobile-sort { display: none; }
 .approval-subtext { display: block; color: #64748b; font-size: 11px; margin-top: 7px; }
 .approval-jobs span { display: block; font-size: 11px; margin-bottom: 5px; }
 .approval-hours { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; font-variant-numeric: tabular-nums; }
@@ -57,6 +65,7 @@
   .approval-filters > button { justify-self: start; }
 }
 @media (max-width: 700px) {
+  .approval-mobile-sort { display: grid; gap: 6px; font-size: 12px; }
   .approval-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .approval-stages > :first-child { grid-column: 1 / -1; }
   .timesheet-approvals .approval-stage { flex-direction: row; align-items: center; justify-content: space-between; }
