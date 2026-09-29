@@ -1,4 +1,5 @@
 const { formatCertificateMeasurement } = require("./services/certificateMeasurement")
+const { inspectedAssetIdsForJob, positiveIds, validWorkDate } = require("./services/jobCardInspectionAssets")
 const { attachCustomerReportReasons } = require("./services/customerReportReasons")
 const complianceExpiryReminders = require("./services/complianceExpiryReminders")
 const fs = require("fs")
@@ -16038,6 +16039,26 @@ app.post("/job-cards/calculate-hours", asyncRoute(async (req, res) => {
   res.json(await calculateJobCardTimeSummary(pool, req.body || {}, req.user.user_id))
 }))
 
+app.post("/job-cards/inspection-assets", asyncRoute(async (req, res) => {
+  const body = req.body || {}
+  const lead = Number(body.assigned_to_user_id)
+  if (req.user.role === "INSPECTOR" && lead !== Number(req.user.user_id)) {
+    const card = body.jobcardid ? await loadJobCard(body.jobcardid) : null
+    if (!card || ![card.assigned_to_user_id, card.created_by_user_id].map(Number).includes(Number(req.user.user_id)) || lead !== Number(card.assigned_to_user_id)) {
+      return res.status(403).json({ error: "Select yourself as technician or open a job card assigned to you" })
+    }
+  }
+  if (req.user.role === "MANAGER" && !(await managerMayAccessEmployee(req.user.user_id, lead))) {
+    return res.status(403).json({ error: "Select one of your linked employees" })
+  }
+  try {
+    res.json({ assetids: await inspectedAssetIdsForJob(pool, body), requires_confirmation: !String(body.customer_reference || "").trim() })
+  } catch (error) {
+    if (error.status === 400) return res.status(400).json({ error: error.message })
+    throw error
+  }
+}))
+
 app.get("/job-cards/:id", asyncRoute(async (req, res) => {
   const card = await loadJobCard(req.params.id)
   if (!card) return res.status(404).json({ error: "Job card not found" })
@@ -16053,25 +16074,6 @@ app.get("/job-cards/:id", asyncRoute(async (req, res) => {
 function jobCardApplicationUrl() {
   const configured = String(process.env.PUBLIC_APP_URL || process.env.FRONTEND_ORIGIN || "").split(",")[0].trim()
   return configured || "https://www.atecinspections.co.za/atec/"
-}
-
-async function inspectedAssetIdsForJob(client, body, userId) {
-  if (String(body.job_type || "").toUpperCase() !== "INSPECTIONS" || !body.clientid || !body.siteid) return []
-  const inspectorUserId = body.assigned_to_user_id || userId
-  const startDate = body.work_started_at || body.arrived_at || body.planned_at || new Date().toISOString()
-  const endDate = body.work_completed_at || body.travel_completed_at || startDate
-  const result = await client.query(`
-    SELECT DISTINCT i.assetid
-    FROM atec.tblinspection i
-    JOIN atec.tblasset a ON a.assetid = i.assetid
-    WHERE a.clientid = $1
-      AND a.siteid = $2
-      AND ($3::int IS NULL OR a.sectionid = $3)
-      AND i.inspector_user_id = $4
-      AND i.testdate BETWEEN LEAST($5::date, $6::date) AND GREATEST($5::date, $6::date)
-      AND COALESCE(i.record_status, 'ACTIVE') = 'ACTIVE'
-  `, [body.clientid, body.siteid, body.sectionid || null, inspectorUserId, startDate, endDate])
-  return result.rows.map(row => Number(row.assetid)).filter(Boolean)
 }
 
 async function emailAssignedTechnician(card) {
@@ -16181,6 +16183,7 @@ async function emailSubmittedJobCardToAccelo(card) {
 
 async function saveJobCard(req, res) {
   const body = req.body || {}
+  if (body.inspection_work_date && !validWorkDate(body.inspection_work_date)) return res.status(400).json({ error: "Select a valid inspection work date" })
   const requestedStatus = String(body.status || "DRAFT").toUpperCase()
   const equipmentStatus = String(body.equipment_status || "NOT_TESTED").toUpperCase()
   const acceloJobNumber = String(body.customer_reference || "").trim()
@@ -16313,8 +16316,17 @@ async function saveJobCard(req, res) {
       body.customer_signatory_name || "", body.customer_signatory_designation || "", newSignaturePath, body.signature_unavailable_reason || "",
       req.user.user_id, body.invoice_reference || "", jobcardid, calculatedHours.double_time_hours, calculatedHours.travel_hours,
       calculatedHours.normal_travel_hours, calculatedHours.overtime_travel_hours, String(body.customer_contact_email || "").trim()])
-    const inspectedAssetIds = await inspectedAssetIdsForJob(client, body, req.user.user_id)
-    const selectedAssetIds = [...new Set([...(body.assetids || []), ...inspectedAssetIds].map(Number).filter(Boolean))]
+    // Save exactly the selection reviewed on screen; never silently re-add unticked assets.
+    const selectedAssetIds = positiveIds(body.assetids)
+    await client.query(`UPDATE atec.tbljobcard SET inspection_work_date=$2,
+      inspection_asset_exclusions=$3::int[] WHERE jobcardid=$1`,
+    [jobcardid, body.inspection_work_date || null, positiveIds(body.inspection_asset_exclusions).filter(id => !selectedAssetIds.includes(id))])
+    const validAssets = await client.query(`SELECT assetid FROM atec.tblasset
+      WHERE assetid=ANY($1::int[]) AND clientid=$2 AND siteid=$3`, [selectedAssetIds, body.clientid, body.siteid])
+    if (validAssets.rows.length !== selectedAssetIds.length) {
+      await client.query("ROLLBACK")
+      return res.status(400).json({ error: "Selected assets must belong to this customer and site" })
+    }
     await client.query("DELETE FROM atec.tbljobcardasset WHERE jobcardid=$1", [jobcardid])
     for (const assetid of selectedAssetIds) {
       await client.query(`INSERT INTO atec.tbljobcardasset (jobcardid, assetid, asset_snapshot)

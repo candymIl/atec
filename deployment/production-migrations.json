@@ -47,6 +47,7 @@
     "2026-09-26-customer-portal-person-access.sql",
     "2026-09-28-required-password-change.sql",
     "2026-09-28-compliance-expiry-reminders.sql",
-    "2026-09-29-close-invalid-timesheets.sql"
+    "2026-09-29-close-invalid-timesheets.sql",
+    "2026-09-29-job-card-inspected-assets.sql"
   ]
 }

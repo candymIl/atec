@@ -1,5 +1,6 @@
 {
   "scripts": {
+    "test:job-card-inspected-assets": "node --test scripts/regression/job-card-inspected-assets.test.js",
     "test:close-invalid-timesheet": "node --test scripts/regression/close-invalid-timesheet.test.js",
     "test:compliance-expiry-reminders": "node --test scripts/regression/compliance-expiry-reminders.test.js",
     "test:required-password-change": "node scripts/regression/required-password-change.test.js",

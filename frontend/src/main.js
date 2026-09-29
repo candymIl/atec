@@ -1,4 +1,5 @@
 import './style.css'
+import { initialiseInspectionAssetSelection, southAfricanDate } from './jobCardInspectionAssets.js'
 import { renderRequiredPasswordChange } from './requiredPasswordChange.js'
 import './workspaceNotice.js'
 import { showJobCardFollowups } from './pages/JobCardFollowups.js'
@@ -11595,6 +11596,7 @@ window.saveInspection = async function(assetid, inspectiontype = "VISUAL", retur
 
 
 let jobCardEditing = null
+let jobCardInspectionSelection = null
 let jobCardAssets = []
 let jobCardTechnicians = []
 let jobCardListRows = []
@@ -11875,7 +11877,10 @@ function renderJobCardForm() {
           return `<label><input type="checkbox" name="jcCrew" value="${safeAttr(row.user_id)}" data-role="${safeAttr(row.role === 'ASSISTANT' ? 'ASSISTANT' : 'ADDITIONAL_TECHNICIAN')}" ${existing ? 'checked' : ''} ${crewLocked ? 'disabled' : ''}><span><strong>${escapeHtml(row.full_name)}</strong><small>${escapeHtml(row.role === 'ASSISTANT' ? 'Assistant' : 'Additional technician')}</small></span></label>`
         }).join('') || '<p>No additional active crew members are available.</p>'}</div>
       </section>
-      <section class="filter-card"><h3>Equipment</h3><p class="muted-text">Filter by equipment group or search by tag/serial number, then select the filtered results in one step. For Inspection jobs, matching inspected assets are also added automatically when saved.</p>
+      <section class="filter-card"><h3>Equipment</h3><p class="muted-text">Inspected assets are selected automatically for this customer, site, job number, work date and technician or crew. Review the selection and add any service-only assets manually.</p>
+        <label>Inspection work date<input id="jcInspectionDate" type="date" ${crewLocked ? 'disabled' : ''} value="${safeAttr(southAfricanDate(card.inspection_work_date || card.work_started_at || card.arrived_at || card.planned_at || new Date()))}"></label>
+        <p id="jcInspectedAssetNote" class="muted-text" aria-live="polite"></p>
+        <div class="form-actions"><button id="jcRefreshInspectedAssets" type="button" ${crewLocked ? 'disabled' : ''}>Refresh inspected assets</button><button id="jcApplyInspectedAssets" type="button" hidden>Select daily matches</button></div>
         <div class="job-card-asset-toolbar">
           <label>Equipment group<select id="jcAssetGroup" onchange="jobCardAssetGroupChanged()"><option value="">All equipment groups</option>${equipmentGroups.map(group => jobCardOption(group.id, group.name, '')).join('')}</select></label>
           <label>Equipment type<select id="jcAssetType" onchange="filterJobCardAssets()"><option value="">All equipment types</option></select></label>
@@ -11910,6 +11915,8 @@ function renderJobCardForm() {
   if (!card.customer_signature_path) initialiseJobCardSignature()
   jobCardAssetGroupChanged()
   refreshJobCardHours()
+  jobCardInspectionSelection = initialiseInspectionAssetSelection({ form: document.querySelector('#jobCardForm'), card,
+    apiBase: API_BASE, readResponse: readApiResponse, updateSummary: updateJobCardAssetSummary })
 }
 
 function dateTimeLocalValue(value) { if (!value) return ''; const date = new Date(value); return Number.isNaN(date.getTime()) ? '' : new Date(date.getTime() - date.getTimezoneOffset()*60000).toISOString().slice(0,16) }
@@ -11997,7 +12004,7 @@ function renderJobCardDeviationRow(row = {}) { return `<div class="job-card-devi
 window.addJobCardMaterialRow = () => document.querySelector('#jcMaterials').insertAdjacentHTML('beforeend', renderJobCardMaterialRow())
 window.addJobCardDeviationRow = () => document.querySelector('#jcDeviations').insertAdjacentHTML('beforeend', renderJobCardDeviationRow())
 window.jobCardCustomerChanged = async function () {
-  jobCardEditing = { ...jobCardEditing, clientid: document.querySelector('#jcClient').value, siteid: '', sectionid: '' }
+  jobCardEditing = { ...jobCardEditing, ...collectJobCardPayload(), assets: [], inspection_asset_exclusions: [], siteid: '', sectionid: '' }
   try { await loadJobCardAssets(jobCardEditing.clientid) }
   catch (error) { alert(error.message); jobCardAssets = [] }
   renderJobCardForm()
@@ -12020,7 +12027,7 @@ window.filterJobCardCustomers = function () {
   select.value = selectedId
 }
 window.jobCardSiteChanged = async function () {
-  jobCardEditing = { ...jobCardEditing, clientid: document.querySelector('#jcClient').value, siteid: document.querySelector('#jcSite').value, sectionid: '' }
+  jobCardEditing = { ...jobCardEditing, ...collectJobCardPayload(), assets: [], inspection_asset_exclusions: [], sectionid: '' }
   try { await loadJobCardAssets(jobCardEditing.clientid, jobCardEditing.siteid) }
   catch (error) { alert(error.message); jobCardAssets = [] }
   renderJobCardForm()
@@ -12051,7 +12058,10 @@ window.jobCardAssetGroupChanged = function () {
 }
 
 window.setFilteredJobCardAssets = function (checked) {
-  document.querySelectorAll('#jcAssetChoices > label:not([hidden]) input[name="jcAsset"]').forEach(input => { input.checked = checked })
+  document.querySelectorAll('#jcAssetChoices > label:not([hidden]) input[name="jcAsset"]').forEach(input => {
+    input.checked = checked
+    jobCardInspectionSelection?.state.manual(input.value, checked)
+  })
   updateJobCardAssetSummary()
 }
 
@@ -12069,7 +12079,7 @@ function jobCardCanvasHasInk(canvas) { if (!canvas) return false; return canvas.
 
 function collectJobCardPayload(forcedStatus) {
   const value=id=>document.querySelector(id)?.value || ''
-  return { quote_required:document.querySelector('#jcQuoteRequired')?.checked===true,return_visit_required:document.querySelector('#jcReturnRequired')?.checked===true,return_visit_reason:value('#jcReturnReason'),clientid:value('#jcClient'),siteid:value('#jcSite'),sectionid:value('#jcSection')||null,assigned_to_user_id:value('#jcAssigned')||null,crew:[...document.querySelectorAll('[name="jcCrew"]:checked')].map(node=>({user_id:Number(node.value),crew_role:node.dataset.role})),email_assigned_technician:document.querySelector('#jcEmailTechnician')?.checked===true,job_type:value('#jcType'),priority:value('#jcPriority'),status:forcedStatus||jobCardEditing?.status||'DRAFT',customer_reference:value('#jcReference').trim(),customer_contact_name:value('#jcContact'),customer_contact_phone:value('#jcPhone'),customer_contact_email:value('#jcCustomerEmail').trim(),planned_at:value('#jcPlanned')||null,assetids:[...document.querySelectorAll('[name="jcAsset"]:checked')].map(node=>Number(node.value)),reported_fault:value('#jcFault'),findings:value('#jcFindings'),root_cause:value('#jcRootCause'),work_performed:value('#jcWork'),test_performed:value('#jcTest'),test_result:value('#jcTestResult'),recommendations:value('#jcRecommendations'),materials:[...document.querySelectorAll('.jc-material')].map(row=>({quantity:row.querySelector('.jc-mat-qty').value,description:row.querySelector('.jc-mat-desc').value,part_number:row.querySelector('.jc-mat-part').value,supplied_by:row.querySelector('.jc-mat-supplier').value,material_status:row.querySelector('.jc-mat-status').value})),deviations:[...document.querySelectorAll('.jc-deviation')].map(row=>({deviationid:row.dataset.id||null,category:row.querySelector('.jc-dev-category').value,severity:row.querySelector('.jc-dev-severity').value,deviation_status:row.querySelector('.jc-dev-status').value,target_date:row.querySelector('.jc-dev-date').value||null,description:row.querySelector('.jc-dev-desc').value,immediate_action:row.querySelector('.jc-dev-action').value,further_work_required:row.querySelector('.jc-dev-further').value})),departed_at:value('#jcDeparted')||null,arrived_at:value('#jcArrived')||null,work_started_at:value('#jcStarted')||null,work_completed_at:value('#jcCompleted')||null,travel_completed_at:value('#jcTravelDone')||null,kilometres:value('#jcKm'),normal_hours:value('#jcNormalHours'),overtime_hours:value('#jcOvertimeHours'),standby_hours:value('#jcStandbyHours'),equipment_status:value('#jcEquipmentStatus'),equipment_status_reason:value('#jcEquipmentReason'),customer_signatory_name:value('#jcSignatory'),customer_signatory_designation:value('#jcDesignation'),signature_unavailable_reason:value('#jcSignatureReason'),customer_signature_data:jobCardCanvasHasInk(document.querySelector('#jcSignatureCanvas'))?document.querySelector('#jcSignatureCanvas').toDataURL('image/png'):null }
+  return { inspection_work_date:value('#jcInspectionDate')||null,inspection_asset_exclusions:[...(jobCardInspectionSelection?.state.excluded || [])].map(Number),quote_required:document.querySelector('#jcQuoteRequired')?.checked===true,return_visit_required:document.querySelector('#jcReturnRequired')?.checked===true,return_visit_reason:value('#jcReturnReason'),clientid:value('#jcClient'),siteid:value('#jcSite'),sectionid:value('#jcSection')||null,assigned_to_user_id:value('#jcAssigned')||null,crew:[...document.querySelectorAll('[name="jcCrew"]:checked')].map(node=>({user_id:Number(node.value),crew_role:node.dataset.role})),email_assigned_technician:document.querySelector('#jcEmailTechnician')?.checked===true,job_type:value('#jcType'),priority:value('#jcPriority'),status:forcedStatus||jobCardEditing?.status||'DRAFT',customer_reference:value('#jcReference').trim(),customer_contact_name:value('#jcContact'),customer_contact_phone:value('#jcPhone'),customer_contact_email:value('#jcCustomerEmail').trim(),planned_at:value('#jcPlanned')||null,assetids:[...document.querySelectorAll('[name="jcAsset"]:checked')].map(node=>Number(node.value)),reported_fault:value('#jcFault'),findings:value('#jcFindings'),root_cause:value('#jcRootCause'),work_performed:value('#jcWork'),test_performed:value('#jcTest'),test_result:value('#jcTestResult'),recommendations:value('#jcRecommendations'),materials:[...document.querySelectorAll('.jc-material')].map(row=>({quantity:row.querySelector('.jc-mat-qty').value,description:row.querySelector('.jc-mat-desc').value,part_number:row.querySelector('.jc-mat-part').value,supplied_by:row.querySelector('.jc-mat-supplier').value,material_status:row.querySelector('.jc-mat-status').value})),deviations:[...document.querySelectorAll('.jc-deviation')].map(row=>({deviationid:row.dataset.id||null,category:row.querySelector('.jc-dev-category').value,severity:row.querySelector('.jc-dev-severity').value,deviation_status:row.querySelector('.jc-dev-status').value,target_date:row.querySelector('.jc-dev-date').value||null,description:row.querySelector('.jc-dev-desc').value,immediate_action:row.querySelector('.jc-dev-action').value,further_work_required:row.querySelector('.jc-dev-further').value})),departed_at:value('#jcDeparted')||null,arrived_at:value('#jcArrived')||null,work_started_at:value('#jcStarted')||null,work_completed_at:value('#jcCompleted')||null,travel_completed_at:value('#jcTravelDone')||null,kilometres:value('#jcKm'),normal_hours:value('#jcNormalHours'),overtime_hours:value('#jcOvertimeHours'),standby_hours:value('#jcStandbyHours'),equipment_status:value('#jcEquipmentStatus'),equipment_status_reason:value('#jcEquipmentReason'),customer_signatory_name:value('#jcSignatory'),customer_signatory_designation:value('#jcDesignation'),signature_unavailable_reason:value('#jcSignatureReason'),customer_signature_data:jobCardCanvasHasInk(document.querySelector('#jcSignatureCanvas'))?document.querySelector('#jcSignatureCanvas').toDataURL('image/png'):null }
 }
 
 async function uploadJobCardPhotoFiles(jobcardid, files, { caption = '', photoType = 'GENERAL', deviationid = '' } = {}) {
@@ -12093,6 +12103,7 @@ window.saveJobCard = async function (forcedStatus = null) {
   if (jobCardSaveInProgress) return
   jobCardSaveInProgress = true
   try {
+    await jobCardInspectionSelection?.refresh()
     const payload = collectJobCardPayload(forcedStatus)
     if (!/^[0-9]+$/.test(payload.customer_reference)) {
       alert('Enter the Accelo Job Number using numeric digits only.')
