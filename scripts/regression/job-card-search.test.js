@@ -18,7 +18,7 @@ const elements = {
 const document = { querySelector: id => elements[id], activeElement: elements['#jobCardSearch'] }
 let pending
 const context = vm.createContext({
-  window: {}, document, API_BASE: '/api', escapeHtml: String, safeAttr: String,
+  window: {}, currentUser:{role:'ADMIN'}, document, API_BASE: '/api', escapeHtml: String, safeAttr: String,
   setTimeout: callback => { pending = callback; return 1 }, clearTimeout: () => { pending = null }
 })
 vm.runInContext(queue, context)

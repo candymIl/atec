@@ -1,4 +1,5 @@
 const express = require("express")
+const { acceloOverride } = require("../services/acceloOverride")
 const { closeInvalidTimesheet } = require("../services/closeInvalidTimesheet")
 const { submitAwaitingTimesheets } = require("../services/submitAwaitingTimesheets")
 const { calculateTimeEntries, standardFallbackSchedule } = require("../services/workforceTime")
@@ -357,13 +358,13 @@ async function loadAcceloReadiness(pool, jobcardid) {
     FROM atec.tbljobcardcrew crew JOIN atec.tblusers u ON u.userid=crew.user_id
     WHERE crew.jobcardid=$1 AND crew.included_in_time=true
     ORDER BY employee_name`, [jobcardid])
-  const timesheets = await pool.query(`SELECT DISTINCT t.timesheetid,t.user_id,t.timesheet_date,t.status,t.returned_reason,
+  const timesheets = await pool.query(`SELECT DISTINCT t.timesheetid,t.user_id,t.timesheet_date::text AS timesheet_date,t.status,t.returned_reason,
     COALESCE(NULLIF(u.fullname,''),u.username) AS employee_name
     FROM atec.tbltimeentry entry
     JOIN atec.tbldailytimesheet t ON t.user_id=entry.user_id AND t.timesheet_date=entry.activity_date
     JOIN atec.tblusers u ON u.userid=t.user_id
     WHERE entry.jobcardid=$1
-    ORDER BY t.timesheet_date,t.user_id`, [jobcardid])
+    ORDER BY timesheet_date,t.user_id`, [jobcardid])
   const assets = await pool.query(`SELECT ja.assetid,COALESCE(NULLIF(a.assettagno,''),NULLIF(a.serialno,''),'Asset ' || ja.assetid::text) AS asset_name
     FROM atec.tbljobcardasset ja LEFT JOIN atec.tblasset a ON a.assetid=ja.assetid
     WHERE ja.jobcardid=$1 ORDER BY asset_name`, [jobcardid])
@@ -765,7 +766,7 @@ function registerWorkforceRoutes(app, {
       managerScope = ` AND EXISTS (SELECT 1 FROM atec.tblusermanagerassignment assignment
         WHERE assignment.employee_user_id=u.userid AND assignment.manager_user_id=$${values.length})`
     }
-    const sheetResult = await pool.query(`SELECT t.timesheetid,t.user_id,t.timesheet_date,t.status,
+    const sheetResult = await pool.query(`SELECT t.timesheetid,t.user_id,t.timesheet_date::text AS timesheet_date,t.status,
       COALESCE(NULLIF(u.fullname,''),u.username) AS employee_name
       FROM atec.tbldailytimesheet t JOIN atec.tblusers u ON u.userid=t.user_id
       WHERE t.timesheetid=$1${managerScope}`, values)
@@ -1250,26 +1251,29 @@ function registerWorkforceRoutes(app, {
     if (!["ADMIN","MANAGER","INSPECTOR"].includes(req.user.role)) return res.status(403).json({ error:"Access denied" })
     const readiness = await loadAcceloReadiness(pool, req.params.id)
     if (!readiness) return res.status(404).json({ error:"Job Card not found" })
-    res.json(readiness)
+    res.json({...readiness, cc:jobCardCc || []})
   }))
 
   router.post("/job-cards/:id/accelo-send", emailLimiter, asyncRoute(async (req, res) => {
     if (!["ADMIN","MANAGER"].includes(req.user.role)) return res.status(403).json({ error:"Access denied" })
     const readiness = await loadAcceloReadiness(pool, req.params.id)
     if (!readiness) return res.status(404).json({ error:"Job Card not found" })
-    if (!readiness.ready) return res.status(409).json({ error:"The Accelo package is not ready.", issues:readiness.issues })
+    const override = acceloOverride(req.user, req.body, readiness)
+    if (!readiness.ready && !override) return res.status(409).json({ error:"The Accelo package is not ready.", issues:readiness.issues })
     if (readiness.card.accelo_email_sent_at && req.body?.resend !== true) {
       return res.status(409).json({ error:"This Accelo package has already been sent. Select resend explicitly if another copy is required." })
     }
     const mailIssues = getMailConfigIssues()
     if (mailIssues.length) return res.status(503).json({ error:`Email is not configured. Missing: ${mailIssues.join(", ")}` })
     const manifest = []
+    if (override) manifest.push({type:'ADMIN_OVERRIDE',...override})
     const attachments = []
     const card = await loadJobCard(req.params.id)
     const cardFilename = `${card.jobcard_reference}.pdf`
     attachments.push({ filename:cardFilename,content:await createJobCardPdfBuffer(card),contentType:"application/pdf" })
     manifest.push({ type:"JOB_CARD",id:card.jobcardid,filename:cardFilename })
     for (const row of readiness.timesheets) {
+      if (row.status === 'CLOSED_INVALID') continue
       const sheet = await loadTimesheetPdfData(pool,row.timesheetid)
       const filename = `FBC009-10-${String(sheet.timesheet_date).slice(0,10)}-${sheet.user_id}.pdf`
       attachments.push({ filename,content:await createTimesheetPdfBuffer(sheet,{brandRoot}),contentType:"application/pdf" })
@@ -1289,7 +1293,7 @@ function registerWorkforceRoutes(app, {
       (jobcardid,recipient,subject,attachment_manifest,delivery_status,requested_by_user_id)
       VALUES($1,$2,$3,$4,'PENDING',$5) RETURNING deliveryid`, [
       readiness.card.jobcardid,readiness.recipient,
-      `ATEC completed job - ${readiness.card.jobcard_reference} - Job ${readiness.card.customer_reference}`,
+      `ATEC ${override ? 'admin override' : 'completed job'} - ${readiness.card.jobcard_reference} - Job ${readiness.card.customer_reference}`,
       JSON.stringify(manifest),req.user.user_id
     ])
     try {
@@ -1297,9 +1301,10 @@ function registerWorkforceRoutes(app, {
         from:process.env.MAIL_FROM,
         to:readiness.recipient,
         cc:jobCardCc,
-        subject:`ATEC completed job - ${readiness.card.jobcard_reference} - Job ${readiness.card.customer_reference}`,
+        subject:`ATEC ${override ? 'admin override' : 'completed job'} - ${readiness.card.jobcard_reference} - Job ${readiness.card.customer_reference}`,
         text:[
-          "Completed ATEC job package.",
+          override ? 'ADMIN OVERRIDE: available documents sent with outstanding checks. This is not timesheet or payroll approval.' : 'Completed ATEC job package.',
+          ...(override ? [`Override reason: ${override.reason}`, ...override.issues.map(issue => `Outstanding: ${issue}`), 'Closed-invalid timesheets are excluded.'] : []),
           "",
           `Customer: ${readiness.card.clientname}`,
           `Job Card: ${readiness.card.jobcard_reference}`,
@@ -1312,7 +1317,7 @@ function registerWorkforceRoutes(app, {
       await pool.query(`UPDATE atec.tblaccelodelivery SET delivery_status='SENT',sent_at=now() WHERE deliveryid=$1`, [delivery.rows[0].deliveryid])
       await pool.query(`UPDATE atec.tbljobcard SET accelo_email_to=$1,accelo_email_sent_at=now(),accelo_email_error=NULL
         WHERE jobcardid=$2`, [readiness.recipient,readiness.card.jobcardid])
-      res.json({ success:true,recipient:readiness.recipient,attachments:manifest,bytes:totalBytes })
+      res.json({ success:true,recipient:readiness.recipient,attachments:manifest.filter(item => item.type !== 'ADMIN_OVERRIDE'),bytes:totalBytes })
     } catch (error) {
       const message = getMailErrorMessage(error)
       await pool.query(`UPDATE atec.tblaccelodelivery SET delivery_status='FAILED',error_message=$1 WHERE deliveryid=$2`, [message,delivery.rows[0].deliveryid])

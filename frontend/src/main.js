@@ -11665,8 +11665,9 @@ function jobCardNotSentToAccelo(card) {
 
 function jobCardAcceloCell(card) {
   const status = jobCardAcceloStatus(card)
+  const action = ['ADMIN','MANAGER'].includes(currentUser?.role) && ['Not sent','Send failed'].includes(status) ? `<button type="button" onclick="openJobCardAcceloActions(${Number(card.jobcardid)})">Send / fix time</button>` : ''
   const tone = status === 'Sent' ? 'sent' : status === 'Send failed' ? 'failed' : 'pending'
-  return `<span class="job-card-accelo-status ${tone}">${status}</span>${status === 'Sent' ? `<small>${jobCardDateLabel(card.accelo_email_sent_at)}</small>${card.accelo_send_failed ? '<small>Latest resend failed</small>' : ''}` : status === 'Unknown' ? '<small>Refresh after the server update</small>' : ''}`
+  return `<span class="job-card-accelo-status ${tone}">${status}</span>${status === 'Sent' ? `<small>${jobCardDateLabel(card.accelo_email_sent_at)}</small>${card.accelo_send_failed ? '<small>Latest resend failed</small>' : ''}` : status === 'Unknown' ? '<small>Refresh after the server update</small>' : ''}${action}`
 }
 
 function compareJobCardRows(a, b, sort) {
@@ -12208,6 +12209,12 @@ window.emailSignedJobCardToCustomer = async function (jobcardid) {
   await openJobCard(jobcardid)
 }
 
+window.openJobCardAcceloActions = async function(jobcardid) {
+  await openJobCard(jobcardid)
+  await window.checkAcceloPackage(jobcardid)
+  document.querySelector('#acceloPackageStatus')?.scrollIntoView({behavior:'smooth',block:'center'})
+}
+
 window.checkAcceloPackage = async function (jobcardid) {
   const box = document.querySelector('#acceloPackageStatus')
   if (box) box.innerHTML = '<p>Checking package readiness...</p>'
@@ -12218,6 +12225,8 @@ window.checkAcceloPackage = async function (jobcardid) {
     if (box) box.innerHTML = `<p class="login-error">${escapeHtml(result.error || 'Could not check the Accelo package')}</p>`
     return
   }
+  if (box) { box.dataset.recipient = result.recipient || ''; box.dataset.cc = Array.isArray(result.cc) ? result.cc.join(', ') : (result.cc || ''); box.dataset.issues = JSON.stringify(result.issues || []) }
+  const forceButton = currentUser.role === 'ADMIN' && result.issues.length && ['APPROVED','INVOICED'].includes(result.card.status) && result.recipient ? `<p>Review / correct entries using the crew links above, or send available documents with the outstanding checks clearly recorded. This does not fix or approve time.</p><button type="button" class="danger-btn" onclick="sendAcceloPackage(${jobcardid},${!!result.card.accelo_email_sent_at},true)">Force send to Accelo (Admin)</button>` : ''
   const crewTimesheets = await renderAcceloTimesheetReview(jobcardid, result.timesheets || [], currentUser.role)
   if (box) box.innerHTML = `
     <div class="job-card-grid">
@@ -12227,6 +12236,7 @@ window.checkAcceloPackage = async function (jobcardid) {
       <p><strong>Certificates</strong><br>${result.certificates.length}</p>
     </div>
     ${crewTimesheets}
+    ${forceButton}
     ${result.issues.length ? `<div class="login-error"><strong>Not ready:</strong><ul>${result.issues.map(issue => `<li>${escapeHtml(issue)}</li>`).join('')}</ul></div>` : `<p><strong>Ready to send.</strong> All workflow checks passed.</p><button type="button" class="load-test-btn" onclick="sendAcceloPackage(${jobcardid},${result.card.accelo_email_sent_at ? 'true' : 'false'})">${result.card.accelo_email_sent_at ? 'Resend package' : 'Send package to Accelo'}</button>`}`
   } catch (error) {
     if (box) box.innerHTML = `<p class="login-error">Could not refresh package readiness. Use Check readiness to retry. ${escapeHtml(error.message)}</p>`
@@ -12235,13 +12245,23 @@ window.checkAcceloPackage = async function (jobcardid) {
 
 window.approveAcceloTimesheet = (jobcardid, timesheetid, button) => approveAcceloTimesheet(jobcardid, timesheetid, button, window.checkAcceloPackage)
 
-window.sendAcceloPackage = async function (jobcardid, resend = false) {
-  const destination = document.querySelector('#acceloPackageStatus strong')?.textContent || 'the derived Accelo job address'
-  if (!window.confirm(`Send the completed Job Card package to ${destination}?`)) return
+let acceloSendPending = false
+window.sendAcceloPackage = async function (jobcardid, resend = false, force = false) {
+  if (acceloSendPending || (force && currentUser.role !== 'ADMIN')) return
+  const box = document.querySelector('#acceloPackageStatus')
+  const destination = box?.dataset.recipient
+  if (!destination) return alert('Run Check readiness before sending.')
+  const reason = force ? window.prompt('Why must this package be sent with outstanding checks? (5–1000 characters)')?.trim() : ''
+  if (force && !reason) return
+  if (force && (reason.length < 5 || reason.length > 1000)) return alert('Enter a reason between 5 and 1000 characters.')
+  const issues = force ? JSON.parse(box.dataset.issues || '[]').join('\n') : ''
+  if (!window.confirm(`${force ? "Force send available documents" : "Send job-card package"} to ${destination}?\nCC: ${box.dataset.cc || "None"}\n${issues}${force ? "\n\nThe email will disclose these outstanding checks. Timesheets stay at their current approval stage.\nReason: " + reason : ""}`)) return
+  acceloSendPending = true
+  try {
   const response = await fetch(`${API_BASE}/workforce/job-cards/${jobcardid}/accelo-send`, {
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({resend})
+    body:JSON.stringify({resend,force,reason})
   })
   const result = await readApiResponse(response)
   if (!response.ok) {
@@ -12251,6 +12271,7 @@ window.sendAcceloPackage = async function (jobcardid, resend = false) {
   }
   alert(`Accelo package sent to ${result.recipient} with ${result.attachments.length} attachment(s).`)
   await openJobCard(jobcardid)
+  } catch (error) { alert(error.message) } finally { acceloSendPending = false }
 }
 
 const startupTap = getStartupAssetTap()
