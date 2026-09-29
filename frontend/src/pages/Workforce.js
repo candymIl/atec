@@ -1,5 +1,6 @@
 import { API_BASE } from '../api.js'
 import { escapeHtml, safeAttr } from '../utils/security.js'
+import './timesheetApprovals.css'
 
 async function api(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, options)
@@ -326,23 +327,89 @@ export async function submitMyDay(date) {
   } catch (error) { alert(error.message) }
 }
 
+let approvalRows = []
+let approvalStage = 'ALL'
+const approvalStages = [
+  { status:'RETURNED', label:'Needs fixing', tone:'fix', hint:'Correct the returned entries before sending them for approval.' },
+  { status:'EMPLOYEE_SUBMITTED', label:'Manager approval', tone:'approve', hint:'Check the submitted hours, then approve or return with a reason.' },
+  { status:'MANAGER_APPROVED', label:'HR acceptance', tone:'hr', hint:'Manager review is complete. HR must check and accept these timesheets.' },
+  { status:'AWAITING_EMPLOYEE', label:'Awaiting employee', tone:'waiting', hint:'The employee must check and submit their time before manager approval.' }
+]
+
 export async function renderTimesheetApprovals() {
   const page = document.querySelector('#page')
-  const adminRecalculate = window.currentUser?.role === 'ADMIN' ? `<button type="button" onclick="recalculateAwaitingTimesheets()">Recalculate awaiting timesheets</button>` : ''
-  page.innerHTML = `<div class="page-heading"><div><h2>Timesheet Approvals</h2><p>Review exceptions, correct assigned employee time with an audit reason, then approve or return it.</p></div>${adminRecalculate}</div><section id="approvalList" class="filter-card">Loading...</section><section id="managerTimeEditor" class="filter-card" hidden></section>`
+  const previous = {
+    search:document.querySelector('#approvalSearch')?.value || '',
+    from:document.querySelector('#approvalFrom')?.value || '',
+    to:document.querySelector('#approvalTo')?.value || ''
+  }
+  const adminRecalculate = window.currentUser?.role === 'ADMIN' ? `<details class="approval-tools"><summary>Admin tools</summary><button type="button" onclick="recalculateAwaitingTimesheets()">Recalculate awaiting timesheets</button></details>` : ''
+  page.innerHTML = `<div class="timesheet-approvals"><div class="page-heading"><div><h2>Timesheet Approvals</h2><p>See what needs fixing, who needs to approve, and what is still awaiting submission.</p></div>${adminRecalculate}</div>
+    <section id="approvalList" aria-label="Timesheet approval queue">Loading timesheets...</section>
+    <section id="managerTimeEditor" class="filter-card" hidden></section></div>`
   try {
-    const rows = await api('/workforce/approvals')
-    const role = window.currentUser?.role
-    const editableStatuses = role === 'ADMIN'
-      ? ['AWAITING_EMPLOYEE','EMPLOYEE_SUBMITTED','MANAGER_APPROVED','RETURNED']
-      : role === 'MANAGER' ? ['EMPLOYEE_SUBMITTED'] : ['EMPLOYEE_SUBMITTED','MANAGER_APPROVED','RETURNED']
-    const canEditTime = ['ADMIN','MANAGER','HR'].includes(role)
-    document.querySelector('#approvalList').innerHTML = `<div class="table-scroll"><table><thead><tr><th>Date</th><th>Employee</th><th>Job Card Number</th><th>Status</th><th>Normal</th><th>Overtime</th><th>Travel</th><th>Standby</th><th>Action</th></tr></thead><tbody>
-      ${rows.map(row => `<tr><td>${escapeHtml(String(row.timesheet_date).slice(0,10))}</td><td>${escapeHtml(row.employee_name)}</td><td>${escapeHtml(row.job_card_numbers || '-')}</td><td>${escapeHtml(row.status.replaceAll('_',' '))}</td><td>${hours(row.final_normal_hours)}</td><td>${hours(row.final_overtime_hours)}</td><td>${hours(row.final_travel_hours)}</td><td>${hours(row.final_standby_hours)}</td><td><button onclick="window.open('${API_BASE}/workforce/timesheets/${row.timesheetid}/pdf','_blank','noopener')">PDF</button>${canEditTime && editableStatuses.includes(row.status) ? `<button onclick="editEmployeeTimes(${row.timesheetid})">Review / correct entries</button>` : ''}${row.status === 'AWAITING_EMPLOYEE' && role === 'ADMIN' ? `<button class="load-test-btn" onclick="workforceAction(${row.timesheetid},'SUBMIT_EMPLOYEE')">Submit for employee</button>` : ''}${row.status === 'EMPLOYEE_SUBMITTED' && ['ADMIN','MANAGER'].includes(role) ? `<button onclick="workforceAction(${row.timesheetid},'APPROVE')">Approve</button>` : ''}${row.status === 'RETURNED' && role === 'ADMIN' ? `<button class="load-test-btn" onclick="approveCorrectedTimesheet(${row.timesheetid})">Approve corrected timesheet</button>` : ''}${row.status === 'MANAGER_APPROVED' && ['ADMIN','HR'].includes(role) ? `<button onclick="workforceAction(${row.timesheetid},'ACCEPT')">HR accept</button>` : ''}${!['AWAITING_EMPLOYEE','RETURNED'].includes(row.status) ? `<button onclick="workforceAction(${row.timesheetid},'RETURN')">Return</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="9">No timesheets need attention.</td></tr>'}
-    </tbody></table></div>`
+    approvalRows = await api('/workforce/approvals')
+    document.querySelector('#approvalList').innerHTML = `<div id="approvalStages" class="approval-stages" aria-label="Filter by next step"></div>
+      <div class="filter-card approval-filters"><label>Find employee or job card<input id="approvalSearch" type="search" placeholder="Search name, employee number or job card" value="${safeAttr(previous.search)}" oninput="filterTimesheetApprovals()"></label>
+      <label>From date<input id="approvalFrom" type="date" value="${safeAttr(previous.from)}" onchange="filterTimesheetApprovals()"></label>
+      <label>To date<input id="approvalTo" type="date" value="${safeAttr(previous.to)}" onchange="filterTimesheetApprovals()"></label>
+      <button type="button" class="approval-secondary" onclick="resetTimesheetApprovalFilters()">Clear filters</button></div>
+      <p id="approvalCount" class="approval-count" role="status"></p><div id="approvalGroups"></div>`
+    filterTimesheetApprovals()
   } catch (error) { document.querySelector('#approvalList').innerHTML = `<p class="login-error">${escapeHtml(error.message)}</p>` }
 }
 
+export function resetTimesheetApprovalFilters() {
+  for (const id of ['approvalSearch','approvalFrom','approvalTo']) document.getElementById(id).value = ''
+  filterTimesheetApprovals('ALL')
+}
+
+function approvalRow(row, stage) {
+  const role = window.currentUser?.role
+  const editableStatuses = role === 'ADMIN'
+    ? ['AWAITING_EMPLOYEE','EMPLOYEE_SUBMITTED','MANAGER_APPROVED','RETURNED']
+    : role === 'MANAGER' ? ['EMPLOYEE_SUBMITTED'] : ['EMPLOYEE_SUBMITTED','MANAGER_APPROVED','RETURNED']
+  const canEdit = ['ADMIN','MANAGER','HR'].includes(role) && editableStatuses.includes(row.status)
+  const id = Number(row.timesheetid)
+  let primary = ''
+  if (row.status === 'EMPLOYEE_SUBMITTED' && ['ADMIN','MANAGER'].includes(role)) primary = `<button type="button" onclick="workforceAction(${id},'APPROVE')">Approve</button>`
+  if (row.status === 'MANAGER_APPROVED' && ['ADMIN','HR'].includes(role)) primary = `<button type="button" onclick="workforceAction(${id},'ACCEPT')">HR accept</button>`
+  if (row.status === 'RETURNED' && canEdit) primary = `<button type="button" onclick="editEmployeeTimes(${id})">Review / correct entries</button>`
+  if (row.status === 'AWAITING_EMPLOYEE' && role === 'ADMIN') primary = `<button type="button" class="approval-secondary" onclick="editEmployeeTimes(${id})">Review / correct entries</button>`
+  const secondary = [
+    canEdit && !['RETURNED','AWAITING_EMPLOYEE'].includes(row.status) ? `<button type="button" onclick="editEmployeeTimes(${id})">Review / correct entries</button>` : '',
+    `<button type="button" onclick="window.open('${API_BASE}/workforce/timesheets/${id}/pdf','_blank','noopener')">View PDF</button>`,
+    row.status === 'AWAITING_EMPLOYEE' && role === 'ADMIN' ? `<button type="button" onclick="workforceAction(${id},'SUBMIT_EMPLOYEE')">Submit for employee</button>` : '',
+    row.status === 'RETURNED' && role === 'ADMIN' ? `<button type="button" onclick="approveCorrectedTimesheet(${id})">Approve corrected timesheet</button>` : '',
+    ['EMPLOYEE_SUBMITTED','MANAGER_APPROVED'].includes(row.status) && ['ADMIN','MANAGER','HR'].includes(role) ? `<button type="button" class="approval-return" onclick="workforceAction(${id},'RETURN')">Return for correction</button>` : ''
+  ].join('')
+  const date = String(row.timesheet_date).slice(0,10)
+  return `<tr><td data-label="Employee / date"><strong>${escapeHtml(row.employee_name)}</strong><span class="approval-subtext">${escapeHtml(date)}${row.employee_number ? ` · ${escapeHtml(row.employee_number)}` : ''}</span></td>
+    <td data-label="Job cards" class="approval-jobs">${String(row.job_card_numbers || '').split(',').filter(value => value.trim()).map(value => `<span>${escapeHtml(value.trim())}</span>`).join('') || '—'}</td>
+    <td data-label="Hours"><div class="approval-hours">${[['Normal',row.final_normal_hours],['Overtime',row.final_overtime_hours],['Travel',row.final_travel_hours],['Standby',row.final_standby_hours]].map(([label,value]) => `<span class="${Number(value) > 0 ? '' : 'approval-zero'}"><small>${label}</small><strong>${hours(value)}</strong></span>`).join('')}</div></td>
+    <td data-label="Next step"><span class="approval-badge approval-${stage.tone}">${escapeHtml(stage.label)}</span>${row.status === 'RETURNED' ? `<p class="approval-reason"><strong>Reason:</strong> ${escapeHtml(row.returned_reason || 'No return reason recorded. Review the entries with the employee.')}</p>` : ''}</td>
+    <td data-label="Actions"><div class="approval-actions">${primary}<details><summary aria-label="More actions for ${safeAttr(row.employee_name)} on ${safeAttr(date)}">More actions</summary><div class="approval-more">${secondary}</div></details></div></td></tr>`
+}
+
+export function filterTimesheetApprovals(stage) {
+  if (stage && (stage === 'ALL' || approvalStages.some(item => item.status === stage))) approvalStage = stage
+  const query = (document.querySelector('#approvalSearch')?.value || '').trim().toLowerCase()
+  const from = document.querySelector('#approvalFrom')?.value || ''
+  const to = document.querySelector('#approvalTo')?.value || ''
+  const rows = approvalRows.filter(row => {
+    const date = String(row.timesheet_date).slice(0,10)
+    return (!from || date >= from) && (!to || date <= to) && [row.employee_name,row.employee_number,row.job_card_numbers].some(value => String(value || '').toLowerCase().includes(query))
+  }).sort((a,b) => String(a.timesheet_date).localeCompare(String(b.timesheet_date)) || String(a.employee_name).localeCompare(String(b.employee_name)))
+  const stages = [{status:'ALL',label:'All outstanding',tone:'all'},...approvalStages]
+  document.querySelector('#approvalStages').innerHTML = stages.map(item => `<button type="button" class="approval-stage approval-${item.tone}" aria-pressed="${approvalStage === item.status}" onclick="filterTimesheetApprovals('${item.status}')"><span>${item.label}</span><strong>${item.status === 'ALL' ? rows.length : rows.filter(row => row.status === item.status).length}</strong></button>`).join('')
+  const visible = rows.filter(row => approvalStage === 'ALL' || row.status === approvalStage)
+  document.querySelector('#approvalCount').textContent = from && to && from > to ? 'Choose a To date on or after the From date.' : `Showing ${visible.length} of ${approvalRows.length} outstanding timesheets · Oldest first within each stage · Hours shown as decimals`
+  document.querySelector('#approvalGroups').innerHTML = approvalStages.map(item => {
+    const group = visible.filter(row => row.status === item.status)
+    if (!group.length) return ''
+    return `<section class="approval-group approval-${item.tone}"><div class="approval-group-heading"><h3>${item.label} <span>${group.length}</span></h3><p>${item.hint}</p></div><div class="table-scroll"><table class="approval-table"><thead><tr><th>Employee / date</th><th>Job cards</th><th>Hours</th><th>Next step</th><th>Actions</th></tr></thead><tbody>${group.map(row => approvalRow(row,item)).join('')}</tbody></table></div></section>`
+  }).join('') || `<div class="filter-card approval-empty">${approvalRows.length ? 'No timesheets match these filters.' : 'You are up to date. No timesheets need attention.'}</div>`
+}
 export async function recalculateAwaitingTimesheets() {
   const reason = window.prompt('Reason for recalculating all Awaiting Employee timesheets:','Correct normal and overtime allocation using assigned work schedules')
   if (!reason || reason.trim().length < 5) return

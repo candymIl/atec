@@ -1,0 +1,73 @@
+.timesheet-approvals { --approval-ink: #213653; }
+.timesheet-approvals .page-heading { align-items: start; gap: 16px; }
+.approval-tools { flex-shrink: 0; font-size: 13px; }
+.approval-tools summary { padding: 10px; cursor: pointer; }
+.approval-tools button { margin-top: 8px; }
+.approval-stages { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
+.timesheet-approvals .approval-stage { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; text-align: left; background: white; color: var(--approval-ink); border: 1px solid #d5deea; border-top: 3px solid var(--stage-color, #64748b); border-radius: 10px; padding: 16px; margin: 0; box-shadow: none; }
+.approval-stage span { font-size: 13px; }
+.approval-stage strong { font-size: 28px; }
+.timesheet-approvals .approval-stage[aria-pressed="true"] { background: #eef3ff; outline: 2px solid #465f9b; outline-offset: 1px; }
+.timesheet-approvals .approval-stage:hover { background: #f1f5f9; }
+.approval-fix { --stage-color: #b42318; --stage-bg: #fff0ed; }
+.approval-approve { --stage-color: #2457a7; --stage-bg: #eaf2ff; }
+.approval-hr { --stage-color: #08745c; --stage-bg: #e5f5ef; }
+.approval-waiting { --stage-color: #8a5900; --stage-bg: #fff5db; }
+.timesheet-approvals .approval-filters { display: grid; grid-template-columns: minmax(220px, 2fr) minmax(145px, 1fr) minmax(145px, 1fr) auto; gap: 16px; align-items: end; padding: 16px; margin-bottom: 12px; }
+.approval-filters label { display: grid; gap: 7px; font-size: 12px; font-weight: 600; }
+.approval-filters input { width: 100%; min-width: 0; margin: 0; }
+.approval-count { font-size: 12px; color: #58677c; margin: 14px 0; }
+.approval-group { background: #fff; border: 1px solid #d5deea; border-radius: 10px; margin-bottom: 22px; overflow: hidden; }
+.approval-group-heading { border-left: 4px solid var(--stage-color); padding: 17px 20px; }
+.approval-group-heading h3 { font-size: 16px; color: #213653; margin: 0 0 5px; }
+.approval-group-heading h3 span { margin-left: 8px; padding: 3px 8px; border-radius: 12px; color: var(--stage-color); background: var(--stage-bg); font-size: 12px; }
+.approval-group-heading p { font-size: 12px; color: #58677c; margin: 0; }
+.timesheet-approvals .approval-table { width: 100%; min-width: 850px; margin: 0; border-collapse: collapse; table-layout: fixed; }
+.timesheet-approvals .approval-table th { background: #f5f7fa; color: #52627a; font-size: 11px; text-transform: uppercase; letter-spacing: .035em; text-align: left; padding: 10px 16px; border: 0; border-bottom: 1px solid #e2e8f0; }
+.timesheet-approvals .approval-table td { padding: 16px; border: 0; border-bottom: 1px solid #e6ebf2; vertical-align: top; text-align: left; font-size: 13px; overflow-wrap: anywhere; color: #213653; background: white; }
+.timesheet-approvals .approval-table tbody tr:last-child td { border-bottom: 0; }
+.approval-table th:nth-child(1) { width: 18%; }
+.approval-table th:nth-child(2) { width: 18%; }
+.approval-table th:nth-child(3) { width: 26%; }
+.approval-table th:nth-child(4) { width: 20%; }
+.approval-table th:nth-child(5) { width: 18%; }
+.approval-subtext { display: block; color: #64748b; font-size: 11px; margin-top: 7px; }
+.approval-jobs span { display: block; font-size: 11px; margin-bottom: 5px; }
+.approval-hours { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; font-variant-numeric: tabular-nums; }
+.approval-hours span { display: grid; gap: 7px; }
+.approval-hours small { font-size: 10px; color: #64748b; }
+.approval-hours strong { font-size: 13px; }
+.approval-hours .approval-zero strong { color: #718096; font-weight: 400; }
+.approval-badge { display: inline-block; background: var(--stage-bg); color: var(--stage-color); padding: 5px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+.approval-reason { font-size: 12px; line-height: 1.5; margin: 8px 0 0; }
+.approval-actions { display: grid; justify-items: start; gap: 9px; }
+.timesheet-approvals .approval-actions button { margin: 0; font-size: 12px; padding: 8px 12px; border-radius: 6px; white-space: normal; text-align: left; }
+.timesheet-approvals .approval-secondary { background: #fff; color: #344969; border: 1px solid #cbd5e1; box-shadow: none; }
+.approval-actions details { width: 100%; }
+.approval-actions summary { color: #52627a; font-size: 11px; cursor: pointer; padding: 5px 0; }
+.approval-more { display: grid; gap: 6px; padding-top: 6px; }
+.timesheet-approvals .approval-more button { background: #f1f5f9; color: #344969; border: 1px solid #d5deea; }
+.timesheet-approvals .approval-more .approval-return { color: #a32620; }
+.approval-empty { text-align: center; padding: 35px; color: #58677c; }
+.timesheet-approvals button:focus-visible, .timesheet-approvals summary:focus-visible { outline: 3px solid #4264ac; outline-offset: 3px; }
+@media (max-width: 1050px) {
+  .approval-stages { gap: 8px; }
+  .timesheet-approvals .approval-stage { padding: 12px; }
+  .timesheet-approvals .approval-filters { grid-template-columns: 2fr 1fr 1fr; }
+  .approval-filters > button { justify-self: start; }
+}
+@media (max-width: 700px) {
+  .approval-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .approval-stages > :first-child { grid-column: 1 / -1; }
+  .timesheet-approvals .approval-stage { flex-direction: row; align-items: center; justify-content: space-between; }
+  .approval-stage strong { font-size: 22px; }
+  .timesheet-approvals .approval-filters { grid-template-columns: 1fr 1fr; }
+  .approval-filters > label:first-child { grid-column: 1 / -1; }
+  .timesheet-approvals .approval-table { min-width: 0; display: block; }
+  .approval-table thead { display: none; }
+  .approval-table tbody, .approval-table tr { display: block; width: 100%; }
+  .timesheet-approvals .approval-table tr { border-top: 1px solid #d5deea; padding: 12px 16px; }
+  .timesheet-approvals .approval-table td { display: block; width: 100%; padding: 7px 0; border: 0; }
+  .approval-table td::before { content: attr(data-label); display: block; color: #64748b; font-size: 10px; text-transform: uppercase; margin-bottom: 6px; }
+  .approval-hours { max-width: 360px; }
+}
