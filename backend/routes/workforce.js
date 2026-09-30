@@ -2,6 +2,7 @@ const express = require("express")
 const { acceloOverride } = require("../services/acceloOverride")
 const { closeInvalidTimesheet } = require("../services/closeInvalidTimesheet")
 const { submitAwaitingTimesheets } = require("../services/submitAwaitingTimesheets")
+const { reviewJobCardTimes } = require("../services/jobCardTimeReview")
 const { calculateTimeEntries, standardFallbackSchedule } = require("../services/workforceTime")
 const { createTimesheetPdfBuffer } = require("../services/workforceTimesheetRenderer")
 
@@ -780,7 +781,7 @@ function registerWorkforceRoutes(app, {
     if (!editableStatuses.includes(sheet.status)) {
       return res.status(409).json({ error:"This timesheet is not at an editable stage. HR-accepted and exported records remain locked." })
     }
-    const entries = await pool.query(`SELECT timeentryid,activity_type,started_at,ended_at,
+    const entries = await pool.query(`SELECT timeentryid,jobcardid,activity_type,started_at,ended_at,
       customer_name_snapshot,job_number_snapshot,brief_details,adjustment_reason
       FROM atec.tbltimeentry WHERE user_id=$1 AND activity_date=$2::date ORDER BY started_at,timeentryid`,
     [sheet.user_id,sheet.timesheet_date])
@@ -789,7 +790,11 @@ function registerWorkforceRoutes(app, {
       FROM atec.tbltimesheetaudit audit LEFT JOIN atec.tblusers actor ON actor.userid=audit.actor_user_id
       WHERE audit.timesheetid=$1 AND audit.action IN ('MANAGER_TIME_EDIT','MANAGER_TIME_DELETE')
       ORDER BY audit.created_at DESC`, [sheet.timesheetid])
-    res.json({ timesheet:sheet, entries:entries.rows, audits:audits.rows })
+    const sourceCards = await pool.query(`SELECT jobcardid,jobcard_reference,status,departed_at,arrived_at,
+      work_started_at,work_completed_at,travel_completed_at FROM atec.tbljobcard
+      WHERE jobcardid=ANY($1::int[])`, [[...new Set(entries.rows.map(entry=>entry.jobcardid).filter(Boolean))]])
+    res.json({ timesheet:sheet, entries:entries.rows, audits:audits.rows,
+      time_review:reviewJobCardTimes(entries.rows,sourceCards.rows,sheet.timesheet_date) })
   }))
 
   router.put("/timesheets/:id/time-entries/:entryId", asyncRoute(async (req, res) => {
@@ -837,7 +842,14 @@ function registerWorkforceRoutes(app, {
       }
       if (new Date(current.started_at).getTime() === startedAt.getTime() &&
           new Date(current.ended_at).getTime() === endedAt.getTime()) {
-        throw badRequest("Change the start or end time before saving.")
+        throw badRequest("No time change to save. These start and end times are already recorded; you do not need to change the date.")
+      }
+      if (req.body.expected_started_at && req.body.expected_ended_at &&
+          (new Date(current.started_at).getTime() !== new Date(req.body.expected_started_at).getTime() ||
+           new Date(current.ended_at).getTime() !== new Date(req.body.expected_ended_at).getTime())) {
+        const error = new Error("This entry changed since you reviewed it. Reload the day before applying the correction.")
+        error.statusCode = 409
+        throw error
       }
 
       const before = { started_at:current.started_at, ended_at:current.ended_at }

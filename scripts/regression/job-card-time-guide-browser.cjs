@@ -1,0 +1,53 @@
+const {chromium}=require('C:/Users/JacquesJonker/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright')
+const assert=require('node:assert/strict')
+;(async()=>{
+  const browser=await chromium.launch({headless:true})
+  try {
+    const page=await browser.newPage({viewport:{width:1100,height:900},timezoneId:'Africa/Johannesburg'})
+    const errors=[];page.on('pageerror',e=>errors.push(e.message))
+    await page.route('**/guide-preview',r=>r.fulfill({contentType:'text/html',body:'<meta name="viewport" content="width=device-width,initial-scale=1"><main style="padding:24px"><div id="guide"></div></main><script type="module">import "/src/style.css";import "/src/pages/dailyTimeline.css";import {mountJobCardTimeGuide} from "/src/pages/jobCardTimeGuide.js";window.mountGuide=mountJobCardTimeGuide;</script>'}))
+    await page.goto('http://127.0.0.1:5179/guide-preview');await page.waitForFunction(()=>!!window.mountGuide)
+    await page.evaluate(()=>{
+      window.calls=[];window.refreshed=[]
+      window.data={timesheet:{timesheetid:42,employee_name:'Example Inspector',timesheet_date:'2026-09-29',status:'AWAITING_EMPLOYEE'},time_review:{can_match:true,matched_cards:[],problems:[],corrections:[{timeentryid:7,jobcard_reference:'JC-2026-00228',activity_type:'TRAVEL',before_started_at:'2026-09-29T13:45:00+02:00',before_ended_at:'2026-09-29T14:15:00+02:00',started_at:'2026-09-29T13:15:00+02:00',ended_at:'2026-09-29T13:45:00+02:00'}]}}
+      window.renderGuide=role=>window.mountGuide(document.querySelector('#guide'),window.data,{role,refresh:async reopen=>window.refreshed.push(reopen),request:async(path,options)=>{
+        window.calls.push({path,options})
+        if(!options) {if(window.stale)return {...window.data,time_review:{...window.data.time_review,corrections:[]}};return window.data}
+        if(window.rejectApproval && JSON.parse(options.body).action==='APPROVE')throw new Error('Example approval rejection')
+        return {}
+      }})
+      window.renderGuide('ADMIN')
+    })
+    assert.equal(await page.locator('[data-guide-approve]').count(),0,'A mismatch does not invite approval')
+    await page.locator('[data-guide-match]').click();assert.match(await page.locator('[data-guide-feedback]').innerText(),/reason/)
+    await page.locator('[data-guide-reason]').fill('Compared with the approved job card')
+    await page.screenshot({path:'output/job-card-time-guide-comparison.png',fullPage:true})
+    await page.locator('[data-guide-match]').click();assert.equal(await page.evaluate(()=>window.calls.length),0);assert.match(await page.locator('[data-guide-feedback]').innerText(),/confirmation/);await page.locator('[data-guide-confirm]').check()
+    await page.evaluate(()=>window.stale=true)
+    await page.locator('[data-guide-match]').click();assert.match(await page.locator('[data-guide-feedback]').innerText(),/changed/)
+    assert.equal(await page.evaluate(()=>window.calls.filter(c=>c.options).length),0)
+    await page.evaluate(()=>window.stale=false)
+    await page.locator('[data-guide-match]').click()
+    let writes=await page.evaluate(()=>window.calls.filter(c=>c.options))
+    assert.equal(writes.length,1);assert.equal(writes[0].options.method,'PUT')
+    assert.equal(JSON.parse(writes[0].options.body).expected_started_at,'2026-09-29T13:45:00+02:00')
+    await page.evaluate(()=>{window.calls=[];window.data.time_review={can_match:false,corrections:[],problems:[],matched_cards:['JC-2026-00228']};window.renderGuide('MANAGER')})
+    assert.equal(await page.locator('[data-guide-approve]').count(),0,'Only Admin can submit on behalf of an employee')
+    await page.evaluate(()=>window.renderGuide('ADMIN'))
+    await page.locator('[data-guide-reason]').fill('Reviewed the whole day against both job cards')
+    await page.screenshot({path:'output/job-card-time-guide-next-step.png',fullPage:true})
+    await page.locator('[data-guide-confirm]').check();await page.evaluate(()=>window.rejectApproval=true)
+    await page.locator('[data-guide-approve]').click()
+    assert.match(await page.locator('[data-guide-feedback]').innerText(),/submission succeeded; approval remains/)
+    writes=await page.evaluate(()=>window.calls.filter(c=>c.options))
+    assert.deepEqual(writes.map(c=>JSON.parse(c.options.body).action),['SUBMIT_EMPLOYEE','APPROVE'])
+    await page.evaluate(()=>{window.rejectApproval=false;window.calls=[];window.data.timesheet.status='EMPLOYEE_SUBMITTED';window.renderGuide('ADMIN')})
+    await page.locator('[data-guide-reason]').fill('Confirmed the complete day and corrected travel');await page.locator('[data-guide-confirm]').check()
+    await page.locator('[data-guide-approve]').click()
+    writes=await page.evaluate(()=>window.calls.filter(c=>c.options))
+    assert.deepEqual(writes.map(c=>JSON.parse(c.options.body).action),['APPROVE'],'Retry only the outstanding approval')
+    assert.deepEqual(errors,[])
+    await page.setViewportSize({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true)
+    console.log('Guided review browser checks passed: exact comparison, required reason, cancel, stale review, audited correction, role scope, submission/approval and partial retry.')
+  } finally {await browser.close()}
+})().catch(e=>{console.error(e);process.exitCode=1})

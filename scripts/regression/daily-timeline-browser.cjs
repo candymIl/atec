@@ -7,7 +7,7 @@ const url=process.env.TIMELINE_PREVIEW_URL || 'http://127.0.0.1:5179'
   try {
     const page=await browser.newPage({viewport:{width:1440,height:1100},timezoneId:'Africa/Johannesburg'})
     const errors=[];page.on('pageerror',e=>errors.push(e.message))
-    await page.route('**/timeline-preview',route=>route.fulfill({contentType:'text/html',body:'<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#f3f5f9"><main style="padding:20px"><div id="timeline"></div></main><script type="module">import "/src/style.css";import {mountDailyTimeline} from "/src/pages/dailyTimeline.js";window.mount=mountDailyTimeline;</script></body></html>'}))
+    await page.route('**/timeline-preview',route=>route.fulfill({contentType:'text/html',body:'<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;background:#f3f5f9"><div class="app"><div class="layout"><aside class="sidebar">ATEC</aside><main class="content"><div id="page"><section class="filter-card"><h3>Accelo Completion Package</h3><div class="accelo-timesheet-review"><section id="managerTimeEditor" class="filter-card"><div id="timeline"></div></section></div></section></div></main></div></div><script type="module">import "/src/style.css";import {mountDailyTimeline} from "/src/pages/dailyTimeline.js";window.mount=mountDailyTimeline;</script></body></html>'}))
     await page.goto(`${url}/timeline-preview`)
     await page.waitForFunction(()=>!!window.mount)
     await page.evaluate(()=>{
@@ -18,6 +18,15 @@ const url=process.env.TIMELINE_PREVIEW_URL || 'http://127.0.0.1:5179'
     assert.equal(await page.locator('.dt-issue.overlap').count(),1)
     assert.equal(await page.locator('.dt-issue.gap').count(),1)
     assert.equal(await page.locator('.dt-block.conflict').count(),2)
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true,'Desktop page stays within viewport with sidebar and nested cards')
+    assert.equal(await page.locator('.dt-entry-list button').count(),8,'Short blocks have readable customer/time keys')
+    for(const width of [1280,1024]) {
+      await page.setViewportSize({width,height:1100})
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true,`No page overflow at ${width}px`)
+      const panel=await page.locator('.dt-panels>section').last().boundingBox()
+      assert.ok(panel.x+panel.width<=width,'Entire adjustment panel remains visible')
+    }
+    await page.setViewportSize({width:1440,height:1100})
     assert.equal(await page.getByText('No gaps or overlaps between recorded entries.',{exact:true}).count(),0)
     await page.locator('.dt-block [data-select="7"]').click()
     await page.locator('[data-field="start"]').fill('2026-09-29T13:20')
@@ -58,6 +67,7 @@ const url=process.env.TIMELINE_PREVIEW_URL || 'http://127.0.0.1:5179'
     await page.setViewportSize({width:390,height:844})
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true)
     await page.screenshot({path:'output/daily-timeline-mobile.png',fullPage:true})
+    assert.equal(await page.locator('.dt-entry-list button').count(),8)
     await page.locator('[data-field="start"]').fill('2025-09-29T13:15')
     await page.locator('[data-field="end"]').fill('2025-09-29T13:45')
     await page.locator('[data-action="preview"]').click()
