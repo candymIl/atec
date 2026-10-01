@@ -1017,13 +1017,27 @@ function chromiumPdfLaunchOptions(executablePath, userDataDir) {
     headless: "new",
     userDataDir,
     protocolTimeout: 180000,
+    env: { ...process.env, TMPDIR: userDataDir, TMP: userDataDir, TEMP: userDataDir },
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
+      "--disable-component-update",
+      "--disable-background-networking",
       "--allow-file-access-from-files"
     ]
   }
+}
+
+function createPdfProfileDirectory(executablePath) {
+  // Snap remaps /tmp, so keep profiles in its shared, disk-backed directory.
+  const snapChromium = process.platform === "linux" &&
+    /chromium(?:-browser)?$/.test(executablePath) && fs.existsSync("/snap/bin/chromium")
+  const root = snapChromium
+    ? path.join(os.homedir(), "snap", "chromium", "common", "atec-pdf")
+    : os.tmpdir()
+  fs.mkdirSync(root, { recursive: true })
+  return fs.mkdtempSync(path.join(root, "atec-pdf-"))
 }
 
 async function closePdfBrowserResources(page, browser, userDataDir) {
@@ -1051,7 +1065,7 @@ async function createSingleCertificatePdfBuffer(certificate, options = {}) {
     throw error
   }
 
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "atec-pdf-"))
+  const userDataDir = createPdfProfileDirectory(executablePath)
   let browser
   let page
 
@@ -1084,7 +1098,7 @@ async function createBulkCertificatesPdfBuffer(certificates = [], options = {}) 
     throw error
   }
 
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "atec-pdf-"))
+  const userDataDir = createPdfProfileDirectory(executablePath)
   let browser
   let page
 
