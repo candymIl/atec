@@ -6,4 +6,5 @@ SELECT userid, username, email, is_active, role, userlevel,
 FROM atec.tblusers
 WHERE lower(trim(username)) = 'jacques@fbcranes.co.za'
    OR lower(trim(email)) = 'jacques@fbcranes.co.za';
--- Multiple matching rows need investigation; the login query currently uses LIMIT 1.
+-- Shared email addresses are permitted. Each employee should use their own username.
+-- Check the specific account's identity and active status; retain shared contact addresses.

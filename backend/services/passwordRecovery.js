@@ -2,7 +2,7 @@ const crypto = require('crypto')
 const bcrypt = require('bcryptjs')
 const { validatePassword } = require('../middleware/security')
 
-const MESSAGE = 'If an active account has that email address, a password reset link will be sent. Please check your inbox and spam folder.'
+const MESSAGE = 'If the details identify an active account with a registered email address, a password reset link will be sent. Please check with the mailbox owner if you share an email address.'
 const INVALID = 'This reset link is invalid or expired. Request a new link.'
 const digest = token => crypto.createHash('sha256').update(token).digest('hex')
 
@@ -13,7 +13,11 @@ function createPasswordRecovery({ pool, sendEmail, appUrl, reportFailure = () =>
 
   async function request(req, res) {
     const email = String(req.body?.email || '').trim().toLowerCase()
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+    const username = String(req.body?.username || '').trim().toLowerCase()
+    if ((!username && !email) || username.length > 254) {
+      return res.status(400).json({ error: 'Enter your own ATEC username.' })
+    }
+    if (email && (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254)) {
       return res.status(400).json({ error: 'Enter a valid email address.' })
     }
     // Return before delivery for consistent account-independent response timing.
@@ -26,10 +30,14 @@ function createPasswordRecovery({ pool, sendEmail, appUrl, reportFailure = () =>
         password_reset_hash = $1, password_reset_expires_at = now() + interval '30 minutes',
         password_reset_requested_at = now(), password_reset_auth_version = auth_version,
         password_reset_email = email
-        WHERE LOWER(email) = $2 AND is_active = TRUE
-          AND (SELECT count(*) FROM atec.tblusers WHERE LOWER(email) = $2) = 1
+        WHERE is_active = TRUE AND email IS NOT NULL AND btrim(email) <> ''
+          AND (($3 <> '' AND LOWER(username) = $3
+                AND (SELECT count(*) FROM atec.tblusers WHERE LOWER(username) = $3) = 1
+                AND ($2 = '' OR LOWER(email) = $2))
+            OR ($3 = '' AND LOWER(email) = $2
+                AND (SELECT count(*) FROM atec.tblusers WHERE LOWER(email) = $2 AND is_active = TRUE) = 1))
           AND (password_reset_requested_at IS NULL OR password_reset_requested_at < now() - interval '5 minutes')
-        RETURNING userid, email`, [hash, email])
+        RETURNING userid, username, email`, [hash, email, username])
       const user = result.rows[0]
       if (!user) return
       // A fragment keeps the secret out of HTTP access logs and Referer headers.
@@ -37,7 +45,7 @@ function createPasswordRecovery({ pool, sendEmail, appUrl, reportFailure = () =>
       link.hash = `reset-password=${token}`
       try {
         await sendEmail({ to: user.email, subject: 'Reset your ATEC password',
-          text: `A password reset was requested for your ATEC account.\n\nChoose your new password using this single-use link, valid for 30 minutes:\n${link.href}\n\nIf you did not request this, ignore this email. Your password has not changed.` })
+          text: `A password reset was requested for ATEC username: ${user.username}.\n\nChoose your new password using this single-use link, valid for 30 minutes:\n${link.href}\n\nIf this is a shared mailbox, this link is for the named account only. If you did not request this, ignore this email. The password has not changed.` })
       } catch (error) {
         await pool.query(`UPDATE atec.tblusers SET password_reset_hash = NULL,
           password_reset_expires_at = NULL, password_reset_requested_at = NULL
@@ -67,7 +75,7 @@ function createPasswordRecovery({ pool, sendEmail, appUrl, reportFailure = () =>
       password_reset_auth_version = NULL, password_reset_email = NULL
       WHERE password_reset_hash = $2 AND password_reset_expires_at > now()
         AND password_reset_auth_version = auth_version AND password_reset_email = email
-        AND is_active = TRUE RETURNING userid, email`, [hash, digest(token)])
+        AND is_active = TRUE RETURNING userid, username, email`, [hash, digest(token)])
     const user = result.rows[0]
     if (!user) return res.status(400).json({ error: INVALID })
     await req.logAudit('PASSWORD_RECOVERY_COMPLETED', 'users', user.userid)
@@ -75,7 +83,7 @@ function createPasswordRecovery({ pool, sendEmail, appUrl, reportFailure = () =>
     res.json({ message: 'Your password has been changed. Sign in with your new password.' })
     try {
       await sendEmail({ to: user.email, subject: 'Your ATEC password has changed',
-        text: 'Your ATEC password was changed using an email recovery link. All previous sessions have been ended. If you did not make this change, contact your ATEC administrator immediately.' })
+        text: `The password for ATEC username ${user.username} was changed using an email recovery link. All previous sessions for that account have been ended. If you did not make this change, contact your ATEC administrator immediately.` })
     } catch (error) { reportFailure('PASSWORD_RECOVERY_NOTICE_FAILED') }
   }
   return { request, reset }

@@ -10,6 +10,7 @@ const cookieParser = require("cookie-parser")
 const helmet = require("helmet")
 const rateLimit = require("express-rate-limit")
 const bcrypt = require("bcryptjs")
+const { selectLoginUser } = require('./services/loginIdentity')
 const { loadCustomerPortalScope, portalScopeSql, portalCanReadRecord } = require("./services/customerPortalAccess")
 const crypto = require("crypto")
 const pool = require("./db");
@@ -1301,18 +1302,17 @@ app.post("/auth/login", csrfProtection, loginLimiter, asyncRoute(async (req, res
     FROM atec.tblusers
     WHERE LOWER(username) = LOWER($1)
        OR LOWER(COALESCE(email, '')) = LOWER($1)
-    LIMIT 1
     `,
     [username]
   )
 
-  const user = result.rows[0]
+  const user = selectLoginUser(result.rows, username)
   const isValid = user
     ? await bcrypt.compare(password, user.password_hash)
     : false
 
   if (!user || !isValid || !user.is_active) {
-    return res.status(401).json({ error: "Invalid username or password" })
+    return res.status(401).json({ error: "Invalid username or password. If you share an email address, sign in with your own username." })
   }
 
   await pool.query(

@@ -1,5 +1,6 @@
 {
   "scripts": {
+    "test:shared-email-login": "node --test scripts/regression/shared-email-login.test.js",
     "test:password-recovery": "node --test scripts/regression/password-recovery.test.js",
     "test:password-recovery-db": "node scripts/uat/password-recovery-db.js",
     "test:job-card-inspected-assets": "node --test scripts/regression/job-card-inspected-assets.test.js",

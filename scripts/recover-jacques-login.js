@@ -19,7 +19,8 @@ async function recover({ client, bcrypt, password, backupRoot, saveBackup }) {
     await client.query("SET LOCAL statement_timeout = '15s'")
     const { rows } = await client.query(`SELECT userid, username, email, is_active,
       password, auth_version, must_change_password
-      FROM atec.tblusers WHERE lower(email)=$1 OR lower(username)=$1 FOR UPDATE`, [EMAIL])
+      FROM atec.tblusers WHERE userid=4 AND lower(email)=$1
+        AND lower(username)='jacques jonker' FOR UPDATE`, [EMAIL])
     if (rows.length !== 1) throw new Error(`Found ${rows.length} matching accounts. No password changed; account lookup needs repair.`)
     const user = rows[0]
     if (!user.is_active) throw new Error('Your account is INACTIVE. No password changed; account activation needs review.')
@@ -57,7 +58,8 @@ async function main() {
   try {
     const result = await client.query(`SELECT userid, username, email, is_active,
       to_jsonb(u)->>'password_changed_at' AS password_changed_at
-      FROM atec.tblusers u WHERE lower(email)=$1 OR lower(username)=$1`, [EMAIL])
+      FROM atec.tblusers u WHERE userid=4 AND lower(email)=$1
+        AND lower(username)='jacques jonker'`, [EMAIL])
     if (result.rows.length !== 1) throw new Error(`Found ${result.rows.length} matching accounts. No password changed.`)
     const user = result.rows[0]
     console.log(`Account: ${user.username} (${user.email}), active: ${user.is_active}`)

@@ -24,7 +24,7 @@ async function main() {
   async function issue() {
     await client.query(`UPDATE ${schema}.tblusers SET password_reset_requested_at=NULL WHERE userid=1`)
     const n = mails.length
-    await recovery.request(req({ email: 'person@example.com' }), res())
+    await recovery.request(req({ username: 'person' }), res())
     assert.equal(mails.length, n + 1)
     const link = mails.at(-1).text.match(/https:\/\/\S+/)[0]
     return new URLSearchParams(new URL(link).hash.slice(1)).get('reset-password')
@@ -35,14 +35,21 @@ async function main() {
     await client.query('BEGIN')
     await client.query(`CREATE SCHEMA ${schema}`)
     await client.query(`CREATE TABLE ${schema}.tblusers (userid integer PRIMARY KEY, role text, userlevel integer,
-      password text, is_active boolean, email text, updated_at timestamptz)`)
-    await client.query(`INSERT INTO ${schema}.tblusers VALUES (1,'ADMIN',1,'old',true,'person@example.com',now())`)
+      password text, is_active boolean, email text, updated_at timestamptz, username text)`)
+    await client.query(`INSERT INTO ${schema}.tblusers VALUES (1,'ADMIN',1,'old',true,'person@example.com',now(),'person')`)
     for (const file of ['2026-09-28-required-password-change.sql', '2026-10-01-password-recovery.sql', '2026-10-01-password-recovery.sql']) {
       const sql = fs.readFileSync(path.resolve(__dirname, '../../database', file), 'utf8')
         .replace(/^BEGIN;/m, '').replace(/^COMMIT;/m, '').replaceAll('atec.', `${schema}.`)
       await client.query(sql)
     }
+    await client.query(`INSERT INTO ${schema}.tblusers
+      (userid,role,userlevel,password,is_active,email,username)
+      VALUES (2,'INSPECTOR',3,'colleague',true,'person@example.com','colleague')`)
+    const before = mails.length
+    await recovery.request(req({ email: 'person@example.com' }), res())
+    assert.equal(mails.length, before)
     let token = await issue()
+    assert.equal((await client.query(`SELECT password_reset_hash FROM ${schema}.tblusers WHERE userid=2`)).rows[0].password_reset_hash, null)
     await reset(token)
     assert.equal((await read()).auth_version, 1)
     assert.equal((await read()).password_reset_hash, null)

@@ -8,13 +8,13 @@ function response() {
     json(body) { this.body = body; return this }, clearCookie() {} }
 }
 function fixture(overrides = {}) {
-  const state = { hash: null, version: 4, email: 'person@example.com', active: true, expired: false,
+  const state = { hash: null, version: 4, username: 'person', shared: false, email: 'person@example.com', active: true, expired: false,
     issuedVersion: null, issuedEmail: null, cooldown: false, mails: [], audits: [], failures: [] }
   const pool = { async query(sql, values) {
     if (sql.includes('password_reset_requested_at = now()')) {
-      if (!state.active || state.cooldown || values[1] !== state.email) return { rows: [] }
+      if (!state.active || state.cooldown || (values[2] ? values[2] !== state.username : (values[1] !== state.email || state.shared))) return { rows: [] }
       state.hash = values[0]; state.issuedVersion = state.version; state.issuedEmail = state.email; state.cooldown = true
-      return { rows: [{ userid: 1, email: state.email }] }
+      return { rows: [{ userid: 1, username: state.username, email: state.email }] }
     }
     if (sql.includes('SET password = $1')) {
       if (!state.active || state.expired || state.hash !== values[1] || state.version !== state.issuedVersion || state.email !== state.issuedEmail) return { rows: [] }
@@ -91,6 +91,17 @@ test('insecure application URL does not send recovery email', async () => {
   const f = fixture({ appUrl: 'http://example.com' })
   await f.handlers.request(f.req({ email: f.state.email }), response())
   assert.equal(f.state.mails.length, 0); assert.equal(f.state.hash, null)
+})
+test('username recovery permits a shared manager mailbox and identifies the employee', async () => {
+  const f = fixture(); f.state.shared = true
+  await f.handlers.request(f.req({ email: f.state.email }), response())
+  assert.equal(f.state.mails.length, 0)
+  const res = response()
+  await f.handlers.request(f.req({ username: 'PERSON' }), res)
+  assert.equal(res.body.message, MESSAGE)
+  assert.equal(f.state.mails.length, 1)
+  assert.equal(f.state.mails[0].to, f.state.email)
+  assert(f.state.mails[0].text.includes('username: person'))
 })
 test('public recovery HTTP endpoint enforces CSRF and rate limits without requiring a session', async () => {
   const express = require('../../backend/node_modules/express')

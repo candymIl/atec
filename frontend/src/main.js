@@ -480,6 +480,7 @@ function renderLogin(message = '') {
           ${message ? `<p class="login-error">${message}</p>` : ''}
           <label for="loginUsername">Username or Email</label>
           <input id="loginUsername" type="text" autocomplete="username">
+          <p>If you share an email address, use your own username.</p>
           <label for="loginPassword">Password</label>
           <input id="loginPassword" type="password" autocomplete="current-password">
           <button type="submit">Sign In</button>
@@ -520,12 +521,12 @@ window.showPasswordRecovery = function (token = '') {
     <div class="login-page"><main class="login-shell"><form class="login-card" id="passwordRecoveryForm">
       <img src="${assetUrl('logo.jpg')}" alt="ATEC Logo" class="login-logo">
       <h1>${token ? 'Choose a new password' : 'Reset your password'}</h1>
-      <p>${token ? 'This link expires after 30 minutes and can be used once.' : 'Enter the email address registered on your ATEC account.'}</p>
+      <p>${token ? 'This link expires after 30 minutes and can be used once.' : 'Enter your own ATEC username. The link goes to the email registered on that account, which may be your manager’s mailbox.'}</p>
       ${token ? `<label for="recoveryPassword">New password</label>
         <input id="recoveryPassword" type="password" autocomplete="new-password" minlength="8" required>
         <label for="recoveryConfirmation">Confirm new password</label>
         <input id="recoveryConfirmation" type="password" autocomplete="new-password" minlength="8" required>` :
-      `<label for="recoveryEmail">Email address</label><input id="recoveryEmail" type="email" autocomplete="email" maxlength="254" required>`}
+      `<label for="recoveryUsername">Your ATEC username</label><input id="recoveryUsername" type="text" autocomplete="username" maxlength="254" required>`}
       <p id="recoveryStatus" role="status" aria-live="polite"></p>
       <button id="recoverySubmit" type="submit">${token ? 'Save new password' : 'Email reset link'}</button>
       <button id="recoveryBack" type="button" class="secondary-btn">Back to sign in</button>
@@ -543,7 +544,7 @@ window.showPasswordRecovery = function (token = '') {
         body: JSON.stringify(token ? { token,
           password: document.querySelector('#recoveryPassword').value,
           confirmation: document.querySelector('#recoveryConfirmation').value } :
-          { email: document.querySelector('#recoveryEmail').value })
+          { username: document.querySelector('#recoveryUsername').value })
       })
       const result = await readApiResponse(response)
       if (!response.ok) throw new Error(result.error || 'Unable to reset your password. Please try again.')
