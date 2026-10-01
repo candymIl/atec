@@ -12,6 +12,11 @@
       "migration": "2026-09-28-required-password-change.sql"
     },
     {
+      "table": "tblusers",
+      "columns": ["password_reset_hash", "password_reset_expires_at", "password_reset_requested_at", "password_reset_auth_version", "password_reset_email"],
+      "migration": "2026-10-01-password-recovery.sql"
+    },
+    {
       "table": "tblinspection",
       "columns": ["inspectionfrequency"],
       "migration": "2026-07-14-inspection-frequency.sql"

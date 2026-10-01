@@ -1,5 +1,7 @@
 {
   "scripts": {
+    "test:password-recovery": "node --test scripts/regression/password-recovery.test.js",
+    "test:password-recovery-db": "node scripts/uat/password-recovery-db.js",
     "test:job-card-inspected-assets": "node --test scripts/regression/job-card-inspected-assets.test.js",
     "test:close-invalid-timesheet": "node --test scripts/regression/close-invalid-timesheet.test.js",
     "test:compliance-expiry-reminders": "node --test scripts/regression/compliance-expiry-reminders.test.js",

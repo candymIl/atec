@@ -1248,6 +1248,21 @@ async function ensureTblUsersHaveIds() {
   `)
 }
 
+const passwordRecovery = require('./services/passwordRecovery').createPasswordRecovery({
+  pool,
+  appUrl: process.env.PUBLIC_APP_URL || 'https://www.atecinspections.co.za',
+  sendEmail: options => sendApplicationEmail({ from: process.env.MAIL_FROM, ...options }),
+  reportFailure: code => console.error(code)
+})
+const recoveryRequestLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 5,
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Too many reset requests. Please wait 15 minutes and try again.' } })
+const recoveryResetLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10,
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Too many reset attempts. Please wait 15 minutes and try again.' } })
+app.post('/auth/forgot-password', csrfProtection, recoveryRequestLimiter, asyncRoute(passwordRecovery.request))
+app.post('/auth/reset-password', csrfProtection, recoveryResetLimiter, asyncRoute(passwordRecovery.reset))
+
 app.post("/auth/login", csrfProtection, loginLimiter, asyncRoute(async (req, res) => {
   const username = String(req.body.username || "").trim()
   const password = String(req.body.password || "")

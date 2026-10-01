@@ -48,6 +48,7 @@
     "2026-09-28-required-password-change.sql",
     "2026-09-28-compliance-expiry-reminders.sql",
     "2026-09-29-close-invalid-timesheets.sql",
-    "2026-09-29-job-card-inspected-assets.sql"
+    "2026-09-29-job-card-inspected-assets.sql",
+    "2026-10-01-password-recovery.sql"
   ]
 }

@@ -483,6 +483,7 @@ function renderLogin(message = '') {
           <label for="loginPassword">Password</label>
           <input id="loginPassword" type="password" autocomplete="current-password">
           <button type="submit">Sign In</button>
+          <button type="button" class="secondary-btn" onclick="showPasswordRecovery()">Forgot password?</button>
         </form>
         <section class="login-discovery" aria-labelledby="demoHeading">
           <p class="login-eyebrow">New to ATEC?</p>
@@ -511,6 +512,47 @@ function renderLogin(message = '') {
       </main>
     </div>
   `
+}
+
+window.showPasswordRecovery = function (token = '') {
+  window.removePageScrollControls?.()
+  document.querySelector('#app').innerHTML = `
+    <div class="login-page"><main class="login-shell"><form class="login-card" id="passwordRecoveryForm">
+      <img src="${assetUrl('logo.jpg')}" alt="ATEC Logo" class="login-logo">
+      <h1>${token ? 'Choose a new password' : 'Reset your password'}</h1>
+      <p>${token ? 'This link expires after 30 minutes and can be used once.' : 'Enter the email address registered on your ATEC account.'}</p>
+      ${token ? `<label for="recoveryPassword">New password</label>
+        <input id="recoveryPassword" type="password" autocomplete="new-password" minlength="8" required>
+        <label for="recoveryConfirmation">Confirm new password</label>
+        <input id="recoveryConfirmation" type="password" autocomplete="new-password" minlength="8" required>` :
+      `<label for="recoveryEmail">Email address</label><input id="recoveryEmail" type="email" autocomplete="email" maxlength="254" required>`}
+      <p id="recoveryStatus" role="status" aria-live="polite"></p>
+      <button id="recoverySubmit" type="submit">${token ? 'Save new password' : 'Email reset link'}</button>
+      <button id="recoveryBack" type="button" class="secondary-btn">Back to sign in</button>
+    </form></main></div>`
+  document.querySelector('#recoveryBack').onclick = () => renderLogin()
+  document.querySelector('#passwordRecoveryForm').onsubmit = async event => {
+    event.preventDefault()
+    const button = document.querySelector('#recoverySubmit')
+    const status = document.querySelector('#recoveryStatus')
+    button.disabled = true
+    status.textContent = ''
+    try {
+      const response = await fetch(`${API_BASE}/auth/${token ? 'reset-password' : 'forgot-password'}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(token ? { token,
+          password: document.querySelector('#recoveryPassword').value,
+          confirmation: document.querySelector('#recoveryConfirmation').value } :
+          { email: document.querySelector('#recoveryEmail').value })
+      })
+      const result = await readApiResponse(response)
+      if (!response.ok) throw new Error(result.error || 'Unable to reset your password. Please try again.')
+      status.textContent = result.message
+      document.querySelector('#passwordRecoveryForm').reset()
+      if (token) { button.hidden = true; return }
+    } catch (error) { status.textContent = error.message }
+    finally { button.disabled = false }
+  }
 }
 
 window.showDemonstrationRequest = function () {
@@ -1719,6 +1761,13 @@ function renderStartupError(message, details = {}) {
 }
 
 async function loadData() {
+  const recoveryFragment = new URLSearchParams(window.location.hash.slice(1))
+  if (recoveryFragment.has('reset-password')) {
+    const token = recoveryFragment.get('reset-password')
+    window.history.replaceState(null, '', window.location.pathname + window.location.search)
+    window.showPasswordRecovery(token)
+    return
+  }
   startFrontendUpdateChecks()
 
   const startupNfcToken = String(new URLSearchParams(window.location.search || '').get('nfc') || '').trim()
