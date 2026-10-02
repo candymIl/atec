@@ -9064,3 +9064,7 @@ tr:hover {
 .job-card-accelo-status.pending { color: #854d0e; background: #fef9c3; }
 .job-card-accelo-status.failed { color: #991b1b; background: #fee2e2; }
 .job-card-accelo-note { padding: 0 16px; font-size: 12px; line-height: 1.5; color: #52627a; }
+/* Quick search stays above the native select on phones and desktops. */
+.setup-select-search { width: 100%; box-sizing: border-box; min-height: 44px; margin-bottom: 6px; }
+.setup-select-search-status { display: block; margin-bottom: 6px; }
+.setup-select-search[hidden], .setup-select-search-status[hidden] { display: none; }

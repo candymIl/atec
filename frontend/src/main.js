@@ -1,4 +1,5 @@
 import './style.css'
+import './searchableSetupSelects.js'
 import { initialiseInspectionAssetSelection, southAfricanDate } from './jobCardInspectionAssets.js'
 import { renderRequiredPasswordChange } from './requiredPasswordChange.js'
 import './workspaceNotice.js'
