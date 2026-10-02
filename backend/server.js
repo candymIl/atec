@@ -4033,6 +4033,7 @@ async function getPagedAssets(req, defaultSortKey = "assetid", defaultSortDirect
       c.clientname,
       s.sitename,
       sec.sectionname,
+      p.name AS responsiblename,
       et.description AS equipmenttype,
       et.equipgroupid,
       eg.groupname AS equipmentgroup
@@ -5044,12 +5045,14 @@ app.get("/assets/:id", async (req, res) => {
         c.clientname,
         s.sitename,
         sec.sectionname,
+        p.name AS responsiblename,
         et.description AS equipmenttype,
         et.equipgroupid
       FROM atec.tblasset a
       LEFT JOIN atec.tblclients c ON a.clientid = c.clientid
       LEFT JOIN atec.tblsites s ON a.siteid = s.siteid
       LEFT JOIN atec.tblsection sec ON a.sectionid = sec.sectionid
+      LEFT JOIN atec.tblpeople p ON a.responsibleid = p.personid
       LEFT JOIN atec.tblequiptype et ON a.equiptypeid = et.equiptypeid
       WHERE a.assetid = $1
       `,
