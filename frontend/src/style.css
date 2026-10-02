@@ -9076,3 +9076,4 @@ tr:hover {
 .signature-pad-wrap canvas { box-sizing: border-box; width: 100%; border: 3px solid #2563eb; }
 .job-card-signature-preview { box-sizing: border-box; max-width: 100%; border: 2px solid #2563eb; }
 .job-card-signature-status { font-weight: 600; padding: 10px 0; }
+#jobCardCustomerSignature [hidden] { display: none !important; }
