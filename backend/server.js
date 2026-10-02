@@ -104,7 +104,8 @@ const allowedOrigins = (process.env.FRONTEND_ORIGIN || defaultFrontendOrigin)
   .map(origin => origin.trim())
   .filter(Boolean)
 const csrfProtection = createCsrfProtection(allowedOrigins.join(","))
-const trustProxy = process.env.TRUST_PROXY || (process.env.NODE_ENV === "production" ? "1" : "")
+const { resolveProxyTrust } = require("./services/proxyTrust")
+const trustProxy = resolveProxyTrust(process.env.TRUST_PROXY || (process.env.NODE_ENV === "production" ? "1" : ""))
 
 const pdfQueueMetrics = {
   active: 0,
@@ -175,7 +176,7 @@ function drainPdfQueue() {
 }
 
 if (trustProxy) {
-  app.set("trust proxy", trustProxy === "true" ? 1 : trustProxy)
+  app.set("trust proxy", trustProxy)
 }
 
 app.use((req, res, next) => {
@@ -488,6 +489,7 @@ app.get("/health", (req, res) => {
 const loginLimiter = rateLimit({
   windowMs: parseRateLimitEnv("AUTH_RATE_LIMIT_WINDOW_MS", 15 * 60 * 1000, 60 * 60 * 1000),
   limit: parseRateLimitEnv("AUTH_RATE_LIMIT", 10, 100),
+  skipSuccessfulRequests: true,
   message: rateLimitMessage("login"),
   standardHeaders: true,
   legacyHeaders: false
