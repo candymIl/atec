@@ -9068,3 +9068,11 @@ tr:hover {
 .setup-select-search { width: 100%; box-sizing: border-box; min-height: 44px; margin-bottom: 6px; }
 .setup-select-search-status { display: block; margin-bottom: 6px; }
 .setup-select-search[hidden], .setup-select-search-status[hidden] { display: none; }
+.signature-pad-wrap canvas, .job-card-signature-preview, .job-card-signature-image {
+  color-scheme: only light;
+  forced-color-adjust: none;
+  background: #ffffff !important;
+}
+.signature-pad-wrap canvas { box-sizing: border-box; width: 100%; border: 3px solid #2563eb; }
+.job-card-signature-preview { box-sizing: border-box; max-width: 100%; border: 2px solid #2563eb; }
+.job-card-signature-status { font-weight: 600; padding: 10px 0; }

@@ -11958,7 +11958,7 @@ function renderJobCardForm() {
       <section class="filter-card"><div class="section-heading"><div><h3>Deviations</h3><p class="muted-text">Record each defect separately. Critical deviations enforce a safe equipment decision.</p></div><button type="button" onclick="addJobCardDeviationRow()">Add Deviation</button></div><div id="jcDeviations">${(card.deviations || []).map(renderJobCardDeviationRow).join('')}</div></section>
       <section class="filter-card"><h3>Time and Travel</h3><p class="muted-text">Hours calculate automatically from the timestamps and the assigned person's work schedule. Sunday and active public-holiday work is double time. Travel is split into normal and overtime travel and is counted once in the daily total.</p><div class="job-card-grid">${jobCardDateField('jcDeparted','Departed workshop',card.departed_at)}${jobCardDateField('jcArrived','Arrived on site',card.arrived_at)}${jobCardDateField('jcStarted','Work started',card.work_started_at)}${jobCardDateField('jcCompleted','Work completed',card.work_completed_at)}${jobCardDateField('jcTravelDone','Travel completed',card.travel_completed_at)}<label>Kilometres<input id="jcKm" type="number" inputmode="decimal" min="0" step="0.1" value="${safeAttr(card.kilometres || '')}"></label><label>Normal work time<input id="jcNormalHours" type="number" readonly value="${safeAttr(card.normal_hours ?? '')}"></label><label>Overtime work<input id="jcOvertimeHours" type="number" readonly value="${safeAttr(card.overtime_hours ?? '')}"></label><label>Double-time work<input id="jcDoubleTimeHours" type="number" readonly value="${safeAttr(card.double_time_hours ?? '')}"></label><label>Normal travel<input id="jcNormalTravelHours" type="number" readonly value="${safeAttr(card.normal_travel_hours ?? '')}"></label><label>Overtime travel<input id="jcOvertimeTravelHours" type="number" readonly value="${safeAttr(card.overtime_travel_hours ?? '')}"></label><label>Total calculated hours for the day<input id="jcTotalCalculatedHours" type="number" readonly value="${safeAttr([card.normal_hours,card.overtime_hours,card.double_time_hours,card.normal_travel_hours,card.overtime_travel_hours].reduce((total,value) => total + Number(value || 0),0).toFixed(2))}"></label></div><p id="jcHoursCalculationNote" class="muted-text"></p></section>
       <section class="filter-card"><h3>Final Equipment Status</h3><div class="job-card-grid"><label>Status *<select id="jcEquipmentStatus">${[['SAFE','Safe and returned to service'],['RESTRICTED','Temporarily operational with restrictions'],['FURTHER_WORK','Further work required'],['OUT_OF_SERVICE','Isolated / out of service'],['NOT_TESTED','Not tested']].map(row => jobCardOption(row[0],row[1],card.equipment_status)).join('')}</select></label><label class="job-card-wide">Reason / restrictions<textarea id="jcEquipmentReason">${escapeHtml(card.equipment_status_reason || '')}</textarea></label></div></section>
-      <section id="jobCardCustomerSignature" class="filter-card"><h3>Customer Acknowledgement and Signature</h3><p class="muted-text">Ask the customer representative to enter their details and sign directly in the white box below using a finger, pen or mouse. If they cannot or refuse to sign, record the reason instead.</p><div class="job-card-grid"><label>Customer representative name<input id="jcSignatory" value="${safeAttr(card.customer_signatory_name || '')}"></label><label>Designation<input id="jcDesignation" value="${safeAttr(card.customer_signatory_designation || '')}"></label><label>Customer email<input id="jcCustomerEmail" type="email" value="${safeAttr(card.customer_contact_email || '')}" placeholder="customer@example.com"></label><label>Unavailable / refused reason<input id="jcSignatureReason" value="${safeAttr(card.signature_unavailable_reason || '')}"></label></div>${card.customer_signature_path ? `<p><strong>Customer signature captured.</strong></p><div class="job-card-signature-preview"><img class="job-card-signature-image" src="${uploadUrl(card.customer_signature_path)}" alt="Customer signature"></div><div class="form-actions"><button type="button" class="load-test-btn" onclick="emailSignedJobCardToCustomer(${card.jobcardid})">Email Signed Job Card to Client</button>${card.customer_email_sent_at ? `<span class="muted-text">Last sent ${escapeHtml(new Date(card.customer_email_sent_at).toLocaleString('en-ZA'))} to ${escapeHtml(card.customer_email_to || '')}</span>` : ''}</div>` : `<div class="signature-pad-wrap"><strong>Customer signature — use the full white box below</strong><canvas id="jcSignatureCanvas" width="900" height="300" aria-label="Customer signature block"></canvas><button type="button" onclick="clearJobCardSignature()">Clear Signature</button></div><p class="muted-text">Save the signature before emailing the signed Job Card to the client.</p>`}</section>
+      <section id="jobCardCustomerSignature" class="filter-card"><h3>Customer Acknowledgement and Signature</h3><p class="muted-text">Ask the customer representative to enter their details and sign directly in the white box below using a finger, pen or mouse. If they cannot or refuse to sign, record the reason instead.</p><div class="job-card-grid"><label>Customer representative name<input id="jcSignatory" value="${safeAttr(card.customer_signatory_name || '')}"></label><label>Designation<input id="jcDesignation" value="${safeAttr(card.customer_signatory_designation || '')}"></label><label>Customer email<input id="jcCustomerEmail" type="email" value="${safeAttr(card.customer_contact_email || '')}" placeholder="customer@example.com"></label><label>Unavailable / refused reason<input id="jcSignatureReason" value="${safeAttr(card.signature_unavailable_reason || '')}"></label></div>${card.customer_signature_path ? `<p class="job-card-signature-saved"><strong>Customer signature saved.</strong>${card.customer_signed_at ? `<br>Signed ${escapeHtml(new Date(card.customer_signed_at).toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' }))} (South Africa time)` : ''}</p><div class="job-card-signature-preview"><img class="job-card-signature-image" src="${uploadUrl(card.customer_signature_path)}" alt="Customer signature"></div><div class="form-actions"><button type="button" class="load-test-btn" onclick="emailSignedJobCardToCustomer(${card.jobcardid})">Email Signed Job Card to Client</button>${card.customer_email_sent_at ? `<span class="muted-text">Last sent ${escapeHtml(new Date(card.customer_email_sent_at).toLocaleString('en-ZA'))} to ${escapeHtml(card.customer_email_to || '')}</span>` : ''}</div>` : `<div class="signature-pad-wrap"><strong>Sign here — inside the white box</strong><p class="muted-text">Use your finger or stylus. Your signature appears as a dark line while you draw.</p><canvas id="jcSignatureCanvas" width="900" height="300" aria-label="Customer signature block" aria-describedby="jcSignatureStatus"></canvas><p id="jcSignatureStatus" class="job-card-signature-status" role="status">Waiting for customer signature.</p><button type="button" onclick="clearJobCardSignature()">Clear Signature</button></div><p class="muted-text">Save the signature before emailing the signed Job Card to the client.</p>`}</section>
       <section class="filter-card"><h3>Work photographs (at least one required)</h3><p class="muted-text">Add a photo showing the work performed. You can save a draft without photos, but submission and approval require at least one uploaded photo.</p><div class="job-card-photo-grid">${(card.photos || []).map(photo => `<figure><img src="${uploadUrl(photo.photo_path)}" alt="Job card photograph"><figcaption>${escapeHtml(photo.photo_type)}: ${escapeHtml(photo.caption || '')}</figcaption></figure>`).join('')}</div><div class="job-card-grid"><label>Attach to deviation<select id="jcPhotoDeviation" ${card.jobcardid ? '' : 'disabled'}><option value="">General job card</option>${(card.deviations || []).map(row => jobCardOption(row.deviationid,`${row.severity}: ${row.description}`,null)).join('')}</select></label><label>Photo type<select id="jcPhotoType">${['GENERAL','BEFORE','AFTER','DEFECT','NAMEPLATE','TEST'].map(value => jobCardOption(value,value,null)).join('')}</select></label><label>Caption<input id="jcPhotoCaption"></label><label>Take photo or choose from gallery<input id="jcPhotos" type="file" accept="image/jpeg,image/png,image/webp" multiple></label></div>${card.jobcardid ? '<button type="button" onclick="uploadJobCardPhotos()">Upload Photos</button>' : '<p class="muted-text">Selected photos will upload automatically when the on-site job is submitted, before submission emails are sent.</p>'}</section>
       ${card.jobcardid && ['ADMIN','MANAGER'].includes(currentUser.role) ? `<section class="filter-card"><div class="section-heading"><div><h3>Accelo Completion Package <small>(Admin/Manager only)</small></h3><p class="muted-text">Office control used after approval to check and send the Job Card, crew timesheets and linked certificates to Accelo. Inspectors do not need this section.</p></div><button type="button" onclick="checkAcceloPackage(${card.jobcardid})">Check readiness</button></div><div id="acceloPackageStatus">${card.accelo_email_sent_at ? `<p><strong>Sent:</strong> ${escapeHtml(new Date(card.accelo_email_sent_at).toLocaleString('en-ZA'))} to ${escapeHtml(card.accelo_email_to || '')}</p>` : '<p>Run the readiness check after the Job Card and crew timesheets are approved.</p>'}</div></section>` : ''}
       ${renderJobCardWorkflow(card)}
@@ -12124,9 +12124,67 @@ window.updateJobCardAssetSummary = function () {
   if (summary) summary.textContent = `${selected.length} selected · ${visible.length} shown · ${all.length} available`
 }
 
-function initialiseJobCardSignature() { const canvas = document.querySelector('#jcSignatureCanvas'); if (!canvas) return; const ctx = canvas.getContext('2d'); ctx.lineWidth=2; ctx.lineCap='round'; let drawing=false; const point=e=>{ const r=canvas.getBoundingClientRect(), t=e.touches?.[0]||e; return {x:(t.clientX-r.left)*(canvas.width/r.width),y:(t.clientY-r.top)*(canvas.height/r.height)} }; const start=e=>{drawing=true;const p=point(e);ctx.beginPath();ctx.moveTo(p.x,p.y);e.preventDefault()}; const move=e=>{if(!drawing)return;const p=point(e);ctx.lineTo(p.x,p.y);ctx.stroke();e.preventDefault()}; const stop=()=>drawing=false; canvas.addEventListener('pointerdown',start);canvas.addEventListener('pointermove',move);canvas.addEventListener('pointerup',stop);canvas.addEventListener('pointerleave',stop) }
-window.clearJobCardSignature = function () { const canvas=document.querySelector('#jcSignatureCanvas'); canvas?.getContext('2d').clearRect(0,0,canvas.width,canvas.height) }
-function jobCardCanvasHasInk(canvas) { if (!canvas) return false; return canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data.some((value,index)=>index%4===3&&value>0) }
+function initialiseJobCardSignature() {
+  const canvas = document.querySelector('#jcSignatureCanvas')
+  if (!canvas) return
+  const ctx = canvas.getContext('2d')
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.strokeStyle = '#111827'
+  ctx.lineWidth = 4
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  let drawing = false
+  const status = document.querySelector('#jcSignatureStatus')
+  const point = event => {
+    const rect = canvas.getBoundingClientRect()
+    return { x: (event.clientX - rect.left) * canvas.width / rect.width, y: (event.clientY - rect.top) * canvas.height / rect.height }
+  }
+  const stop = () => {
+    if (!drawing) return
+    drawing = false
+    if (status) status.textContent = 'Signature drawn — save the Job Card to keep it.'
+  }
+  canvas.addEventListener('pointerdown', event => {
+    if (event.button !== 0 || drawing) return
+    drawing = true
+    canvas.setPointerCapture(event.pointerId)
+    const p = point(event)
+    ctx.beginPath()
+    ctx.moveTo(p.x, p.y)
+    ctx.lineTo(p.x + 0.1, p.y + 0.1)
+    ctx.stroke()
+    if (status) status.textContent = 'Signing…'
+    event.preventDefault()
+  })
+  canvas.addEventListener('pointermove', event => {
+    if (!drawing) return
+    const p = point(event)
+    ctx.lineTo(p.x, p.y)
+    ctx.stroke()
+    event.preventDefault()
+  })
+  canvas.addEventListener('pointerup', stop)
+  canvas.addEventListener('pointercancel', stop)
+  canvas.addEventListener('lostpointercapture', stop)
+}
+window.clearJobCardSignature = function () {
+  const canvas = document.querySelector('#jcSignatureCanvas')
+  if (!canvas) return
+  const ctx = canvas.getContext('2d')
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  const status = document.querySelector('#jcSignatureStatus')
+  if (status) status.textContent = 'Signature cleared — sign again inside the white box.'
+}
+function jobCardCanvasHasInk(canvas) {
+  if (!canvas) return false
+  const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data
+  for (let index = 0; index < pixels.length; index += 4) {
+    if (pixels[index + 3] > 0 && (pixels[index] < 240 || pixels[index + 1] < 240 || pixels[index + 2] < 240)) return true
+  }
+  return false
+}
 
 function collectJobCardPayload(forcedStatus) {
   const value=id=>document.querySelector(id)?.value || ''
