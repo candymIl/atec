@@ -546,7 +546,8 @@ export async function editEmployeeTimes(timesheetId) {
   editor.innerHTML = '<p>Loading employee time entries...</p>'
   try {
     const data = await api(`/workforce/timesheets/${encodeURIComponent(timesheetId)}/manager-edit`)
-    editor.innerHTML = `<div class="section-heading"><div><h3>Correct employee time</h3><p><strong>${escapeHtml(data.timesheet.employee_name)}</strong> · ${escapeHtml(String(data.timesheet.timesheet_date).slice(0,10))} · ${escapeHtml(data.timesheet.status.replaceAll('_',' '))}</p><p class="muted-text">Change a start/end time or delete an incorrect duplicate. A reason is compulsory and every correction is retained in the audit history. HR-accepted and exported timesheets remain locked.</p></div><button type="button" onclick="closeEmployeeTimeEditor()">Close</button></div>
+    editor.innerHTML = `<div class="section-heading"><div><h3>Review / correct employee time</h3><p><strong>${escapeHtml(data.timesheet.employee_name)}</strong> · ${escapeHtml(String(data.timesheet.timesheet_date).slice(0,10))} · ${escapeHtml(data.timesheet.status.replaceAll('_',' '))}</p><p class="muted-text">Change a start/end time or delete an incorrect duplicate. A reason is compulsory and every correction is retained in the audit history. HR-accepted and exported timesheets remain locked.</p></div><button type="button" onclick="closeEmployeeTimeEditor()">Close</button></div>
+      ${data.timesheet.status === 'AWAITING_EMPLOYEE' && window.currentUser?.role === 'ADMIN' && data.entries.length ? `<div class="form-actions"><button type="button" class="load-test-btn" onclick="workforceAction(${safeAttr(timesheetId)},'SUBMIT_EMPLOYEE',true)">Submit for employee</button><p class="muted-text">Submit the saved entries as reviewed without changing their times. Include any accepted overlaps or gaps in your submission reason. Manager approval follows separately.</p></div>` : ''}
       ${data.timesheet.status === 'RETURNED' ? `<p class="login-error"><strong>Return reason:</strong> ${escapeHtml(data.timesheet.returned_reason || 'No reason recorded. Check with the employee or reviewer.')}</p>` : ''}
       <div id="managerTimeGuide"></div><div id="managerDailyTimeline"></div>
       <details><summary>Detailed entries — edit times or delete a verified duplicate</summary>
@@ -620,7 +621,7 @@ export async function deleteEmployeeTimeEntry(timesheetId, timeentryId) {
   } catch (error) { alert(error.message) }
 }
 
-export async function workforceAction(id, action) {
+export async function workforceAction(id, action, fromReview = false) {
   const reason = action === 'RETURN'
     ? window.prompt('Reason for returning this timesheet:')
     : action === 'SUBMIT_EMPLOYEE'
@@ -631,7 +632,8 @@ export async function workforceAction(id, action) {
   if (action === 'SUBMIT_EMPLOYEE' && !window.confirm('Confirm that you reviewed this employee timesheet and want to submit it on their behalf?')) return
   try {
     await api(`/workforce/timesheets/${id}/action`, { method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,reason}) })
-    await renderTimesheetApprovals()
+    if (fromReview) await refreshEmployeeTimeReview(id, false)
+    else await renderTimesheetApprovals()
   } catch (error) { alert(error.message) }
 }
 
